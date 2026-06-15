@@ -1,4 +1,5 @@
-import type { DirListing, FsRoot, ProcessList } from "./types";
+import type { DirListing, FsRoot, ProcessList, Settings } from "./types";
+import { DEFAULT_SETTINGS } from "./api";
 
 // Folder sizes are computed lazily in the background after a listing loads.
 export type DirSize =
@@ -18,6 +19,7 @@ interface FilesCache {
 interface AppCache {
   processes: ProcessList | null;
   files: FilesCache;
+  settings: Settings;
 }
 
 // Module-level cache that survives tab unmount/remount. Tabs seed their initial
@@ -32,4 +34,5 @@ export const cache: AppCache = {
     dirSizes: {},
     dirSizesPath: null,
   },
+  settings: DEFAULT_SETTINGS,
 };

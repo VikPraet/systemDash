@@ -3,6 +3,7 @@ import {
   Activity,
   FolderOpen,
   Gauge as GaugeIcon,
+  TerminalSquare,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -16,15 +17,17 @@ import type { SystemSnapshot } from "./types";
 import { Card, Gauge, Bar, LabeledBar, Stat } from "./components/widgets";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
+import { Terminal } from "./components/Terminal";
 
 const POLL_MS = 1000;
 
-type Tab = "overview" | "processes" | "files";
+type Tab = "overview" | "processes" | "files" | "terminal";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: GaugeIcon },
   { id: "processes", label: "Processes", icon: Activity },
   { id: "files", label: "Files", icon: FolderOpen },
+  { id: "terminal", label: "Terminal", icon: TerminalSquare },
 ];
 
 export default function App() {
@@ -99,6 +102,7 @@ export default function App() {
         {tab === "overview" && <Overview snap={snap} error={error} />}
         {tab === "processes" && <Processes />}
         {tab === "files" && <Files />}
+        {tab === "terminal" && <Terminal />}
       </main>
     </div>
   );

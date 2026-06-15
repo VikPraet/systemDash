@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:3001",
+      // `ws: true` lets the terminal's WebSocket (/api/terminal) proxy through too.
+      "/api": { target: "http://localhost:3001", ws: true },
     },
   },
 });

@@ -112,3 +112,14 @@ export interface FsRoot {
   freeBytes: number | null;
   usedPercent: number | null;
 }
+
+export interface FileManagerSettings {
+  showHiddenFiles: boolean;
+  showFileExtensions: boolean;
+  showFolderSizes: boolean;
+  confirmDelete: boolean;
+}
+
+export interface Settings {
+  files: FileManagerSettings;
+}

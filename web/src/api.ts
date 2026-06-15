@@ -1,4 +1,30 @@
-import type { DirListing, FsRoot, ProcessList, SystemSnapshot } from "./types";
+import type {
+  DirListing,
+  FsEntry,
+  FsRoot,
+  ProcessList,
+  Settings,
+  SystemSnapshot,
+} from "./types";
+
+export const DEFAULT_SETTINGS: Settings = {
+  files: {
+    showHiddenFiles: false,
+    showFileExtensions: true,
+    showFolderSizes: true,
+    confirmDelete: true,
+  },
+};
+
+export async function fetchSettings(signal?: AbortSignal): Promise<Settings> {
+  const res = await fetch("/api/settings", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as Settings;
+}
+
+export async function saveSettings(settings: Settings): Promise<Settings> {
+  return postJson("/api/settings", settings);
+}
 
 export async function fetchSnapshot(signal?: AbortSignal): Promise<SystemSnapshot> {
   const res = await fetch("/api/system", { signal });
@@ -49,6 +75,99 @@ export async function fetchDirSize(
 
 export function downloadUrl(path: string): string {
   return `/api/fs/download?path=${encodeURIComponent(path)}`;
+}
+
+export async function readTextFile(
+  path: string,
+  signal?: AbortSignal
+): Promise<{ path: string; content: string }> {
+  const res = await fetch(`/api/fs/read?path=${encodeURIComponent(path)}`, {
+    signal,
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as { path: string; content: string };
+}
+
+export function writeTextFile(
+  path: string,
+  content: string
+): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/write", { path, content });
+}
+
+/** POSTs JSON to an /api endpoint and surfaces the server's error message. */
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
+export function createFolder(path: string, name: string): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/folder", { path, name });
+}
+
+export function createFile(path: string, name: string): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/file", { path, name });
+}
+
+export function renameEntry(path: string, newName: string): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/rename", { path, newName });
+}
+
+export function moveEntry(path: string, dest: string): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/move", { path, dest });
+}
+
+export function copyEntry(path: string, dest: string): Promise<{ entry: FsEntry }> {
+  return postJson("/api/fs/copy", { path, dest });
+}
+
+export function deleteEntry(path: string): Promise<{ ok: true }> {
+  return postJson("/api/fs/delete", { path });
+}
+
+/** Streams a single File to the given directory; reports progress 0..1. */
+export function uploadFile(
+  dir: string,
+  file: File,
+  onProgress?: (fraction: number) => void
+): Promise<void> {
+  const url = `/api/fs/upload?dir=${encodeURIComponent(dir)}&name=${encodeURIComponent(
+    file.name
+  )}`;
+  // XHR (not fetch) so we get upload progress events.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        let msg = `Upload failed: ${xhr.status}`;
+        try {
+          msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg;
+        } catch {
+          // non-JSON error body; keep the generic message
+        }
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed: network error"));
+    xhr.send(file);
+  });
 }
 
 export function formatDate(ms: number | null): string {

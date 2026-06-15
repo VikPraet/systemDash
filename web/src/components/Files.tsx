@@ -1,18 +1,41 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  copyEntry,
+  createFile,
+  createFolder,
+  deleteEntry,
   downloadUrl,
   fetchDirSize,
   fetchListing,
   fetchRoots,
+  fetchSettings,
   formatBytes,
   formatDate,
+  moveEntry,
+  renameEntry,
+  saveSettings,
+  uploadFile,
 } from "../api";
-import type { DirListing, FsEntry, FsRoot } from "../types";
+import type {
+  DirListing,
+  FileManagerSettings,
+  FsEntry,
+  FsRoot,
+  Settings,
+} from "../types";
 import { cache, type DirSize } from "../cache";
 import { Bar } from "./widgets";
+import { FileEditor } from "./Editor";
 
 // `null` path = the "This PC" overview that lists drives.
 type Path = string | null;
+
+type Dialog =
+  | { kind: "newFolder" }
+  | { kind: "newFile" }
+  | { kind: "rename"; entry: FsEntry }
+  | { kind: "delete"; entry: FsEntry }
+  | null;
 
 const SIZE_CONCURRENCY = 4;
 
@@ -28,6 +51,37 @@ export function Files() {
   const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>(
     () => cache.files.dirSizes
   );
+  const [clipboard, setClipboard] = useState<{
+    entry: FsEntry;
+    op: "cut" | "copy";
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [upload, setUpload] = useState<{ name: string; frac: number } | null>(
+    null
+  );
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [settings, setSettings] = useState<Settings>(() => cache.settings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editing, setEditing] = useState<FsEntry | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettings()
+      .then((s) => {
+        if (!cancelled) {
+          cache.settings = s;
+          setSettings(s);
+        }
+      })
+      .catch(() => {
+        // Keep cached/default settings if the request fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Keep the current path in the cache so we return to the same folder.
   useEffect(() => {
@@ -85,7 +139,7 @@ export function Files() {
   // concurrency) and fill them in as each completes. Sizes are cached per
   // listing so revisiting a folder doesn't recompute everything from scratch.
   useEffect(() => {
-    if (!listing) {
+    if (!listing || !settings.files.showFolderSizes) {
       setDirSizes({});
       cache.files.dirSizes = {};
       cache.files.dirSizesPath = null;
@@ -141,7 +195,7 @@ export function Files() {
       cancelled = true;
       ctrl.abort();
     };
-  }, [listing]);
+  }, [listing, settings.files.showFolderSizes]);
 
   const homePath = useMemo(
     () => roots.find((r) => r.kind === "home")?.path ?? null,
@@ -159,15 +213,114 @@ export function Files() {
 
   const entries = useMemo(() => {
     if (!listing) return [];
+    let list = listing.entries;
+    if (!settings.files.showHiddenFiles) {
+      list = list.filter((e) => !isHidden(e.name));
+    }
     const q = query.trim().toLowerCase();
-    return q
-      ? listing.entries.filter((e) => e.name.toLowerCase().includes(q))
-      : listing.entries;
-  }, [listing, query]);
+    if (q) list = list.filter((e) => e.name.toLowerCase().includes(q));
+    return list;
+  }, [listing, query, settings.files.showHiddenFiles]);
 
   function goUp() {
     if (listing?.parent) setPath(listing.parent);
     else setPath(null);
+  }
+
+  // Re-fetches the current folder after a mutation, without the navigation
+  // loader flash (we already have content on screen).
+  const reload = useCallback(async () => {
+    if (path === null) return;
+    try {
+      const l = await fetchListing(path);
+      cache.files.listing = l;
+      setListing(l);
+    } catch (e) {
+      setActionError((e as Error).message);
+    }
+  }, [path]);
+
+  // Runs a mutation, surfaces any error, and refreshes the listing on success.
+  async function run(fn: () => Promise<unknown>): Promise<boolean> {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await fn();
+      await reload();
+      return true;
+    } catch (e) {
+      setActionError((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Runs a mutation for the dialogs: refreshes on success and returns an error
+  // message (or null) so the dialog can show it inline and stay open.
+  async function doMutation(fn: () => Promise<unknown>): Promise<string | null> {
+    try {
+      await fn();
+      await reload();
+      return null;
+    } catch (e) {
+      return (e as Error).message;
+    }
+  }
+
+  function handleNewFolder() {
+    if (path !== null) setDialog({ kind: "newFolder" });
+  }
+
+  function handleNewFile() {
+    if (path !== null) setDialog({ kind: "newFile" });
+  }
+
+  function handleRename(e: FsEntry) {
+    setDialog({ kind: "rename", entry: e });
+  }
+
+  function handleDelete(e: FsEntry) {
+    if (!settings.files.confirmDelete) {
+      void doMutation(() => deleteEntry(e.path)).then((err) => {
+        if (err) setActionError(err);
+        else if (clipboard?.entry.path === e.path) setClipboard(null);
+      });
+      return;
+    }
+    setDialog({ kind: "delete", entry: e });
+  }
+
+  async function handlePaste() {
+    if (path === null || !clipboard) return;
+    const { entry, op } = clipboard;
+    const ok = await run(() =>
+      op === "cut" ? moveEntry(entry.path, path) : copyEntry(entry.path, path)
+    );
+    if (ok && op === "cut") setClipboard(null);
+  }
+
+  async function handleFilesSelected(
+    ev: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const files = ev.target.files;
+    if (!files || files.length === 0 || path === null) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      for (const file of Array.from(files)) {
+        await uploadFile(path, file, (frac) =>
+          setUpload({ name: file.name, frac })
+        );
+      }
+      await reload();
+    } catch (e) {
+      setActionError((e as Error).message);
+    } finally {
+      setBusy(false);
+      setUpload(null);
+      ev.target.value = "";
+    }
   }
 
   const atThisPc = path === null;
@@ -199,6 +352,14 @@ export function Files() {
             onChange={(e) => setQuery(e.target.value)}
           />
         )}
+        <button
+          className="files-settings-btn"
+          title="File manager settings"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <GearIcon />
+          Settings
+        </button>
       </div>
 
       <div className="files-nav">
@@ -223,6 +384,42 @@ export function Files() {
         </div>
       </div>
 
+      {!atThisPc && (
+        <div className="files-actions">
+          <button onClick={handleNewFolder} disabled={busy}>
+            <PlusIcon /> New folder
+          </button>
+          <button onClick={handleNewFile} disabled={busy}>
+            <PlusIcon /> New file
+          </button>
+          <button onClick={() => fileInputRef.current?.click()} disabled={busy}>
+            <UploadIcon /> Upload
+          </button>
+          {clipboard && (
+            <button className="paste" onClick={handlePaste} disabled={busy}>
+              <PasteIcon />
+              Paste {clipboard.op === "cut" ? "(move)" : "(copy)"} “
+              {clipboard.entry.name}”
+            </button>
+          )}
+          <div className="files-actions-status">
+            {upload && (
+              <span className="muted">
+                Uploading {upload.name}… {Math.round(upload.frac * 100)}%
+              </span>
+            )}
+            {actionError && <span className="bad">{actionError}</span>}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={handleFilesSelected}
+          />
+        </div>
+      )}
+
       <div className="files-body">
         {atThisPc ? (
           <ThisPc drives={drives} onOpen={setPath} />
@@ -246,7 +443,16 @@ export function Files() {
                   key={e.path}
                   e={e}
                   dirSize={e.type === "dir" ? dirSizes[e.path] : undefined}
+                  busy={busy}
+                  cut={clipboard?.op === "cut" && clipboard.entry.path === e.path}
+                  showExtensions={settings.files.showFileExtensions}
+                  showFolderSizes={settings.files.showFolderSizes}
                   onOpen={() => setPath(e.path)}
+                  onEdit={() => setEditing(e)}
+                  onRename={() => handleRename(e)}
+                  onDelete={() => handleDelete(e)}
+                  onCut={() => setClipboard({ entry: e, op: "cut" })}
+                  onCopy={() => setClipboard({ entry: e, op: "copy" })}
                 />
               ))}
               {entries.length === 0 && (
@@ -262,6 +468,106 @@ export function Files() {
           </table>
         )}
       </div>
+
+      {dialog?.kind === "newFolder" && (
+        <PromptDialog
+          title="New folder"
+          label="Folder name"
+          confirmLabel="Create"
+          onCancel={() => setDialog(null)}
+          onSubmit={async (name) => {
+            if (path === null) return "No folder selected";
+            const err = await doMutation(() => createFolder(path, name));
+            if (!err) setDialog(null);
+            return err;
+          }}
+        />
+      )}
+
+      {dialog?.kind === "newFile" && (
+        <PromptDialog
+          title="New file"
+          label="File name"
+          initial="New File.txt"
+          confirmLabel="Create"
+          onCancel={() => setDialog(null)}
+          onSubmit={async (name) => {
+            if (path === null) return "No folder selected";
+            const err = await doMutation(() => createFile(path, name));
+            if (!err) setDialog(null);
+            return err;
+          }}
+        />
+      )}
+
+      {dialog?.kind === "rename" && (
+        <PromptDialog
+          title="Rename"
+          label="New name"
+          initial={dialog.entry.name}
+          confirmLabel="Rename"
+          onCancel={() => setDialog(null)}
+          onSubmit={async (name) => {
+            const entry = dialog.entry;
+            if (name === entry.name) {
+              setDialog(null);
+              return null;
+            }
+            const err = await doMutation(() => renameEntry(entry.path, name));
+            if (!err) setDialog(null);
+            return err;
+          }}
+        />
+      )}
+
+      {editing && (
+        <FileEditor
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onSaved={reload}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsDialog
+          settings={settings}
+          onCancel={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            cache.settings = s;
+            setSettings(s);
+            setSettingsOpen(false);
+          }}
+        />
+      )}
+
+      {dialog?.kind === "delete" && (
+        <ConfirmDialog
+          title={`Delete ${dialog.entry.type === "dir" ? "folder" : "file"}?`}
+          message={
+            <>
+              Are you sure you want to delete <strong>{dialog.entry.name}</strong>?
+              {dialog.entry.type === "dir" && (
+                <span className="modal-warn">
+                  {" "}
+                  This permanently deletes everything inside it.
+                </span>
+              )}
+            </>
+          }
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setDialog(null)}
+          onConfirm={async () => {
+            const entry = dialog.entry;
+            const err = await doMutation(() => deleteEntry(entry.path));
+            if (!err) {
+              if (clipboard?.entry.path === entry.path) setClipboard(null);
+              setDialog(null);
+            }
+            return err;
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -306,15 +612,34 @@ function ThisPc({
 function FileRow({
   e,
   dirSize,
+  busy,
+  cut,
+  showExtensions,
+  showFolderSizes,
   onOpen,
+  onEdit,
+  onRename,
+  onDelete,
+  onCut,
+  onCopy,
 }: {
   e: FsEntry;
   dirSize?: DirSize;
+  busy: boolean;
+  cut: boolean;
+  showExtensions: boolean;
+  showFolderSizes: boolean;
   onOpen: () => void;
+  onEdit: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onCut: () => void;
+  onCopy: () => void;
 }) {
   const isDir = e.type === "dir";
+  const label = showExtensions ? e.name : displayName(e);
   return (
-    <tr className={isDir ? "row-dir" : ""}>
+    <tr className={`${isDir ? "row-dir" : ""}${cut ? " row-cut" : ""}`}>
       <td>
         <button
           className="file-name"
@@ -323,24 +648,77 @@ function FileRow({
         >
           {isDir ? <FolderIcon /> : <FileIcon ext={e.ext} />}
           <span className="file-label" title={e.name}>
-            {e.name}
+            {label}
           </span>
         </button>
       </td>
       <td className="ta-right muted">
-        {isDir ? <DirSizeCell size={dirSize} /> : formatBytes(e.size ?? 0)}
+        {isDir ? (
+          showFolderSizes ? (
+            <DirSizeCell size={dirSize} />
+          ) : (
+            "—"
+          )
+        ) : (
+          formatBytes(e.size ?? 0)
+        )}
       </td>
       <td className="ta-right muted">{formatDate(e.modifiedMs)}</td>
       <td className="ta-right">
-        {!isDir && (
-          <a
-            className="file-download"
-            href={downloadUrl(e.path)}
-            title="Download"
+        <div className="row-actions">
+          {!isDir && (
+            <button
+              className="row-act"
+              title="Edit"
+              onClick={onEdit}
+              disabled={busy}
+            >
+              <EditIcon />
+            </button>
+          )}
+          {!isDir && (
+            <a
+              className="row-act"
+              href={downloadUrl(e.path)}
+              title="Download"
+              download
+            >
+              <DownloadIcon />
+            </a>
+          )}
+          <button
+            className="row-act"
+            title="Rename"
+            onClick={onRename}
+            disabled={busy}
           >
-            Download
-          </a>
-        )}
+            <PencilIcon />
+          </button>
+          <button
+            className="row-act"
+            title="Copy"
+            onClick={onCopy}
+            disabled={busy}
+          >
+            <CopyIcon />
+          </button>
+          <button
+            className="row-act"
+            title="Cut (move)"
+            onClick={onCut}
+            disabled={busy}
+          >
+            <CutIcon />
+          </button>
+          <button
+            className="row-act danger"
+            title="Delete"
+            onClick={onDelete}
+            disabled={busy}
+          >
+            <TrashIcon />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -357,6 +735,285 @@ function DirSizeCell({ size }: { size?: DirSize }) {
       {size.partial ? "≥ " : ""}
       {formatBytes(size.bytes)}
     </>
+  );
+}
+
+function ModalShell({
+  onCancel,
+  children,
+}: {
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div className="modal" role="dialog" aria-modal="true">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PromptDialog({
+  title,
+  label,
+  initial,
+  confirmLabel,
+  onCancel,
+  onSubmit,
+}: {
+  title: string;
+  label: string;
+  initial?: string;
+  confirmLabel: string;
+  onCancel: () => void;
+  // Returns an error message to display, or null on success (parent closes).
+  onSubmit: (value: string) => Promise<string | null>;
+}) {
+  const [value, setValue] = useState(initial ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    // Pre-select the name (minus extension for files) for quick renaming.
+    const dot = el.value.lastIndexOf(".");
+    if (dot > 0) el.setSelectionRange(0, dot);
+    else el.select();
+  }, []);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const v = value.trim();
+    if (!v || busy) return;
+    setBusy(true);
+    setError(null);
+    const err = await onSubmit(v);
+    setBusy(false);
+    if (err) setError(err);
+  }
+
+  return (
+    <ModalShell onCancel={onCancel}>
+      <form onSubmit={submit}>
+        <h3 className="modal-title">{title}</h3>
+        <label className="modal-label">{label}</label>
+        <input
+          ref={inputRef}
+          className="modal-input"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        {error && <div className="modal-error">{error}</div>}
+        <div className="modal-actions">
+          <button type="button" className="modal-btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="modal-btn primary"
+            disabled={!value.trim() || busy}
+          >
+            {busy ? "Working…" : confirmLabel}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  danger,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  message: React.ReactNode;
+  confirmLabel: string;
+  danger?: boolean;
+  onCancel: () => void;
+  onConfirm: () => Promise<string | null>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const err = await onConfirm();
+    setBusy(false);
+    if (err) setError(err);
+  }
+
+  return (
+    <ModalShell onCancel={onCancel}>
+      <h3 className="modal-title">{title}</h3>
+      <p className="modal-message">{message}</p>
+      {error && <div className="modal-error">{error}</div>}
+      <div className="modal-actions">
+        <button type="button" className="modal-btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={`modal-btn ${danger ? "danger" : "primary"}`}
+          onClick={confirm}
+          disabled={busy}
+        >
+          {busy ? "Working…" : confirmLabel}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function SettingsDialog({
+  settings,
+  onCancel,
+  onSaved,
+}: {
+  settings: Settings;
+  onCancel: () => void;
+  onSaved: (s: Settings) => void;
+}) {
+  const [files, setFiles] = useState<FileManagerSettings>(settings.files);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function toggle(key: keyof FileManagerSettings) {
+    setFiles((f) => ({ ...f, [key]: !f[key] }));
+  }
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await saveSettings({ files });
+      onSaved(saved);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell onCancel={onCancel}>
+      <h3 className="modal-title">File manager settings</h3>
+      <div className="settings-list">
+        <ToggleRow
+          label="Show file extensions"
+          desc="Display the .ext suffix on file names."
+          checked={files.showFileExtensions}
+          onChange={() => toggle("showFileExtensions")}
+        />
+        <ToggleRow
+          label="Show hidden files"
+          desc="Include dotfiles and hidden entries."
+          checked={files.showHiddenFiles}
+          onChange={() => toggle("showHiddenFiles")}
+        />
+        <ToggleRow
+          label="Calculate folder sizes"
+          desc="Compute folder sizes in the background (slower on large trees)."
+          checked={files.showFolderSizes}
+          onChange={() => toggle("showFolderSizes")}
+        />
+        <ToggleRow
+          label="Confirm before deleting"
+          desc="Ask before deleting files or folders."
+          checked={files.confirmDelete}
+          onChange={() => toggle("confirmDelete")}
+        />
+      </div>
+      {error && <div className="modal-error">{error}</div>}
+      <div className="modal-actions">
+        <button type="button" className="modal-btn" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="modal-btn primary"
+          onClick={save}
+          disabled={busy}
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ToggleRow({
+  label,
+  desc,
+  checked,
+  onChange,
+}: {
+  label: string;
+  desc: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="toggle-row"
+      onClick={onChange}
+      role="switch"
+      aria-checked={checked}
+    >
+      <span className="toggle-text">
+        <span className="toggle-label">{label}</span>
+        <span className="toggle-desc">{desc}</span>
+      </span>
+      <span className={`switch ${checked ? "on" : ""}`}>
+        <span className="switch-knob" />
+      </span>
+    </button>
+  );
+}
+
+/** Whether an entry is treated as hidden (dotfile) for the show-hidden toggle. */
+function isHidden(name: string): boolean {
+  return name.startsWith(".");
+}
+
+/** A file's name with its final extension stripped (for "hide extensions"). */
+function displayName(e: FsEntry): string {
+  if (e.type === "dir" || !e.ext) return e.name;
+  const dot = e.name.lastIndexOf(".");
+  return dot > 0 ? e.name.slice(0, dot) : e.name;
+}
+
+function GearIcon() {
+  return (
+    <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7.6 7.6 0 0 0-1.7 1l-2.3-1-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 1.7-1l2.3 1 2-3.4z" />
+    </svg>
   );
 }
 
@@ -425,6 +1082,81 @@ function PcIcon() {
     <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
       <rect x="3" y="4" width="18" height="12" rx="1.5" />
       <path d="M8 20h8M12 16v4" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function UploadIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
+    </svg>
+  );
+}
+
+function PasteIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M9 4h6v3H9zM7 5H5v15h14V5h-2" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M12 4v12M7 11l5 5 5-5M5 20h14" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 20h16M6 16l9-9 3 3-9 9H6v-3z" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 20h4l10-10-4-4L4 16v4zM14 6l4 4" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <rect x="9" y="9" width="11" height="11" rx="1.5" />
+      <path d="M5 15V5a1 1 0 0 1 1-1h9" />
+    </svg>
+  );
+}
+
+function CutIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <circle cx="6" cy="6" r="2.5" />
+      <circle cx="6" cy="18" r="2.5" />
+      <path d="M8 8l12 8M8 16L20 8" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
     </svg>
   );
 }
