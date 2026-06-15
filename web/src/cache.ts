@@ -1,4 +1,12 @@
-import type { DirListing, FsRoot, ProcessList, Settings } from "./types";
+import type {
+  DirListing,
+  FsRoot,
+  HistorySeries,
+  HistoryStats,
+  ProcessList,
+  Settings,
+  SystemSnapshot,
+} from "./types";
 import { DEFAULT_SETTINGS } from "./api";
 
 // Folder sizes are computed lazily in the background after a listing loads.
@@ -16,9 +24,19 @@ interface FilesCache {
   dirSizesPath: string | null;
 }
 
+interface HistoryCache {
+  // The chart range/data the user last viewed, so switching back to the History
+  // tab paints instantly instead of flashing an empty state while refetching.
+  rangeId: string;
+  data: HistorySeries | null;
+  stats: HistoryStats | null;
+}
+
 interface AppCache {
   processes: ProcessList | null;
+  snapshot: SystemSnapshot | null;
   files: FilesCache;
+  history: HistoryCache;
   settings: Settings;
 }
 
@@ -27,12 +45,18 @@ interface AppCache {
 // fetch happens in the background, instead of flashing a loading screen.
 export const cache: AppCache = {
   processes: null,
+  snapshot: null,
   files: {
     roots: [],
     path: null,
     listing: null,
     dirSizes: {},
     dirSizesPath: null,
+  },
+  history: {
+    rangeId: "live",
+    data: null,
+    stats: null,
   },
   settings: DEFAULT_SETTINGS,
 };

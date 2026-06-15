@@ -911,7 +911,7 @@ function SettingsDialog({
     setBusy(true);
     setError(null);
     try {
-      const saved = await saveSettings({ files });
+      const saved = await saveSettings({ ...settings, files });
       onSaved(saved);
     } catch (e) {
       setError((e as Error).message);

@@ -2,6 +2,8 @@ import type {
   DirListing,
   FsEntry,
   FsRoot,
+  HistorySeries,
+  HistoryStats,
   ProcessList,
   Settings,
   SystemSnapshot,
@@ -14,6 +16,12 @@ export const DEFAULT_SETTINGS: Settings = {
     showFolderSizes: true,
     confirmDelete: true,
   },
+  history: {
+    enabled: true,
+    intervalSeconds: 5,
+    retentionDays: 30,
+    maxSizeMb: 500,
+  },
 };
 
 export async function fetchSettings(signal?: AbortSignal): Promise<Settings> {
@@ -23,7 +31,16 @@ export async function fetchSettings(signal?: AbortSignal): Promise<Settings> {
 }
 
 export async function saveSettings(settings: Settings): Promise<Settings> {
-  return postJson("/api/settings", settings);
+  const res = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as Settings;
 }
 
 export async function fetchSnapshot(signal?: AbortSignal): Promise<SystemSnapshot> {
@@ -32,6 +49,34 @@ export async function fetchSnapshot(signal?: AbortSignal): Promise<SystemSnapsho
     throw new Error(`Request failed: ${res.status}`);
   }
   return (await res.json()) as SystemSnapshot;
+}
+
+export async function fetchHistory(
+  from: number,
+  to: number,
+  points: number,
+  signal?: AbortSignal
+): Promise<HistorySeries> {
+  const params = new URLSearchParams({
+    from: String(Math.round(from)),
+    to: String(Math.round(to)),
+    points: String(Math.round(points)),
+  });
+  const res = await fetch(`/api/history?${params.toString()}`, { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as HistorySeries;
+}
+
+export async function fetchHistoryStats(
+  signal?: AbortSignal
+): Promise<HistoryStats> {
+  const res = await fetch("/api/history/stats", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as HistoryStats;
+}
+
+export async function clearHistory(): Promise<{ ok: true }> {
+  return postJson("/api/history/clear", {});
 }
 
 export async function fetchProcesses(signal?: AbortSignal): Promise<ProcessList> {

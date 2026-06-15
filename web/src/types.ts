@@ -120,6 +120,53 @@ export interface FileManagerSettings {
   confirmDelete: boolean;
 }
 
+export interface HistorySettings {
+  enabled: boolean;
+  intervalSeconds: number;
+  retentionDays: number;
+  maxSizeMb: number;
+}
+
 export interface Settings {
   files: FileManagerSettings;
+  history: HistorySettings;
+}
+
+export interface HistoryGpuSeries {
+  index: number;
+  util: (number | null)[];
+  memUsedPct: (number | null)[];
+  temp: (number | null)[];
+  clockCore: (number | null)[];
+  clockMem: (number | null)[];
+  power: (number | null)[];
+}
+
+export interface HistorySeries {
+  from: number;
+  to: number;
+  bucketMs: number;
+  t: number[];
+  cpuLoad: (number | null)[];
+  cpuTemp: (number | null)[];
+  cpuClock: (number | null)[];
+  memUsedPct: (number | null)[];
+  swapUsedPct: (number | null)[];
+  procCount: (number | null)[];
+  procRunning: (number | null)[];
+  memTotalBytes: number | null;
+  gpus: HistoryGpuSeries[];
+}
+
+export interface HistoryStats {
+  enabled: boolean;
+  intervalSeconds: number;
+  retentionDays: number;
+  maxSizeMb: number;
+  rowCount: number;
+  oldest: number | null;
+  newest: number | null;
+  dbBytes: number;
+  bytesPerSample: number;
+  estimatedDaysToFull: number | null;
 }

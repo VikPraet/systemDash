@@ -21,7 +21,8 @@ import {
   writeTextFile,
   HttpError,
 } from "./files.js";
-import { getSettings, saveSettings } from "./settings.js";
+import { getSettings, saveSettings, initSettings } from "./settings.js";
+import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,12 @@ const PORT = Number(process.env.PORT ?? 3001);
 const app = express();
 // Raise the body limit so the editor can save reasonably large text files.
 app.use(express.json({ limit: "8mb" }));
+
+/** Parses a query-string number, falling back to a default when absent/invalid. */
+function numParam(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 
 /** Sends a thrown error as an HTTP response, mapping HttpError to its status. */
 function sendError(res: express.Response, err: unknown, fallback: string): void {
@@ -158,6 +165,37 @@ app.put("/api/settings", async (req, res) => {
   }
 });
 
+// Time-series history. `from`/`to` are epoch ms (default: last hour); `points`
+// controls how many buckets the data is downsampled into for charting.
+app.get("/api/history", (req, res) => {
+  try {
+    const now = Date.now();
+    const to = numParam(req.query.to, now);
+    const from = numParam(req.query.from, to - 60 * 60 * 1000);
+    const points = numParam(req.query.points, 300);
+    res.json(queryHistory({ from, to, points }));
+  } catch (err) {
+    sendError(res, err, "failed to query history");
+  }
+});
+
+app.get("/api/history/stats", (_req, res) => {
+  try {
+    res.json(historyStats());
+  } catch (err) {
+    sendError(res, err, "failed to read history stats");
+  }
+});
+
+app.post("/api/history/clear", (_req, res) => {
+  try {
+    clearHistory();
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err, "failed to clear history");
+  }
+});
+
 app.post("/api/fs/folder", async (req, res) => {
   try {
     const { path: parent, name } = req.body ?? {};
@@ -265,6 +303,12 @@ if (fs.existsSync(webDist)) {
 
 const server = http.createServer(app);
 attachTerminal(server);
+
+// Start the background metrics recorder before accepting requests so a 24/7
+// server keeps collecting history even when no browser is connected.
+initSettings().catch((err) => {
+  console.error("Failed to initialise settings/history recorder:", err);
+});
 
 server.listen(PORT, () => {
   console.log(`SystemDash server listening on http://localhost:${PORT}`);

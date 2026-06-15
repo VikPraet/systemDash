@@ -3,6 +3,7 @@ import {
   Activity,
   FolderOpen,
   Gauge as GaugeIcon,
+  LineChart,
   TerminalSquare,
   type LucideIcon,
 } from "lucide-react";
@@ -18,13 +19,15 @@ import { Card, Gauge, Bar, LabeledBar, Stat } from "./components/widgets";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
+import { History } from "./components/History";
 
 const POLL_MS = 1000;
 
-type Tab = "overview" | "processes" | "files" | "terminal";
+type Tab = "overview" | "history" | "processes" | "files" | "terminal";
 
 const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
   { id: "overview", label: "Overview", icon: GaugeIcon },
+  { id: "history", label: "History", icon: LineChart },
   { id: "processes", label: "Processes", icon: Activity },
   { id: "files", label: "Files", icon: FolderOpen },
   { id: "terminal", label: "Terminal", icon: TerminalSquare },
@@ -100,6 +103,7 @@ export default function App() {
 
       <main className="content">
         {tab === "overview" && <Overview snap={snap} error={error} />}
+        {tab === "history" && <History />}
         {tab === "processes" && <Processes />}
         {tab === "files" && <Files />}
         {tab === "terminal" && <Terminal />}
