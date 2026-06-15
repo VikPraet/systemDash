@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchProcesses, formatBytes } from "../api";
+import { cache } from "../cache";
 import type { ProcessInfo, ProcessList } from "../types";
 import { ProcessIcon } from "./ProcessIcon";
 
@@ -8,7 +9,7 @@ const POLL_MS = 2000;
 type SortKey = "name" | "pid" | "cpuPercent" | "memBytes" | "user";
 
 export function Processes() {
-  const [data, setData] = useState<ProcessList | null>(null);
+  const [data, setData] = useState<ProcessList | null>(() => cache.processes);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("cpuPercent");
@@ -26,6 +27,7 @@ export function Processes() {
       try {
         const res = await fetchProcesses(ctrl.signal);
         if (!cancelled) {
+          cache.processes = res;
           setData(res);
           setError(null);
         }

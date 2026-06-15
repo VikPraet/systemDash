@@ -8,32 +8,41 @@ import {
   formatDate,
 } from "../api";
 import type { DirListing, FsEntry, FsRoot } from "../types";
+import { cache, type DirSize } from "../cache";
 import { Bar } from "./widgets";
 
 // `null` path = the "This PC" overview that lists drives.
 type Path = string | null;
 
-// Folder sizes are computed lazily in the background after a listing loads.
-type DirSize =
-  | { state: "loading" }
-  | { state: "done"; bytes: number; partial: boolean }
-  | { state: "error" };
-
 const SIZE_CONCURRENCY = 4;
 
 export function Files() {
-  const [roots, setRoots] = useState<FsRoot[]>([]);
-  const [path, setPath] = useState<Path>(null);
-  const [listing, setListing] = useState<DirListing | null>(null);
+  const [roots, setRoots] = useState<FsRoot[]>(() => cache.files.roots);
+  const [path, setPath] = useState<Path>(() => cache.files.path);
+  const [listing, setListing] = useState<DirListing | null>(
+    () => cache.files.listing
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
-  const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({});
+  const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>(
+    () => cache.files.dirSizes
+  );
+
+  // Keep the current path in the cache so we return to the same folder.
+  useEffect(() => {
+    cache.files.path = path;
+  }, [path]);
 
   useEffect(() => {
     let cancelled = false;
     fetchRoots()
-      .then((r) => !cancelled && setRoots(r))
+      .then((r) => {
+        if (!cancelled) {
+          cache.files.roots = r;
+          setRoots(r);
+        }
+      })
       .catch((e) => !cancelled && setError((e as Error).message));
     return () => {
       cancelled = true;
@@ -43,15 +52,23 @@ export function Files() {
   useEffect(() => {
     if (path === null) {
       setListing(null);
+      cache.files.listing = null;
       return;
     }
     let cancelled = false;
     const ctrl = new AbortController();
+    // Only show the loader when there's nothing to display yet; if we already
+    // have this folder cached we keep showing it while refreshing.
     setLoading(true);
     setError(null);
     setQuery("");
     fetchListing(path, ctrl.signal)
-      .then((l) => !cancelled && setListing(l))
+      .then((l) => {
+        if (!cancelled) {
+          cache.files.listing = l;
+          setListing(l);
+        }
+      })
       .catch((e) => {
         if (!cancelled && (e as Error).name !== "AbortError") {
           setError((e as Error).message);
@@ -65,42 +82,60 @@ export function Files() {
   }, [path]);
 
   // After a listing loads, compute folder sizes in the background (bounded
-  // concurrency) and fill them in as each completes.
+  // concurrency) and fill them in as each completes. Sizes are cached per
+  // listing so revisiting a folder doesn't recompute everything from scratch.
   useEffect(() => {
     if (!listing) {
       setDirSizes({});
+      cache.files.dirSizes = {};
+      cache.files.dirSizesPath = null;
       return;
     }
     const dirs = listing.entries.filter((e) => e.type === "dir");
-    setDirSizes(
-      Object.fromEntries(dirs.map((d) => [d.path, { state: "loading" }]))
-    );
-    if (dirs.length === 0) return;
+
+    // Reuse already-computed sizes for this exact listing; only (re)compute the
+    // ones that are missing or were still loading when we last left.
+    const reuse = cache.files.dirSizesPath === listing.path;
+    const sizes: Record<string, DirSize> = reuse
+      ? { ...cache.files.dirSizes }
+      : {};
+    const pending = dirs.filter((d) => {
+      const s = sizes[d.path];
+      return !s || s.state === "loading";
+    });
+    for (const d of pending) sizes[d.path] = { state: "loading" };
+    cache.files.dirSizes = sizes;
+    cache.files.dirSizesPath = listing.path;
+    setDirSizes(sizes);
+
+    if (pending.length === 0) return;
 
     let cancelled = false;
     const ctrl = new AbortController();
     let next = 0;
 
+    function store(path: string, val: DirSize) {
+      cache.files.dirSizes = { ...cache.files.dirSizes, [path]: val };
+      setDirSizes(cache.files.dirSizes);
+    }
+
     async function worker() {
-      while (!cancelled && next < dirs.length) {
-        const entry = dirs[next++];
+      while (!cancelled && next < pending.length) {
+        const entry = pending[next++];
         try {
           const r = await fetchDirSize(entry.path, ctrl.signal);
           if (!cancelled) {
-            setDirSizes((prev) => ({
-              ...prev,
-              [entry.path]: { state: "done", bytes: r.bytes, partial: r.partial },
-            }));
+            store(entry.path, { state: "done", bytes: r.bytes, partial: r.partial });
           }
         } catch (e) {
           if (!cancelled && (e as Error).name !== "AbortError") {
-            setDirSizes((prev) => ({ ...prev, [entry.path]: { state: "error" } }));
+            store(entry.path, { state: "error" });
           }
         }
       }
     }
 
-    for (let i = 0; i < Math.min(SIZE_CONCURRENCY, dirs.length); i++) worker();
+    for (let i = 0; i < Math.min(SIZE_CONCURRENCY, pending.length); i++) worker();
 
     return () => {
       cancelled = true;
