@@ -4,6 +4,28 @@ A self-hosted, cross-platform (Windows / Linux / macOS) system dashboard. It exp
 live OS stats through a web UI: CPU model & load & clock speed, memory, storage, GPU,
 and OS/host info.
 
+## Screenshots
+
+**Overview** — live CPU, memory, storage, and GPU stats at a glance:
+
+![Overview](docs/screenshots/overview.png)
+
+**History** — time-series charts of CPU, memory, and GPU metrics over selectable ranges:
+
+![History](docs/screenshots/history.png)
+
+**Processes** — sortable, filterable process list grouped into apps and background tasks:
+
+![Processes](docs/screenshots/processes.png)
+
+**Files** — browse drives, navigate folders, and manage files:
+
+![Files](docs/screenshots/files.png)
+
+**Terminal** — an interactive shell session right in the browser:
+
+![Terminal](docs/screenshots/terminal.png)
+
 ## Stack
 
 - **Frontend:** React + TypeScript + Vite (`web/`)
