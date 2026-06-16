@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from "ws";
-import { spawn } from "node:child_process";
+import * as pty from "node-pty";
 import os from "node:os";
 import type { Server, IncomingMessage } from "node:http";
 import {
@@ -10,16 +10,25 @@ import {
   type User,
 } from "./auth.js";
 
-// We stream a piped child shell (not a real PTY) over a WebSocket. The browser
-// handles line editing and local echo, then sends whole lines to the shell's
-// stdin; the shell's stdout/stderr is streamed back. This keeps things
-// dependency-light and cross-platform, at the cost of full-screen TUI support
-// (vim, htop, etc.), which would need a real PTY (node-pty) or SSH later.
+// We stream a real pseudo-terminal (PTY) over a WebSocket. Because the shell
+// runs attached to a TTY, it behaves exactly like a native terminal: it does
+// its own echo and line editing, arrow-key history works, Ctrl+C delivers a
+// real SIGINT to the foreground process, and `clear`/`cls` and full-screen TUIs
+// (vim, htop) render correctly. The browser (xterm.js) just forwards raw
+// keystrokes and renders whatever the PTY emits.
 
-interface ClientMessage {
+interface InputMessage {
   type: "input";
   data: string;
 }
+
+interface ResizeMessage {
+  type: "resize";
+  cols: number;
+  rows: number;
+}
+
+type ClientMessage = InputMessage | ResizeMessage;
 
 interface SessionContext {
   user: User;
@@ -73,12 +82,14 @@ function startSession(ws: WebSocket, ctx: SessionContext): void {
   };
   const tracker = new CommandTracker();
 
-  let child;
+  let child: pty.IPty;
   try {
-    child = spawn(cmd, args, {
+    child = pty.spawn(cmd, args, {
+      name: "xterm-256color",
+      cols: 80,
+      rows: 24,
       cwd: os.homedir(),
       env: process.env,
-      windowsHide: true,
     });
   } catch (err) {
     send(`Failed to start shell: ${(err as Error).message}\r\n`);
@@ -86,11 +97,9 @@ function startSession(ws: WebSocket, ctx: SessionContext): void {
     return;
   }
 
-  child.stdout.on("data", (d: Buffer) => send(d.toString()));
-  child.stderr.on("data", (d: Buffer) => send(d.toString()));
-  child.on("error", (err) => send(`\r\n[shell error: ${err.message}]\r\n`));
-  child.on("exit", (code) => {
-    send(`\r\n[process exited with code ${code ?? 0}]\r\n`);
+  child.onData((d) => send(d));
+  child.onExit(({ exitCode }) => {
+    send(`\r\n[process exited with code ${exitCode}]\r\n`);
     if (ws.readyState === ws.OPEN) ws.close();
   });
 
@@ -112,9 +121,22 @@ function startSession(ws: WebSocket, ctx: SessionContext): void {
         });
       });
       try {
-        child.stdin.write(msg.data);
+        child.write(msg.data);
       } catch {
-        // shell closed its stdin; ignore
+        // PTY gone; ignore.
+      }
+    } else if (
+      msg.type === "resize" &&
+      Number.isFinite(msg.cols) &&
+      Number.isFinite(msg.rows)
+    ) {
+      try {
+        child.resize(
+          Math.max(1, Math.trunc(msg.cols)),
+          Math.max(1, Math.trunc(msg.rows))
+        );
+      } catch {
+        // PTY gone; ignore.
       }
     }
   });

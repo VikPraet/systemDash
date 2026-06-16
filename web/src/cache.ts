@@ -30,6 +30,8 @@ interface HistoryCache {
   rangeId: string;
   data: HistorySeries | null;
   stats: HistoryStats | null;
+  // Chart ids the user has toggled off, so the layout persists across remounts.
+  hiddenCharts: string[];
 }
 
 interface AppCache {
@@ -57,6 +59,7 @@ export const cache: AppCache = {
     rangeId: "live",
     data: null,
     stats: null,
+    hiddenCharts: [],
   },
   settings: DEFAULT_SETTINGS,
 };

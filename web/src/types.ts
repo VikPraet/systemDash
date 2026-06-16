@@ -155,7 +155,13 @@ export interface HistorySeries {
   procCount: (number | null)[];
   procRunning: (number | null)[];
   memTotalBytes: number | null;
+  cpuCores: HistoryCpuCoreSeries[];
   gpus: HistoryGpuSeries[];
+}
+
+export interface HistoryCpuCoreSeries {
+  index: number;
+  load: (number | null)[];
 }
 
 export interface HistoryStats {

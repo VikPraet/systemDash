@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { AuthLayout } from "./AuthLayout";
 
 export function Setup() {
   const { setup } = useAuth();
@@ -31,13 +32,10 @@ export function Setup() {
   }
 
   return (
-    <div className="auth-screen">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <div className="auth-brand">
-          <span className="brand-dot" />
-          <h1>SystemDash</h1>
-        </div>
-        <h2 className="auth-title">Create the admin account</h2>
+    <AuthLayout>
+      <form className="auth-form" onSubmit={onSubmit}>
+        <span className="auth-eyebrow">First run</span>
+        <h2 className="auth-title">Create admin</h2>
         <p className="auth-sub">
           This is the first run. The account you create here is the
           administrator and can manage all other users.
@@ -86,6 +84,6 @@ export function Setup() {
           {busy ? "Creating…" : "Create admin & continue"}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

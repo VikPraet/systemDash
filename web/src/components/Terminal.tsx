@@ -3,9 +3,9 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
-// A line-buffered terminal: the browser does local echo + line editing, then
-// sends whole lines to the server's shell. This pairs with the piped (non-PTY)
-// backend in server/src/terminal.ts.
+// Raw terminal: the backend runs a real PTY (server/src/terminal.ts), so the
+// shell handles echo, line editing, history and signals itself. xterm.js just
+// forwards keystrokes and renders whatever the PTY emits.
 export function Terminal() {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -13,8 +13,16 @@ export function Terminal() {
     const host = hostRef.current;
     if (!host) return;
 
+    // React StrictMode (dev) mounts effects twice: mount → cleanup → mount.
+    // Opening the WebSocket synchronously would create a throwaway connection
+    // that the server still audits as a connect/disconnect pair. Defer the
+    // connection by a tick so the StrictMode cleanup cancels it before it ever
+    // opens, leaving exactly one audited session per real visit.
+    let cancelled = false;
+    let ws: WebSocket | null = null;
+
     const term = new XTerm({
-      convertEol: true,
+      convertEol: false,
       cursorBlink: true,
       fontFamily:
         'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
@@ -31,35 +39,45 @@ export function Terminal() {
     fit.fit();
     term.focus();
 
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/terminal`);
-
-    let connected = false;
-
-    ws.onopen = () => {
-      connected = true;
-    };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") term.write(ev.data);
-    };
-    ws.onclose = () => {
-      connected = false;
-      term.write("\r\n\x1b[90m[disconnected]\x1b[0m\r\n");
-    };
-    ws.onerror = () => {
-      term.write("\r\n\x1b[31m[connection error]\x1b[0m\r\n");
+    const sendResize = () => {
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+        );
+      }
     };
 
-    // Raw passthrough: the shell (PowerShell on Windows, bash/$SHELL elsewhere)
-    // handles echo, line editing, history and Ctrl+C itself. We just forward
-    // keystrokes and render whatever comes back.
+    const connect = () => {
+      if (cancelled) return;
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/api/terminal`);
+
+      ws.onopen = () => {
+        sendResize();
+      };
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") term.write(ev.data);
+      };
+      ws.onclose = () => {
+        term.write("\r\n\x1b[90m[disconnected]\x1b[0m\r\n");
+      };
+      ws.onerror = () => {
+        term.write("\r\n\x1b[31m[connection error]\x1b[0m\r\n");
+      };
+    };
+
+    const connectTimer = window.setTimeout(connect, 0);
+
     const dataSub = term.onData((data) => {
-      if (connected) ws.send(JSON.stringify({ type: "input", data }));
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "input", data }));
+      }
     });
 
     const onResize = () => {
       try {
         fit.fit();
+        sendResize();
       } catch {
         // container not measurable yet
       }
@@ -69,10 +87,15 @@ export function Terminal() {
     ro.observe(host);
 
     return () => {
+      cancelled = true;
+      window.clearTimeout(connectTimer);
       window.removeEventListener("resize", onResize);
       ro.disconnect();
       dataSub.dispose();
-      ws.close();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
       term.dispose();
     };
   }, []);
@@ -81,9 +104,7 @@ export function Terminal() {
     <div className="terminal-tab">
       <div className="terminal-bar">
         <span className="terminal-title">Terminal</span>
-        <span className="terminal-hint muted">
-          local shell · full-screen TUI apps (vim, htop) unsupported
-        </span>
+        <span className="terminal-hint muted">local shell</span>
       </div>
       <div className="terminal-host" ref={hostRef} />
     </div>

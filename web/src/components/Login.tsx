@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { LogIn } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { AuthLayout } from "./AuthLayout";
 
 export function Login() {
   const { login } = useAuth();
@@ -32,12 +33,9 @@ export function Login() {
   }
 
   return (
-    <div className="auth-screen">
-      <form className="auth-card" onSubmit={onSubmit}>
-        <div className="auth-brand">
-          <span className="brand-dot" />
-          <h1>SystemDash</h1>
-        </div>
+    <AuthLayout>
+      <form className="auth-form" onSubmit={onSubmit}>
+        <span className="auth-eyebrow">Secure access</span>
         <h2 className="auth-title">Sign in</h2>
         <p className="auth-sub">Enter your credentials to access the dashboard.</p>
 
@@ -46,6 +44,7 @@ export function Login() {
           <input
             type="text"
             autoComplete="username"
+            placeholder="your username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoFocus
@@ -57,6 +56,7 @@ export function Login() {
           <input
             type="password"
             autoComplete="current-password"
+            placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -70,6 +70,6 @@ export function Login() {
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
-    </div>
+    </AuthLayout>
   );
 }

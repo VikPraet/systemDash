@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { Maximize2, X } from "lucide-react";
 
 export function Card({
   title,
@@ -124,6 +125,7 @@ export function TimeSeriesChart({
   unit = "",
   yMin,
   yMax,
+  fill = true,
   formatValue,
   formatTime = defaultTime,
 }: {
@@ -133,6 +135,7 @@ export function TimeSeriesChart({
   unit?: string;
   yMin?: number;
   yMax?: number;
+  fill?: boolean;
   formatValue?: (n: number) => string;
   formatTime?: (ms: number) => string;
 }) {
@@ -140,12 +143,9 @@ export function TimeSeriesChart({
   const [hover, setHover] = useState<number | null>(null);
   const uid = useId().replace(/:/g, "");
 
-  const padL = 46;
   const padR = 12;
   const padT = 10;
   const padB = 22;
-  const w = Math.max(width, padL + padR + 10);
-  const plotW = w - padL - padR;
   const plotH = height - padT - padB;
 
   const hasData = t.length > 0 && series.some((s) => s.data.some((v) => v != null));
@@ -179,8 +179,6 @@ export function TimeSeriesChart({
 
   const t0 = t[0] ?? 0;
   const tN = t[t.length - 1] ?? 1;
-  const xFor = (i: number) =>
-    tN === t0 ? padL + plotW / 2 : padL + ((t[i] - t0) / (tN - t0)) * plotW;
   const yFor = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
 
   const ticks = useMemo(() => {
@@ -192,6 +190,15 @@ export function TimeSeriesChart({
 
   const fmt = (v: number) =>
     formatValue ? formatValue(v) : `${Math.round(v * 10) / 10}${unit}`;
+
+  // Reserve room on the left for the widest y-axis label so longer ticks (e.g.
+  // "3.97 GHz") aren't clipped — important now charts can be half-width.
+  const maxTickChars = ticks.reduce((m, tk) => Math.max(m, fmt(tk).length), 0);
+  const padL = Math.min(96, Math.max(40, Math.round(maxTickChars * 6.2) + 12));
+  const w = Math.max(width, padL + padR + 10);
+  const plotW = w - padL - padR;
+  const xFor = (i: number) =>
+    tN === t0 ? padL + plotW / 2 : padL + ((t[i] - t0) / (tN - t0)) * plotW;
 
   const baseline = padT + plotH;
   const fillOpacity = series.length > 1 ? 0.1 : 0.2;
@@ -324,9 +331,10 @@ export function TimeSeriesChart({
               const { lines, areas, dots } = buildPaths(s.data);
               return (
                 <g key={s.label}>
-                  {areas.map((d, j) => (
-                    <path key={`a${j}`} d={d} fill={`url(#${uid}-${i})`} />
-                  ))}
+                  {fill &&
+                    areas.map((d, j) => (
+                      <path key={`a${j}`} d={d} fill={`url(#${uid}-${i})`} />
+                    ))}
                   {lines.map((d, j) => (
                     <path
                       key={`l${j}`}
@@ -428,14 +436,22 @@ export function ChartCard({
   subtitle,
   legend,
   children,
+  span = 1,
+  onFullscreen,
+  onExitFullscreen,
+  headerActions,
 }: {
   title: string;
   subtitle?: string | null;
   legend?: ChartLegendItem[];
   children: ReactNode;
+  span?: number;
+  onFullscreen?: () => void;
+  onExitFullscreen?: () => void;
+  headerActions?: ReactNode;
 }) {
   return (
-    <section className="card chart-card" style={{ gridColumn: "span 2" }}>
+    <section className="card chart-card" style={{ gridColumn: `span ${span}` }}>
       <div className="chart-card-head">
         <div className="chart-card-titles">
           <h2 className="card-title">{title}</h2>
@@ -445,22 +461,51 @@ export function ChartCard({
             </span>
           )}
         </div>
-        {legend && legend.length > 0 && (
-          <div className="chart-legend">
-            {legend.map((s) => (
-              <span key={s.label} className="chart-legend-item">
-                <span
-                  className="chart-legend-swatch"
-                  style={{ background: s.color }}
-                />
-                <span className="chart-legend-label">{s.label}</span>
-                {s.value != null && (
-                  <span className="chart-legend-value">{s.value}</span>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="chart-card-right">
+          {legend && legend.length > 0 && (
+            <div className="chart-legend">
+              {legend.map((s) => (
+                <span key={s.label} className="chart-legend-item">
+                  <span
+                    className="chart-legend-swatch"
+                    style={{ background: s.color }}
+                  />
+                  <span className="chart-legend-label">{s.label}</span>
+                  {s.value != null && (
+                    <span className="chart-legend-value">{s.value}</span>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {(headerActions || onFullscreen || onExitFullscreen) && (
+            <div className="chart-card-actions">
+              {headerActions}
+              {onFullscreen && (
+                <button
+                  type="button"
+                  className="chart-icon-btn"
+                  onClick={onFullscreen}
+                  title="Fullscreen"
+                  aria-label="Fullscreen"
+                >
+                  <Maximize2 size={15} />
+                </button>
+              )}
+              {onExitFullscreen && (
+                <button
+                  type="button"
+                  className="chart-icon-btn"
+                  onClick={onExitFullscreen}
+                  title="Close"
+                  aria-label="Close fullscreen"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {children}
     </section>

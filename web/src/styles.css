@@ -1,16 +1,21 @@
 :root {
-  --bg: #0b0f17;
-  --panel: #131a26;
-  --panel-2: #1a2434;
-  --border: #243044;
+  /* Deep blue-black palette matching the login screen's mood. */
+  --bg: #070b13;
+  --panel: #0d1420;
+  --panel-2: #141d2c;
+  --border: #202b3e;
   --text: #e6edf6;
   --muted: #8b97a8;
   --accent: #4f8cff;
-  --track: #233048;
-  --good: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --radius: 14px;
+  --track: #1a2740;
+  /* Status colors retuned cooler/calmer to sit in the blue palette. */
+  --good: #33c98e;
+  --warn: #d6a23f;
+  --bad: #e86a6f;
+  /* Editorial design language: sharp corners across the app. */
+  --radius: 4px;
+  --radius-sm: 2px;
+  --hairline: rgba(255, 255, 255, 0.18);
   font-synthesis: none;
 }
 
@@ -55,8 +60,19 @@ body,
 }
 
 body {
-  background: radial-gradient(1200px 600px at 70% -10%, #16203200, #0b0f17),
+  /* Subtle blue ambient glow, echoing the login background. */
+  background: radial-gradient(
+      1100px 620px at 82% -12%,
+      rgba(79, 140, 255, 0.12),
+      transparent 58%
+    ),
+    radial-gradient(
+      900px 600px at 6% 110%,
+      rgba(51, 201, 142, 0.06),
+      transparent 55%
+    ),
     var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -118,7 +134,7 @@ body {
   height: 14px;
   flex-shrink: 0;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #34d399);
+  background: linear-gradient(135deg, var(--accent), var(--good));
   box-shadow: 0 0 14px var(--accent);
   animation: pulse 2.4s ease-in-out infinite;
 }
@@ -501,15 +517,15 @@ body {
   display: flex;
   gap: 3px;
   align-items: flex-end;
-  height: 44px;
+  height: 46px;
   margin-top: 16px;
 }
 
 .core {
   flex: 1;
   height: 100%;
-  background: var(--track);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 0;
   display: flex;
   align-items: flex-end;
   overflow: hidden;
@@ -517,7 +533,11 @@ body {
 
 .core-fill {
   width: 100%;
-  background: linear-gradient(180deg, var(--accent), #34d399);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 78%, #ffffff),
+    var(--accent)
+  );
   transition: height 0.4s ease;
 }
 
@@ -866,7 +886,7 @@ body {
   color: #4f8cff;
 }
 .pi-code {
-  color: #34d399;
+  color: var(--good);
 }
 .pi-terminal {
   color: #38bdf8;
@@ -1687,15 +1707,15 @@ body {
   text-align: left;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   padding: 16px;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .drive-card:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
+  background: var(--panel-2);
 }
 
 .drive-card-head {
@@ -1792,7 +1812,7 @@ body {
 }
 
 .history-error {
-  background: rgba(248, 113, 113, 0.12);
+  background: rgba(232, 106, 111, 0.12);
   border: 1px solid var(--bad);
   color: var(--bad);
   border-radius: var(--radius);
@@ -1801,7 +1821,7 @@ body {
 }
 
 .history-notice {
-  background: rgba(251, 191, 36, 0.1);
+  background: rgba(214, 162, 63, 0.1);
   border: 1px solid var(--warn);
   color: var(--text);
   border-radius: var(--radius);
@@ -1976,6 +1996,177 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Chart head: group legend + action buttons on the right */
+.chart-card-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+
+.chart-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.chart-icon-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+
+/* Combined / Per-core switch inside the fullscreen cores chart */
+.chart-viewseg {
+  display: inline-flex;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.chart-viewseg button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.chart-viewseg button + button {
+  border-left: 1px solid var(--hairline);
+}
+
+.chart-viewseg button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.chart-viewseg button:not(.active):hover {
+  color: var(--text);
+}
+
+/* Show/hide toggles above the chart grid */
+.chart-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.chart-toggle {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 5px 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.chart-toggle:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.chart-toggle.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.chart-toggle:not(.active) {
+  opacity: 0.55;
+}
+
+/* Fullscreen chart overlay */
+.chart-fs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(6, 9, 18, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.chart-fs-body {
+  width: min(1400px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+}
+
+.chart-fs-body .chart-card {
+  grid-column: auto !important;
+  margin: 0;
+}
+
+/* Per-core split grid (Task Manager style) */
+.core-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.core-cell {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px 4px;
+  background: var(--panel-2);
+}
+
+.core-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.core-cell-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.core-cell-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.core-cell-val {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Storage panel */
 .storage-panel {
   grid-column: span 2;
@@ -2092,7 +2283,7 @@ body {
   flex-wrap: wrap;
   margin-top: 16px;
   padding: 12px 14px;
-  background: rgba(248, 113, 113, 0.1);
+  background: rgba(232, 106, 111, 0.1);
   border: 1px solid var(--bad);
   border-radius: var(--radius);
   font-size: 13px;
@@ -2107,13 +2298,100 @@ body {
    Authentication: login / first-run setup screens
    ------------------------------------------------------------------------- */
 .auth-screen {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 32px;
+  overflow: hidden;
+  /* Full-bleed themed background image. The position is anchored on the CRT
+     (its real spot in the artwork) so the focal point stays put instead of
+     drifting/cropping oddly as the viewport aspect ratio changes. */
+  background: linear-gradient(90deg, rgba(5, 7, 12, 0.72), rgba(5, 7, 12, 0.15) 55%),
+    url("/login-bg.png") 70% 50% / cover no-repeat var(--bg);
 }
 
+/* Glass window sitting on top of the background image. Sized as a fixed
+   percentage of the viewport so it always covers the same slice of the screen
+   and scales in step with the (cover) background image. */
+.auth-window {
+  position: relative;
+  width: 78vw;
+  height: 78vh;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.auth-panel {
+  position: relative;
+  min-width: 0;
+}
+
+/* Left: frosted glass holding the form. Blurs the image behind it for legibility. */
+.auth-panel--form {
+  display: flex;
+  flex-direction: column;
+  padding: 48px 44px;
+  overflow-y: auto;
+  background: linear-gradient(
+    180deg,
+    rgba(4, 6, 11, 0.78),
+    rgba(4, 6, 11, 0.66)
+  );
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Right: clear glass — just a faint tint so the image's focal point shows through. */
+.auth-panel--glass {
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0.04),
+    rgba(255, 255, 255, 0) 60%
+  );
+}
+
+.auth-form {
+  width: 340px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* Pin the brand to the top, vertically center the form in the leftover space. */
+  margin: auto 0;
+}
+
+/* Small uppercase eyebrow + hairline accent (editorial mood). */
+.auth-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.auth-eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.18),
+    rgba(255, 255, 255, 0)
+  );
+}
+
+/* Backwards-compatible single-card layout (kept for any standalone use). */
 .auth-card {
   width: 100%;
   max-width: 380px;
@@ -2135,9 +2413,11 @@ body {
 }
 
 .auth-brand h1 {
-  font-size: 20px;
+  font-size: 16px;
   margin: 0;
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   background: linear-gradient(120deg, var(--text), var(--accent));
   -webkit-background-clip: text;
   background-clip: text;
@@ -2145,9 +2425,11 @@ body {
 }
 
 .auth-title {
-  margin: 4px 0 0;
-  font-size: 17px;
+  margin: 2px 0 0;
+  font-size: 34px;
+  line-height: 1.05;
   font-weight: 600;
+  letter-spacing: -0.5px;
 }
 
 .auth-sub,
@@ -2161,31 +2443,44 @@ body {
 .auth-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 12.5px;
+  gap: 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
+/* Ghost / underline inputs for the editorial look. */
 .auth-field input {
-  padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  padding: 11px 2px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.2px;
+  text-transform: none;
   outline: none;
+  transition: border-color 0.18s ease;
+}
+
+.auth-field input::placeholder {
+  color: rgba(230, 237, 246, 0.35);
 }
 
 .auth-field input:focus {
-  border-color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .auth-error {
   padding: 10px 12px;
-  background: rgba(248, 113, 113, 0.12);
+  background: rgba(232, 106, 111, 0.12);
   border: 1px solid var(--bad);
   border-radius: 10px;
-  color: #fecaca;
+  color: #f6c1c3;
   font-size: 12.5px;
 }
 
@@ -2197,21 +2492,49 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 11px 14px;
-  background: var(--accent);
-  border: none;
-  border-radius: 10px;
-  color: #fff;
-  font-size: 14px;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 14px 18px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 2px;
+  color: var(--text);
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
   cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .auth-submit:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: default;
+}
+
+/* Collapse to a single frosted panel on narrow screens (image still behind). */
+@media (max-width: 860px) {
+  .auth-window {
+    grid-template-columns: 1fr;
+    width: 88vw;
+    height: 84vh;
+  }
+
+  .auth-panel--glass {
+    display: none;
+  }
+
+  .auth-panel--form {
+    padding: 32px 28px;
+    border-right: none;
+  }
 }
 
 /* ----------------------------------------------------------------------------
@@ -2255,9 +2578,9 @@ body {
 }
 
 .role-badge.admin {
-  color: #fde68a;
+  color: #eccb88;
   border-color: var(--warn);
-  background: rgba(251, 191, 36, 0.12);
+  background: rgba(214, 162, 63, 0.12);
 }
 
 .role-badge.user {
@@ -2408,13 +2731,13 @@ body {
 .status-pill.on {
   color: var(--good);
   border-color: var(--good);
-  background: rgba(52, 211, 153, 0.1);
+  background: rgba(51, 201, 142, 0.1);
 }
 
 .status-pill.off {
   color: var(--bad);
   border-color: var(--bad);
-  background: rgba(248, 113, 113, 0.1);
+  background: rgba(232, 106, 111, 0.1);
 }
 
 .status-pill:disabled {
@@ -2731,10 +3054,10 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  background: rgba(251, 191, 36, 0.12);
+  background: rgba(214, 162, 63, 0.12);
   border: 1px solid var(--warn);
   border-radius: 10px;
-  color: #fde68a;
+  color: #eccb88;
   font-size: 12.5px;
 }
 
@@ -2778,6 +3101,18 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  /* Pin to the viewport height so the activity log scrolls internally
+     (like the Files panel) instead of growing the whole page. */
+  height: 100%;
+  min-height: 0;
+}
+
+/* The activity-log card grows to fill leftover space; its list scrolls. */
+.activity-card.activity-log {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .activity-head {
@@ -2974,7 +3309,7 @@ body {
 }
 
 .audit-chip.active.danger {
-  background: rgba(248, 113, 113, 0.16);
+  background: rgba(232, 106, 111, 0.16);
   border-color: var(--bad);
 }
 
@@ -3037,7 +3372,8 @@ body {
 .audit-list {
   display: flex;
   flex-direction: column;
-  max-height: 560px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -3060,13 +3396,13 @@ body {
 }
 
 .audit-row.outcome-failed {
-  background: rgba(248, 113, 113, 0.06);
+  background: rgba(232, 106, 111, 0.06);
 }
 
 /* Denied (no-permission) attempts: nothing actually happened, so we tint amber
    and mute the headline rather than using the success "did it" styling. */
 .audit-row.outcome-denied {
-  background: rgba(251, 191, 36, 0.05);
+  background: rgba(214, 162, 63, 0.05);
 }
 
 .audit-row.outcome-denied .audit-action,
@@ -3093,17 +3429,17 @@ body {
 
 .audit-icon.success {
   color: var(--good);
-  background: rgba(52, 211, 153, 0.15);
+  background: rgba(51, 201, 142, 0.15);
 }
 
 .audit-icon.warn {
   color: var(--warn);
-  background: rgba(251, 191, 36, 0.15);
+  background: rgba(214, 162, 63, 0.15);
 }
 
 .audit-icon.danger {
   color: var(--bad);
-  background: rgba(248, 113, 113, 0.16);
+  background: rgba(232, 106, 111, 0.16);
 }
 
 .audit-icon.terminal {
@@ -3151,13 +3487,13 @@ body {
   padding: 1px 6px;
   border-radius: 5px;
   color: var(--bad);
-  background: rgba(248, 113, 113, 0.14);
+  background: rgba(232, 106, 111, 0.14);
   flex-shrink: 0;
 }
 
 .audit-status-badge.denied {
   color: var(--warn);
-  background: rgba(251, 191, 36, 0.14);
+  background: rgba(214, 162, 63, 0.14);
 }
 
 .audit-user {
@@ -3229,4 +3565,226 @@ body {
   .audit-search input {
     width: 130px;
   }
+}
+
+/* ============================================================================
+   EDITORIAL THEME
+   Global restyle matching the login screen: sharp corners, ghost/underline
+   controls, uppercase letter-spaced labels, accent-on-hover. This block is
+   appended last so it overrides the base component styles above. Tweak or
+   remove this whole block to dial the look up/down.
+   ========================================================================== */
+
+/* ---- Brand + sidebar navigation -------------------------------------------- */
+.brand h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.tabs button,
+.tabs a {
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ---- Section + page headings ----------------------------------------------- */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.card-title::before {
+  content: "";
+  width: 16px;
+  height: 2px;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+
+.placeholder h2,
+.users-head h2,
+.activity-head h2 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+
+/* ---- Text inputs + search → ghost underline -------------------------------- */
+.modal-input,
+.proc-search,
+.user-create input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+
+.modal-input:focus,
+.proc-search:focus,
+.user-create input:focus {
+  border-color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.modal-input::placeholder,
+.proc-search::placeholder,
+.user-create input::placeholder {
+  color: rgba(230, 237, 246, 0.35);
+}
+
+.num-field-input,
+.dropdown-trigger,
+.dropdown-menu,
+.revoke-details,
+.status-tooltip,
+.audit-search {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Text buttons → editorial ghost (uppercase, fill-on-hover) ------------- */
+.modal-btn,
+.user-create button,
+.ghost-btn,
+.danger-btn,
+.files-actions > button,
+.files-roots button,
+.files-settings-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  transition: background-color 0.18s ease, border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.modal-btn:hover:not(:disabled),
+.user-create button:hover:not(:disabled),
+.ghost-btn:hover,
+.files-actions > button:hover:not(:disabled),
+.files-roots button:hover,
+.files-settings-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* Primary = accent outline that fills on hover. */
+.modal-btn.primary {
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  filter: none;
+}
+
+/* Danger = red outline that fills on hover. */
+.modal-btn.danger,
+.modal-btn.danger-ghost,
+.danger-btn,
+.ghost-btn.danger {
+  background: transparent;
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.modal-btn.danger:hover:not(:disabled),
+.modal-btn.danger-ghost:hover:not(:disabled),
+.danger-btn:hover:not(:disabled),
+.ghost-btn.danger:hover {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+  filter: none;
+}
+
+.files-roots button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Paste button shows a file path — keep it readable, not uppercased. */
+.files-actions > button.paste {
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ---- Segmented toggles ----------------------------------------------------- */
+.segmented,
+.seg {
+  border-radius: var(--radius-sm);
+}
+
+.segmented button,
+.seg button {
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ---- Pills / badges → squared --------------------------------------------- */
+.version,
+.role-badge,
+.status-pill,
+.self-badge,
+.seg-count {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Icon-only buttons → sharp corners ------------------------------------- */
+.row-act,
+.user-actions button,
+.logout-btn,
+.modal-close,
+.files-up {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Notice / error banners → sharp corners ------------------------------- */
+.revoke-warn,
+.auth-error,
+.modal-error {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Remaining components folded into the editorial language --------------- */
+.user-chip {
+  border-radius: var(--radius-sm);
+}
+
+.proc-end-btn {
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+}
+
+.audit-chip {
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.audit-chip-count {
+  border-radius: var(--radius-sm);
 }

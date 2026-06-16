@@ -420,7 +420,7 @@ export function Activity() {
         )}
       </section>
 
-      <section className="activity-card">
+      <section className="activity-card activity-log">
         <div className="activity-card-head">
           <ScrollText size={16} strokeWidth={1.8} />
           <h3>Activity log</h3>

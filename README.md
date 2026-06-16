@@ -137,13 +137,13 @@ Terminal:
   `taskkill` / `SIGTERM`) or **Force kill** (`taskkill /F /T` / `SIGKILL`) any process.
   The only thing it refuses to terminate is its own server process, to avoid taking down
   the interface from inside itself. Every termination is recorded in the activity log.
-- **Terminal limitations:** it pipes a shell rather than allocating a real PTY, so
-  full-screen TUI programs (vim, htop, less) won't render correctly. Ordinary commands,
-  output streaming, prompts and line editing work. A real PTY (node-pty) or SSH for
-  remote hosts can be added later.
+- **Terminal:** it allocates a real PTY (via `node-pty`), so the shell behaves like a
+  native terminal — arrow-key history, `Ctrl+C` to interrupt the foreground process,
+  `clear`/`cls`, and full-screen TUI programs (vim, htop, less) all work. SSH to remote
+  hosts can be added later.
 
 ## Roadmap
 
 - Docker container management and scheduled jobs — gated behind the `user`/`admin` roles.
-- Real PTY terminal (node-pty) + SSH to remote hosts.
+- SSH to remote hosts from the terminal.
 - CSRF tokens / 2FA for hardening when exposed to untrusted networks.
