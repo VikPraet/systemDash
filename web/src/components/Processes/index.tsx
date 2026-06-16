@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Power, X } from "lucide-react";
-import { fetchProcesses, formatBytes, killProcess } from "../api";
-import { cache } from "../cache";
-import { hasRole, useAuth } from "../auth/AuthContext";
-import type { ProcessInfo, ProcessList } from "../types";
-import { ProcessIcon } from "./ProcessIcon";
+import { fetchProcesses, formatBytes, killProcess } from "../../api";
+import { cache } from "../../cache";
+import { hasRole, useAuth } from "../../auth/AuthContext";
+import type { ProcessInfo, ProcessList } from "../../types";
+import { ProcessIcon } from "../ProcessIcon";
+import {
+  AuthError,
+  DangerBtn,
+  GhostBtn,
+  Loading,
+  ModalActions,
+  ModalCard,
+  ModalClose,
+  ModalHead,
+  ModalOverlay,
+  ModalSub,
+  RevokeDetails,
+  RevokeWarn,
+} from "../ui/styles";
+import * as S from "./styles";
 
 const POLL_MS = 2000;
 
@@ -100,25 +115,24 @@ export function Processes() {
 
   if (!data) {
     return (
-      <div className="loading">
+      <Loading>
         {error ? `Could not load processes: ${error}` : "Loading processes…"}
-      </div>
+      </Loading>
     );
   }
 
   const cols = canManage ? 6 : 5;
 
   return (
-    <div className="proc">
-      <div className="proc-toolbar">
-        <input
-          className="proc-search"
+    <S.ProcRoot>
+      <S.ProcToolbar>
+        <S.ProcSearch
           type="text"
           placeholder="Filter by name, PID or user…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <div className="segmented">
+        <S.Segmented>
           <button
             className={filter === "all" ? "active" : ""}
             onClick={() => setFilter("all")}
@@ -137,14 +151,14 @@ export function Processes() {
           >
             Background <span className="seg-count">{bgTotal}</span>
           </button>
-        </div>
-        <div className="proc-summary muted">
+        </S.Segmented>
+        <S.ProcSummary className="muted">
           <span>{data.summary.all} total</span>
-        </div>
-      </div>
+        </S.ProcSummary>
+      </S.ProcToolbar>
 
-      <div className="proc-table-wrap">
-        <table className="proc-table">
+      <S.ProcTableWrap>
+        <S.ProcTable>
           <thead>
             <tr>
               <Th label="Process" col="name" {...{ sortKey, sortDir, toggleSort }} />
@@ -180,8 +194,8 @@ export function Processes() {
               </tr>
             )}
           </tbody>
-        </table>
-      </div>
+        </S.ProcTable>
+      </S.ProcTableWrap>
 
       {target && (
         <ProcessActionModal
@@ -193,7 +207,7 @@ export function Processes() {
           }}
         />
       )}
-    </div>
+    </S.ProcRoot>
   );
 }
 
@@ -328,28 +342,28 @@ function ProcessActionModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
+    <ModalOverlay onClick={onClose} role="presentation">
+      <ModalCard onClick={(e) => e.stopPropagation()}>
+        <ModalHead>
           <h3>End process</h3>
-          <button type="button" className="modal-close" onClick={onClose}>
+          <ModalClose type="button" onClick={onClose}>
             <X size={16} strokeWidth={1.8} />
-          </button>
-        </div>
+          </ModalClose>
+        </ModalHead>
 
-        <p className="modal-sub">
+        <ModalSub>
           Choose how to terminate this process. <strong>End task</strong> asks it
           to close gracefully; <strong>Force kill</strong> terminates it
           immediately and may cause unsaved work to be lost.
-        </p>
+        </ModalSub>
 
-        <dl className="revoke-details">
+        <RevokeDetails>
           <div>
             <dt>Process</dt>
-            <dd className="proc-modal-name">
+            <S.ProcModalName>
               <ProcessIcon name={p.name} hasWindow={p.hasWindow} />
               {p.name}
-            </dd>
+            </S.ProcModalName>
           </div>
           <div>
             <dt>PID</dt>
@@ -365,40 +379,34 @@ function ProcessActionModal({
               {pct(p.cpuPercent)} · {formatBytes(p.memBytes)}
             </dd>
           </div>
-        </dl>
+        </RevokeDetails>
 
-        <div className="revoke-warn">
+        <RevokeWarn>
           <AlertTriangle size={15} strokeWidth={1.8} />
           Terminating a system process can make the machine unstable.
-        </div>
+        </RevokeWarn>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && <AuthError>{error}</AuthError>}
 
-        <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>
+        <ModalActions>
+          <GhostBtn type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={() => run("end")}
-            disabled={busy !== null}
-          >
+          </GhostBtn>
+          <GhostBtn type="button" onClick={() => run("end")} disabled={busy !== null}>
             <Power size={15} strokeWidth={1.8} />
             {busy === "end" ? "Ending…" : "End task"}
-          </button>
-          <button
+          </GhostBtn>
+          <DangerBtn
             type="button"
-            className="danger-btn"
             onClick={() => run("kill")}
             disabled={busy !== null}
           >
             <X size={15} strokeWidth={1.8} />
             {busy === "kill" ? "Killing…" : "Force kill"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </DangerBtn>
+        </ModalActions>
+      </ModalCard>
+    </ModalOverlay>
   );
 }
 

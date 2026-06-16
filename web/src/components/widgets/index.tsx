@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Maximize2, X } from "lucide-react";
+import * as S from "./styles";
 
 export function Card({
   title,
@@ -19,19 +20,19 @@ export function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="card" style={{ gridColumn: `span ${span}` }}>
-      <h2 className="card-title">{title}</h2>
+    <S.CardRoot style={{ gridColumn: `span ${span}` }}>
+      <S.CardTitle>{title}</S.CardTitle>
       {children}
-    </section>
+    </S.CardRoot>
   );
 }
 
 export function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="stat">
-      <span className="stat-label">{label}</span>
-      <span className="stat-value">{value}</span>
-    </div>
+    <S.StatRoot>
+      <S.StatLabel>{label}</S.StatLabel>
+      <S.StatValue>{value}</S.StatValue>
+    </S.StatRoot>
   );
 }
 
@@ -48,7 +49,7 @@ export function Gauge({ value, label }: { value: number; label: string }) {
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - clamped / 100);
   return (
-    <div className="gauge">
+    <S.GaugeRoot>
       <svg className="gauge-svg" viewBox="0 0 120 120">
         <circle className="gauge-track" cx="60" cy="60" r={radius} />
         <circle
@@ -63,23 +64,20 @@ export function Gauge({ value, label }: { value: number; label: string }) {
           }}
         />
       </svg>
-      <div className="gauge-inner">
-        <span className="gauge-value">{Math.round(clamped)}%</span>
-        <span className="gauge-label">{label}</span>
-      </div>
-    </div>
+      <S.GaugeInner>
+        <S.GaugeValue>{Math.round(clamped)}%</S.GaugeValue>
+        <S.GaugeLabel>{label}</S.GaugeLabel>
+      </S.GaugeInner>
+    </S.GaugeRoot>
   );
 }
 
 export function Bar({ value }: { value: number }) {
   const clamped = Math.max(0, Math.min(100, value));
   return (
-    <div className="bar">
-      <div
-        className="bar-fill"
-        style={{ width: `${clamped}%`, background: colorFor(clamped) }}
-      />
-    </div>
+    <S.BarTrack>
+      <S.BarFill style={{ width: `${clamped}%`, background: colorFor(clamped) }} />
+    </S.BarTrack>
   );
 }
 
@@ -277,7 +275,7 @@ export function TimeSeriesChart({
   const tooltipRight = hover != null && hoverX > padL + plotW * 0.6;
 
   return (
-    <div className="chart" ref={ref} style={{ height }}>
+    <S.ChartRoot ref={ref} style={{ height }}>
       {!hasData && <div className="chart-empty muted">No data yet</div>}
       {hasData && width > 0 && (
         <div
@@ -396,9 +394,7 @@ export function TimeSeriesChart({
             <div
               className="chart-tooltip"
               style={
-                tooltipRight
-                  ? { right: w - hoverX + 8 }
-                  : { left: hoverX + 8 }
+                tooltipRight ? { right: w - hoverX + 8 } : { left: hoverX + 8 }
               }
             >
               <div className="chart-tooltip-time">{formatTime(t[hover])}</div>
@@ -421,7 +417,7 @@ export function TimeSeriesChart({
           )}
         </div>
       )}
-    </div>
+    </S.ChartRoot>
   );
 }
 
@@ -451,64 +447,60 @@ export function ChartCard({
   headerActions?: ReactNode;
 }) {
   return (
-    <section className="card chart-card" style={{ gridColumn: `span ${span}` }}>
-      <div className="chart-card-head">
-        <div className="chart-card-titles">
-          <h2 className="card-title">{title}</h2>
+    <S.ChartCardRoot
+      className="chart-card"
+      style={{ gridColumn: `span ${span}` }}
+    >
+      <S.ChartCardHead>
+        <S.ChartCardTitles>
+          <S.CardTitle as="h2">{title}</S.CardTitle>
           {subtitle && (
-            <span className="chart-card-subtitle" title={subtitle}>
-              {subtitle}
-            </span>
+            <S.ChartCardSubtitle title={subtitle}>{subtitle}</S.ChartCardSubtitle>
           )}
-        </div>
-        <div className="chart-card-right">
+        </S.ChartCardTitles>
+        <S.ChartCardRight>
           {legend && legend.length > 0 && (
-            <div className="chart-legend">
+            <S.ChartLegend>
               {legend.map((s) => (
-                <span key={s.label} className="chart-legend-item">
-                  <span
-                    className="chart-legend-swatch"
-                    style={{ background: s.color }}
-                  />
-                  <span className="chart-legend-label">{s.label}</span>
+                <S.ChartLegendItemEl key={s.label}>
+                  <S.ChartLegendSwatch style={{ background: s.color }} />
+                  <S.ChartLegendLabel>{s.label}</S.ChartLegendLabel>
                   {s.value != null && (
-                    <span className="chart-legend-value">{s.value}</span>
+                    <S.ChartLegendValue>{s.value}</S.ChartLegendValue>
                   )}
-                </span>
+                </S.ChartLegendItemEl>
               ))}
-            </div>
+            </S.ChartLegend>
           )}
           {(headerActions || onFullscreen || onExitFullscreen) && (
-            <div className="chart-card-actions">
+            <S.ChartCardActions>
               {headerActions}
               {onFullscreen && (
-                <button
+                <S.ChartIconBtn
                   type="button"
-                  className="chart-icon-btn"
                   onClick={onFullscreen}
                   title="Fullscreen"
                   aria-label="Fullscreen"
                 >
                   <Maximize2 size={15} />
-                </button>
+                </S.ChartIconBtn>
               )}
               {onExitFullscreen && (
-                <button
+                <S.ChartIconBtn
                   type="button"
-                  className="chart-icon-btn"
                   onClick={onExitFullscreen}
                   title="Close"
                   aria-label="Close fullscreen"
                 >
                   <X size={16} />
-                </button>
+                </S.ChartIconBtn>
               )}
-            </div>
+            </S.ChartCardActions>
           )}
-        </div>
-      </div>
+        </S.ChartCardRight>
+      </S.ChartCardHead>
       {children}
-    </section>
+    </S.ChartCardRoot>
   );
 }
 
@@ -525,17 +517,14 @@ export function LabeledBar({
 }) {
   const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
-    <div className="lbar">
-      <div className="lbar-head">
-        <span className="lbar-label">{label}</span>
-        <span className="lbar-value">{valueText}</span>
-      </div>
-      <div className="bar">
-        <div
-          className="bar-fill"
-          style={{ width: `${percent}%`, background: colorFor(percent) }}
-        />
-      </div>
-    </div>
+    <S.LBarRoot>
+      <S.LBarHead>
+        <S.LBarLabel>{label}</S.LBarLabel>
+        <S.LBarValue>{valueText}</S.LBarValue>
+      </S.LBarHead>
+      <S.BarTrack>
+        <S.BarFill style={{ width: `${percent}%`, background: colorFor(percent) }} />
+      </S.BarTrack>
+    </S.LBarRoot>
   );
 }

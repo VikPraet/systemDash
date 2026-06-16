@@ -38,6 +38,9 @@ import { Activity } from "./components/Activity";
 import { Login } from "./components/Login";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
+import { BrandDot, Loading, RoleBadge } from "./components/ui/styles";
+import { AuthScreen } from "./components/AuthLayout/styles";
+import * as S from "./App.styles";
 
 const POLL_MS = 1000;
 
@@ -75,9 +78,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="auth-screen">
-        <div className="loading">Loading…</div>
-      </div>
+      <AuthScreen>
+        <Loading>Loading…</Loading>
+      </AuthScreen>
     );
   }
 
@@ -218,13 +221,13 @@ function DashboardLayout() {
   }
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-dot" />
+    <S.AppShell>
+      <S.Sidebar>
+        <S.Brand>
+          <BrandDot />
           <h1>SystemDash</h1>
-        </div>
-        <nav className="tabs">
+        </S.Brand>
+        <S.Tabs>
           {visibleNav.map(({ path, label, icon: Icon }) => (
             <NavLink
               key={path}
@@ -235,28 +238,28 @@ function DashboardLayout() {
               <span>{label}</span>
             </NavLink>
           ))}
-        </nav>
-        <div className="sidebar-footer">
-          <div className="user-chip">
-            <div className="user-chip-info">
-              <span className="user-chip-name">{user?.username}</span>
-              <span className={`role-badge ${user?.role}`}>{user?.role}</span>
-            </div>
-            <button className="logout-btn" onClick={onLogout} title="Sign out">
+        </S.Tabs>
+        <S.SidebarFooter>
+          <S.UserChip>
+            <S.UserChipInfo>
+              <S.UserChipName>{user?.username}</S.UserChipName>
+              <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
+            </S.UserChipInfo>
+            <S.LogoutBtn onClick={onLogout} title="Sign out">
               <LogOut size={16} strokeWidth={1.8} />
-            </button>
-          </div>
-          <div className="footer-meta">
+            </S.LogoutBtn>
+          </S.UserChip>
+          <S.FooterMeta>
             <StatusIndicator snap={snap} error={error} now={now} />
-            {snap && <span className="version">v{snap.app.version}</span>}
-          </div>
-        </div>
-      </aside>
+            {snap && <S.Version>v{snap.app.version}</S.Version>}
+          </S.FooterMeta>
+        </S.SidebarFooter>
+      </S.Sidebar>
 
-      <main className="content">
+      <S.Content>
         <Outlet context={{ snap, error, now } satisfies DashboardContext} />
-      </main>
-    </div>
+      </S.Content>
+    </S.AppShell>
   );
 }
 
@@ -286,17 +289,17 @@ function StatusIndicator({
   }
 
   return (
-    <div className="status-wrap">
-      <div className="status">
-        <span className={`dot ${state}`} />
+    <S.StatusWrap>
+      <S.Status>
+        <S.Dot $state={state} />
         {label}
-      </div>
-      <div className="status-tooltip" role="tooltip">
-        <span className="status-tooltip-title">{title}</span>
-        {detail && <span className="status-tooltip-detail">{detail}</span>}
-        <span className="status-tooltip-arrow" />
-      </div>
-    </div>
+      </S.Status>
+      <S.StatusTooltip role="tooltip">
+        <S.StatusTooltipTitle>{title}</S.StatusTooltipTitle>
+        {detail && <S.StatusTooltipDetail>{detail}</S.StatusTooltipDetail>}
+        <S.StatusTooltipArrow />
+      </S.StatusTooltip>
+    </S.StatusWrap>
   );
 }
 
@@ -309,23 +312,20 @@ function Overview({
 }) {
   if (!snap) {
     return (
-      <div className="loading">
+      <Loading>
         {error ? `Could not reach the backend: ${error}` : "Loading system stats…"}
-      </div>
+      </Loading>
     );
   }
 
   const { host, cpu, memory, disks, gpus } = snap;
 
   return (
-    <div className="grid">
+    <S.Grid>
       <Card title="System" span={2}>
-        <div className="kv">
+        <S.Kv>
           <Stat label="Host" value={host.hostname} />
-          <Stat
-            label="OS"
-            value={`${host.distro} ${host.release}`.trim()}
-          />
+          <Stat label="OS" value={`${host.distro} ${host.release}`.trim()} />
           <Stat label="Kernel" value={host.kernel || "—"} />
           <Stat label="Architecture" value={host.arch} />
           <Stat label="Platform" value={host.platform} />
@@ -338,79 +338,78 @@ function Overview({
             }
           />
           <Stat label="Uptime" value={formatUptime(host.uptimeSeconds)} />
-        </div>
+        </S.Kv>
       </Card>
 
       <Card title="CPU">
-        <div className="card-split">
+        <S.CardSplit>
           <Gauge value={cpu.loadPercent} label="load" />
-          <div className="readouts">
-            <div className="readout">
-              <span className="readout-value">
+          <S.Readouts>
+            <S.Readout>
+              <S.ReadoutValue>
                 {cpu.currentSpeedGHz.toFixed(2)}
-                <span className="readout-unit">GHz</span>
-              </span>
-              <span className="readout-label">current clock</span>
-            </div>
-            <div className="readout">
-              <span className="readout-value readout-sm">
+                <S.ReadoutUnit>GHz</S.ReadoutUnit>
+              </S.ReadoutValue>
+              <S.ReadoutLabel>current clock</S.ReadoutLabel>
+            </S.Readout>
+            <S.Readout>
+              <S.ReadoutValue $sm>
                 {cpu.baseSpeedGHz.toFixed(2)}
-                <span className="readout-unit">GHz</span>
-              </span>
-              <span className="readout-label">base clock</span>
-            </div>
-          </div>
-        </div>
-        <div className="kv tight">
+                <S.ReadoutUnit>GHz</S.ReadoutUnit>
+              </S.ReadoutValue>
+              <S.ReadoutLabel>base clock</S.ReadoutLabel>
+            </S.Readout>
+          </S.Readouts>
+        </S.CardSplit>
+        <S.Kv $tight>
           <Stat label="Model" value={`${cpu.manufacturer} ${cpu.brand}`} />
           <Stat
             label="Cores"
             value={`${cpu.physicalCores} physical / ${cpu.cores} logical`}
           />
-        </div>
+        </S.Kv>
         {cpu.temperatureC !== null && (
-          <div className="bars">
+          <S.Bars>
             <LabeledBar
               label="Temperature"
               value={cpu.temperatureC}
               max={cpu.temperatureMaxC}
               valueText={`${cpu.temperatureC} / ${cpu.temperatureMaxC} °C`}
             />
-          </div>
+          </S.Bars>
         )}
         {cpu.perCoreLoad.length > 0 && (
           <>
-            <div className="subhead">Per-core load</div>
-            <div className="cores">
+            <S.Subhead>Per-core load</S.Subhead>
+            <S.Cores>
               {cpu.perCoreLoad.map((load, i) => (
-                <div
+                <S.Core
                   key={i}
-                  className="core"
                   title={`Core ${i}: ${load}%${
-                    cpu.perCoreSpeed[i] ? ` · ${cpu.perCoreSpeed[i].toFixed(2)} GHz` : ""
+                    cpu.perCoreSpeed[i]
+                      ? ` · ${cpu.perCoreSpeed[i].toFixed(2)} GHz`
+                      : ""
                   }`}
                 >
-                  <div className="core-fill" style={{ height: `${load}%` }} />
-                </div>
+                  <S.CoreFill style={{ height: `${load}%` }} />
+                </S.Core>
               ))}
-            </div>
+            </S.Cores>
           </>
         )}
       </Card>
 
       <Card title="Memory">
-        <div className="card-split">
+        <S.CardSplit>
           <Gauge value={memory.usedPercent} label="used" />
-          <div className="readouts">
-            <div className="readout">
-              <span className="readout-value">{formatBytes(memory.usedBytes)}</span>
-              <span className="readout-label">
-                of {formatBytes(memory.totalBytes)}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="bars">
+          <S.Readouts>
+            <S.Readout>
+              <S.ReadoutValue>{formatBytes(memory.usedBytes)}</S.ReadoutValue>
+              <S.ReadoutLabel>of {formatBytes(memory.totalBytes)}</S.ReadoutLabel>
+            </S.Readout>
+          </S.Readouts>
+        </S.CardSplit>
+        <S.Bars>
           <LabeledBar
             label="RAM usage"
             value={memory.usedBytes}
@@ -429,33 +428,33 @@ function Overview({
               )}`}
             />
           )}
-        </div>
-        <div className="kv tight">
+        </S.Bars>
+        <S.Kv $tight>
           <Stat label="Available" value={formatBytes(memory.availableBytes)} />
-        </div>
+        </S.Kv>
       </Card>
 
       <Card title="Storage" span={2}>
-        <div className="disks">
+        <S.Disks>
           {disks.length === 0 && <div className="muted">No volumes reported.</div>}
           {disks.map((d) => (
-            <div key={`${d.fs}-${d.mount}`} className="disk">
-              <div className="disk-head">
-                <span className="disk-mount">{d.mount || d.fs}</span>
+            <S.Disk key={`${d.fs}-${d.mount}`}>
+              <S.DiskHead>
+                <S.DiskMount>{d.mount || d.fs}</S.DiskMount>
                 <span className="muted">{d.type}</span>
-              </div>
+              </S.DiskHead>
               <Bar value={d.usedPercent} />
-              <div className="disk-foot muted">
+              <S.DiskFoot className="muted">
                 {formatBytes(d.usedBytes)} used · {formatBytes(d.availableBytes)} free
                 · {formatBytes(d.sizeBytes)} total
-              </div>
-            </div>
+              </S.DiskFoot>
+            </S.Disk>
           ))}
-        </div>
+        </S.Disks>
       </Card>
 
       <Card title="GPU" span={2}>
-        <div className="gpus">
+        <S.Gpus>
           {gpus.length === 0 && <div className="muted">No GPU reported.</div>}
           {gpus.map((g, i) => {
             const hasBars =
@@ -463,12 +462,12 @@ function Overview({
               g.memoryTotalMb !== null ||
               g.temperatureC !== null;
             return (
-              <div key={i} className="gpu">
-                <div className="gpu-name">
+              <S.Gpu key={i}>
+                <S.GpuName>
                   {g.vendor} {g.model}
-                </div>
+                </S.GpuName>
                 {hasBars && (
-                  <div className="bars">
+                  <S.Bars>
                     {g.utilizationPercent !== null && (
                       <LabeledBar
                         label="Utilization"
@@ -493,9 +492,9 @@ function Overview({
                         valueText={`${g.temperatureC} / ${g.temperatureMaxC} °C`}
                       />
                     )}
-                  </div>
+                  </S.Bars>
                 )}
-                <div className="kv tight gpu-meta">
+                <S.GpuMeta $tight>
                   {g.vramMb ? <Stat label="VRAM" value={`${g.vramMb} MB`} /> : null}
                   {g.clockCoreMhz !== null && (
                     <Stat label="Core clock" value={`${g.clockCoreMhz} MHz`} />
@@ -516,13 +515,12 @@ function Overview({
                   {g.fanPercent !== null && (
                     <Stat label="Fan" value={`${g.fanPercent}%`} />
                   )}
-                </div>
-              </div>
+                </S.GpuMeta>
+              </S.Gpu>
             );
           })}
-        </div>
+        </S.Gpus>
       </Card>
-    </div>
+    </S.Grid>
   );
 }
-

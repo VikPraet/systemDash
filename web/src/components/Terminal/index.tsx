@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import * as S from "./styles";
 
 // Raw terminal: the backend runs a real PTY (server/src/terminal.ts), so the
 // shell handles echo, line editing, history and signals itself. xterm.js just
@@ -101,12 +102,12 @@ export function Terminal() {
   }, []);
 
   return (
-    <div className="terminal-tab">
-      <div className="terminal-bar">
-        <span className="terminal-title">Terminal</span>
-        <span className="terminal-hint muted">local shell</span>
-      </div>
-      <div className="terminal-host" ref={hostRef} />
-    </div>
+    <S.TerminalTab>
+      <S.TerminalBar>
+        <S.TerminalTitle>Terminal</S.TerminalTitle>
+        <S.TerminalHint>local shell</S.TerminalHint>
+      </S.TerminalBar>
+      <S.TerminalHost ref={hostRef} />
+    </S.TerminalTab>
   );
 }

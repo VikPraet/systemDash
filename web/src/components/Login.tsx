@@ -3,6 +3,8 @@ import { LogIn } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout } from "./AuthLayout";
+import * as A from "./AuthLayout/styles";
+import { AuthSubmit } from "./ui/styles";
 
 export function Login() {
   const { login } = useAuth();
@@ -34,12 +36,12 @@ export function Login() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={onSubmit}>
-        <span className="auth-eyebrow">Secure access</span>
-        <h2 className="auth-title">Sign in</h2>
-        <p className="auth-sub">Enter your credentials to access the dashboard.</p>
+      <A.AuthForm onSubmit={onSubmit}>
+        <A.AuthEyebrow>Secure access</A.AuthEyebrow>
+        <A.AuthTitle>Sign in</A.AuthTitle>
+        <A.AuthSub>Enter your credentials to access the dashboard.</A.AuthSub>
 
-        <label className="auth-field">
+        <A.AuthField>
           <span>Username</span>
           <input
             type="text"
@@ -50,8 +52,8 @@ export function Login() {
             autoFocus
             required
           />
-        </label>
-        <label className="auth-field">
+        </A.AuthField>
+        <A.AuthField>
           <span>Password</span>
           <input
             type="password"
@@ -61,15 +63,15 @@ export function Login() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </label>
+        </A.AuthField>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && <A.AuthError>{error}</A.AuthError>}
 
-        <button className="auth-submit" type="submit" disabled={busy}>
+        <AuthSubmit type="submit" disabled={busy}>
           <LogIn size={16} strokeWidth={1.8} />
           {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+        </AuthSubmit>
+      </A.AuthForm>
     </AuthLayout>
   );
 }

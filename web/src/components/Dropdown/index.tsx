@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check } from "lucide-react";
+import * as S from "./styles";
 
 export interface DropdownOption<T extends string> {
   value: T;
@@ -82,26 +83,25 @@ export function Dropdown<T extends string>({
   }, [open]);
 
   return (
-    <div className="dropdown" title={title}>
-      <button
+    <S.DropdownRoot title={title}>
+      <S.DropdownTrigger
         ref={triggerRef}
         type="button"
-        className={`dropdown-trigger${open ? " open" : ""}`}
+        $open={open}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
       >
-        <span className="dropdown-value">{selected?.label ?? value}</span>
+        <S.DropdownValue>{selected?.label ?? value}</S.DropdownValue>
         <ChevronDown className="dropdown-chevron" size={15} strokeWidth={1.8} />
-      </button>
+      </S.DropdownTrigger>
 
       {open &&
         pos &&
         createPortal(
-          <ul
+          <S.DropdownMenu
             ref={menuRef}
-            className="dropdown-menu"
             role="listbox"
             style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
           >
@@ -109,28 +109,28 @@ export function Dropdown<T extends string>({
               const isSel = o.value === value;
               return (
                 <li key={o.value} role="option" aria-selected={isSel}>
-                  <button
+                  <S.DropdownItem
                     type="button"
-                    className={`dropdown-item${isSel ? " selected" : ""}`}
+                    $selected={isSel}
                     onClick={() => {
                       onChange(o.value);
                       setOpen(false);
                     }}
                   >
-                    <span className="dropdown-item-main">
-                      <span className="dropdown-item-label">{o.label}</span>
+                    <S.DropdownItemMain>
+                      <S.DropdownItemLabel>{o.label}</S.DropdownItemLabel>
                       {o.hint && (
-                        <span className="dropdown-item-hint">{o.hint}</span>
+                        <S.DropdownItemHint>{o.hint}</S.DropdownItemHint>
                       )}
-                    </span>
+                    </S.DropdownItemMain>
                     {isSel && <Check size={14} strokeWidth={2.2} />}
-                  </button>
+                  </S.DropdownItem>
                 </li>
               );
             })}
-          </ul>,
+          </S.DropdownMenu>,
           document.body
         )}
-    </div>
+    </S.DropdownRoot>
   );
 }

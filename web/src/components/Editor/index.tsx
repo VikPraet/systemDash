@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { readTextFile, writeTextFile } from "../api";
-import type { FsEntry } from "../types";
+import { readTextFile, writeTextFile } from "../../api";
+import type { FsEntry } from "../../types";
+import { ModalBtn } from "../ui/styles";
+import * as S from "./styles";
 
 export function FileEditor({
   entry,
@@ -75,42 +77,36 @@ export function FileEditor({
   });
 
   return (
-    <div className="editor-overlay">
-      <div className="editor">
-        <div className="editor-head">
-          <div className="editor-title">
-            <span className="editor-name">
+    <S.EditorOverlay>
+      <S.EditorPanel>
+        <S.EditorHead>
+          <S.EditorTitle>
+            <S.EditorName>
               {entry.name}
               {dirty && (
-                <span className="editor-dirty" title="Unsaved changes">
-                  {" "}
-                  ●
-                </span>
+                <S.EditorDirty title="Unsaved changes"> ●</S.EditorDirty>
               )}
-            </span>
-            <span className="editor-path muted">{entry.path}</span>
-          </div>
-          <div className="editor-actions">
-            {saved && !dirty && <span className="editor-saved muted">Saved</span>}
-            <button
-              className="modal-btn primary"
+            </S.EditorName>
+            <S.EditorPath>{entry.path}</S.EditorPath>
+          </S.EditorTitle>
+          <S.EditorActions>
+            {saved && !dirty && <S.EditorSaved>Saved</S.EditorSaved>}
+            <ModalBtn
+              $variant="primary"
               onClick={save}
               disabled={!dirty || saving || loading}
             >
               {saving ? "Saving…" : "Save"}
-            </button>
-            <button className="modal-btn" onClick={requestClose}>
-              Close
-            </button>
-          </div>
-        </div>
-        {error && <div className="editor-error">{error}</div>}
+            </ModalBtn>
+            <ModalBtn onClick={requestClose}>Close</ModalBtn>
+          </S.EditorActions>
+        </S.EditorHead>
+        {error && <S.EditorError>{error}</S.EditorError>}
         {loading ? (
-          <div className="files-message muted">Loading…</div>
+          <S.EditorMessage>Loading…</S.EditorMessage>
         ) : (
-          <textarea
+          <S.EditorArea
             ref={taRef}
-            className="editor-area"
             value={content}
             onChange={(e) => {
               setContent(e.target.value);
@@ -120,7 +116,7 @@ export function FileEditor({
             autoFocus
           />
         )}
-      </div>
-    </div>
+      </S.EditorPanel>
+    </S.EditorOverlay>
   );
 }

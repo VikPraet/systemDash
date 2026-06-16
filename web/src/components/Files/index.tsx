@@ -15,18 +15,30 @@ import {
   renameEntry,
   saveSettings,
   uploadFile,
-} from "../api";
+} from "../../api";
 import type {
   DirListing,
   FileManagerSettings,
   FsEntry,
   FsRoot,
   Settings,
-} from "../types";
-import { cache, type DirSize } from "../cache";
-import { Bar } from "./widgets";
-import { FileEditor } from "./Editor";
-import { useAuth, hasRole } from "../auth/AuthContext";
+} from "../../types";
+import { cache, type DirSize } from "../../cache";
+import { Bar } from "../widgets";
+import { FileEditor } from "../Editor";
+import { useAuth, hasRole } from "../../auth/AuthContext";
+import {
+  Modal,
+  ModalActions,
+  ModalBtn,
+  ModalError,
+  ModalInput,
+  ModalLabel,
+  ModalMessage,
+  ModalOverlay,
+  ModalTitle,
+} from "../ui/styles";
+import * as S from "./styles";
 
 // `null` path = the "This PC" overview that lists drives.
 type Path = string | null;
@@ -331,9 +343,9 @@ export function Files() {
   const atThisPc = path === null;
 
   return (
-    <div className="files">
-      <div className="files-toolbar">
-        <div className="files-roots">
+    <S.FilesRoot>
+      <S.FilesToolbar>
+        <S.FilesRoots>
           <button className={atThisPc ? "active" : ""} onClick={() => setPath(null)}>
             <PcIcon />
             This PC
@@ -347,10 +359,9 @@ export function Files() {
               Home
             </button>
           )}
-        </div>
+        </S.FilesRoots>
         {!atThisPc && (
-          <input
-            className="proc-search files-search"
+          <S.FilesSearch
             type="text"
             placeholder="Filter in this folder…"
             value={query}
@@ -358,41 +369,35 @@ export function Files() {
           />
         )}
         {canWrite && (
-          <button
-            className="files-settings-btn"
+          <S.FilesSettingsBtn
             title="File manager settings"
             onClick={() => setSettingsOpen(true)}
           >
             <GearIcon />
             Settings
-          </button>
+          </S.FilesSettingsBtn>
         )}
-      </div>
+      </S.FilesToolbar>
 
-      <div className="files-nav">
-        <button
-          className="files-up"
-          disabled={atThisPc}
-          onClick={goUp}
-          title="Up one level"
-        >
+      <S.FilesNav>
+        <S.FilesUp disabled={atThisPc} onClick={goUp} title="Up one level">
           ↑
-        </button>
-        <div className="crumbs">
-          <span className="crumb">
+        </S.FilesUp>
+        <S.Crumbs>
+          <S.Crumb>
             <button onClick={() => setPath(null)}>This PC</button>
-          </span>
+          </S.Crumb>
           {crumbs.map((c) => (
-            <span key={c.path} className="crumb">
+            <S.Crumb key={c.path}>
               <span className="crumb-sep">/</span>
               <button onClick={() => setPath(c.path)}>{c.label}</button>
-            </span>
+            </S.Crumb>
           ))}
-        </div>
-      </div>
+        </S.Crumbs>
+      </S.FilesNav>
 
       {!atThisPc && canWrite && (
-        <div className="files-actions">
+        <S.FilesActions>
           <button onClick={handleNewFolder} disabled={busy}>
             <PlusIcon /> New folder
           </button>
@@ -409,14 +414,14 @@ export function Files() {
               {clipboard.entry.name}”
             </button>
           )}
-          <div className="files-actions-status">
+          <S.FilesActionsStatus>
             {upload && (
               <span className="muted">
                 Uploading {upload.name}… {Math.round(upload.frac * 100)}%
               </span>
             )}
             {actionError && <span className="bad">{actionError}</span>}
-          </div>
+          </S.FilesActionsStatus>
           <input
             ref={fileInputRef}
             type="file"
@@ -424,18 +429,18 @@ export function Files() {
             hidden
             onChange={handleFilesSelected}
           />
-        </div>
+        </S.FilesActions>
       )}
 
-      <div className="files-body">
+      <S.FilesBody>
         {atThisPc ? (
           <ThisPc drives={drives} onOpen={setPath} />
         ) : error ? (
-          <div className="files-message bad">{error}</div>
+          <S.FilesMessage $bad>{error}</S.FilesMessage>
         ) : loading && !listing ? (
-          <div className="files-message muted">Loading…</div>
+          <S.FilesMessage className="muted">Loading…</S.FilesMessage>
         ) : (
-          <table className="proc-table files-table">
+          <S.FilesTable>
             <thead>
               <tr>
                 <th>Name</th>
@@ -473,9 +478,9 @@ export function Files() {
                 </tr>
               )}
             </tbody>
-          </table>
+          </S.FilesTable>
         )}
-      </div>
+      </S.FilesBody>
 
       {dialog?.kind === "newFolder" && (
         <PromptDialog
@@ -576,7 +581,7 @@ export function Files() {
           }}
         />
       )}
-    </div>
+    </S.FilesRoot>
   );
 }
 
@@ -588,32 +593,32 @@ function ThisPc({
   onOpen: (path: string) => void;
 }) {
   if (drives.length === 0) {
-    return <div className="files-message muted">Loading drives…</div>;
+    return <S.FilesMessage className="muted">Loading drives…</S.FilesMessage>;
   }
   return (
-    <div className="drives">
+    <S.Drives>
       {drives.map((d) => (
-        <button key={d.path} className="drive-card" onClick={() => onOpen(d.path)}>
-          <div className="drive-card-head">
+        <S.DriveCard key={d.path} onClick={() => onOpen(d.path)}>
+          <S.DriveCardHead>
             <DriveIcon />
-            <span className="drive-name">
+            <S.DriveName>
               {d.name}
               {d.label && <span className="drive-label muted"> {d.label}</span>}
-            </span>
-          </div>
+            </S.DriveName>
+          </S.DriveCardHead>
           {d.sizeBytes ? (
             <>
               <Bar value={d.usedPercent ?? 0} />
-              <div className="drive-meta muted">
+              <S.DriveMeta className="muted">
                 {formatBytes(d.freeBytes ?? 0)} free of {formatBytes(d.sizeBytes)}
-              </div>
+              </S.DriveMeta>
             </>
           ) : (
-            <div className="drive-meta muted">{d.path}</div>
+            <S.DriveMeta className="muted">{d.path}</S.DriveMeta>
           )}
-        </button>
+        </S.DriveCard>
       ))}
-    </div>
+    </S.Drives>
   );
 }
 
@@ -768,16 +773,15 @@ function ModalShell({
   }, [onCancel]);
 
   return (
-    <div
-      className="modal-overlay"
+    <ModalOverlay
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="modal" role="dialog" aria-modal="true">
+      <Modal role="dialog" aria-modal="true">
         {children}
-      </div>
-    </div>
+      </Modal>
+    </ModalOverlay>
   );
 }
 
@@ -826,29 +830,28 @@ function PromptDialog({
   return (
     <ModalShell onCancel={onCancel}>
       <form onSubmit={submit}>
-        <h3 className="modal-title">{title}</h3>
-        <label className="modal-label">{label}</label>
-        <input
+        <ModalTitle as="h3">{title}</ModalTitle>
+        <ModalLabel>{label}</ModalLabel>
+        <ModalInput
           ref={inputRef}
-          className="modal-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           spellCheck={false}
           autoComplete="off"
         />
-        {error && <div className="modal-error">{error}</div>}
-        <div className="modal-actions">
-          <button type="button" className="modal-btn" onClick={onCancel}>
+        {error && <ModalError>{error}</ModalError>}
+        <ModalActions>
+          <ModalBtn type="button" onClick={onCancel}>
             Cancel
-          </button>
-          <button
+          </ModalBtn>
+          <ModalBtn
             type="submit"
-            className="modal-btn primary"
+            $variant="primary"
             disabled={!value.trim() || busy}
           >
             {busy ? "Working…" : confirmLabel}
-          </button>
-        </div>
+          </ModalBtn>
+        </ModalActions>
       </form>
     </ModalShell>
   );
@@ -883,22 +886,22 @@ function ConfirmDialog({
 
   return (
     <ModalShell onCancel={onCancel}>
-      <h3 className="modal-title">{title}</h3>
-      <p className="modal-message">{message}</p>
-      {error && <div className="modal-error">{error}</div>}
-      <div className="modal-actions">
-        <button type="button" className="modal-btn" onClick={onCancel}>
+      <ModalTitle as="h3">{title}</ModalTitle>
+      <ModalMessage>{message}</ModalMessage>
+      {error && <ModalError>{error}</ModalError>}
+      <ModalActions>
+        <ModalBtn type="button" onClick={onCancel}>
           Cancel
-        </button>
-        <button
+        </ModalBtn>
+        <ModalBtn
           type="button"
-          className={`modal-btn ${danger ? "danger" : "primary"}`}
+          $variant={danger ? "danger" : "primary"}
           onClick={confirm}
           disabled={busy}
         >
           {busy ? "Working…" : confirmLabel}
-        </button>
-      </div>
+        </ModalBtn>
+      </ModalActions>
     </ModalShell>
   );
 }
@@ -935,8 +938,8 @@ function SettingsDialog({
 
   return (
     <ModalShell onCancel={onCancel}>
-      <h3 className="modal-title">File manager settings</h3>
-      <div className="settings-list">
+      <ModalTitle as="h3">File manager settings</ModalTitle>
+      <S.SettingsList>
         <ToggleRow
           label="Show file extensions"
           desc="Display the .ext suffix on file names."
@@ -961,21 +964,16 @@ function SettingsDialog({
           checked={files.confirmDelete}
           onChange={() => toggle("confirmDelete")}
         />
-      </div>
-      {error && <div className="modal-error">{error}</div>}
-      <div className="modal-actions">
-        <button type="button" className="modal-btn" onClick={onCancel}>
+      </S.SettingsList>
+      {error && <ModalError>{error}</ModalError>}
+      <ModalActions>
+        <ModalBtn type="button" onClick={onCancel}>
           Cancel
-        </button>
-        <button
-          type="button"
-          className="modal-btn primary"
-          onClick={save}
-          disabled={busy}
-        >
+        </ModalBtn>
+        <ModalBtn type="button" $variant="primary" onClick={save} disabled={busy}>
           {busy ? "Saving…" : "Save"}
-        </button>
-      </div>
+        </ModalBtn>
+      </ModalActions>
     </ModalShell>
   );
 }
@@ -992,21 +990,20 @@ function ToggleRow({
   onChange: () => void;
 }) {
   return (
-    <button
+    <S.ToggleRow
       type="button"
-      className="toggle-row"
       onClick={onChange}
       role="switch"
       aria-checked={checked}
     >
-      <span className="toggle-text">
-        <span className="toggle-label">{label}</span>
-        <span className="toggle-desc">{desc}</span>
-      </span>
-      <span className={`switch ${checked ? "on" : ""}`}>
-        <span className="switch-knob" />
-      </span>
-    </button>
+      <S.ToggleText>
+        <S.ToggleLabel>{label}</S.ToggleLabel>
+        <S.ToggleDesc>{desc}</S.ToggleDesc>
+      </S.ToggleText>
+      <S.Switch $on={checked}>
+        <S.SwitchKnob $on={checked} />
+      </S.Switch>
+    </S.ToggleRow>
   );
 }
 

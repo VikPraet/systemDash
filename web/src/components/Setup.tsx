@@ -3,6 +3,8 @@ import { ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout } from "./AuthLayout";
+import * as A from "./AuthLayout/styles";
+import { AuthSubmit } from "./ui/styles";
 
 export function Setup() {
   const { setup } = useAuth();
@@ -33,15 +35,15 @@ export function Setup() {
 
   return (
     <AuthLayout>
-      <form className="auth-form" onSubmit={onSubmit}>
-        <span className="auth-eyebrow">First run</span>
-        <h2 className="auth-title">Create admin</h2>
-        <p className="auth-sub">
+      <A.AuthForm onSubmit={onSubmit}>
+        <A.AuthEyebrow>First run</A.AuthEyebrow>
+        <A.AuthTitle>Create admin</A.AuthTitle>
+        <A.AuthSub>
           This is the first run. The account you create here is the
           administrator and can manage all other users.
-        </p>
+        </A.AuthSub>
 
-        <label className="auth-field">
+        <A.AuthField>
           <span>Username</span>
           <input
             type="text"
@@ -51,8 +53,8 @@ export function Setup() {
             autoFocus
             required
           />
-        </label>
-        <label className="auth-field">
+        </A.AuthField>
+        <A.AuthField>
           <span>Password</span>
           <input
             type="password"
@@ -61,8 +63,8 @@ export function Setup() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </label>
-        <label className="auth-field">
+        </A.AuthField>
+        <A.AuthField>
           <span>Confirm password</span>
           <input
             type="password"
@@ -71,19 +73,19 @@ export function Setup() {
             onChange={(e) => setConfirm(e.target.value)}
             required
           />
-        </label>
-        <p className="auth-hint">
+        </A.AuthField>
+        <A.AuthHint>
           Use at least 8 characters. Username may use letters, numbers, dot, dash
           and underscore (3-32 chars).
-        </p>
+        </A.AuthHint>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && <A.AuthError>{error}</A.AuthError>}
 
-        <button className="auth-submit" type="submit" disabled={busy}>
+        <AuthSubmit type="submit" disabled={busy}>
           <ShieldCheck size={16} strokeWidth={1.8} />
           {busy ? "Creating…" : "Create admin & continue"}
-        </button>
-      </form>
+        </AuthSubmit>
+      </A.AuthForm>
     </AuthLayout>
   );
 }

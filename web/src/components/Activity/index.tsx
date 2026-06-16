@@ -45,10 +45,26 @@ import {
   formatDate,
   formatRelative,
   revokeSession,
-} from "../api";
-import type { AuditEntry, GeoLocation, SessionInfo } from "../types";
-import { parseUserAgent } from "../device";
-import type { DeviceKind } from "../device";
+} from "../../api";
+import type { AuditEntry, GeoLocation, SessionInfo } from "../../types";
+import { parseUserAgent } from "../../device";
+import type { DeviceKind } from "../../device";
+import {
+  AuthError,
+  DangerBtn,
+  GhostBtn,
+  Loading,
+  ModalActions,
+  ModalCard,
+  ModalClose,
+  ModalHead,
+  ModalOverlay,
+  ModalSub,
+  RevokeDetails,
+  RevokeWarn,
+  RoleBadge,
+} from "../ui/styles";
+import * as S from "./styles";
 
 // Turns an ISO 3166-1 alpha-2 code into its flag emoji (regional indicators).
 function flagEmoji(cc: string | null): string {
@@ -71,19 +87,19 @@ function LocationLine({
   if (!location) return null;
   if (location.status === "local") {
     return (
-      <span className="loc-line muted">
+      <S.LocLine className="muted">
         <Network size={12} strokeWidth={1.8} />
         {location.label}
-      </span>
+      </S.LocLine>
     );
   }
   if (location.status === "unknown") {
     if (hideUnknown) return null;
     return (
-      <span className="loc-line muted">
+      <S.LocLine className="muted">
         <MapPin size={12} strokeWidth={1.8} />
         Unknown location
-      </span>
+      </S.LocLine>
     );
   }
   const flag = flagEmoji(location.countryCode);
@@ -91,16 +107,14 @@ function LocationLine({
     .filter(Boolean)
     .join(", ");
   return (
-    <span className="loc-line" title={title || location.label}>
+    <S.LocLine title={title || location.label}>
       {flag ? (
-        <span className="loc-flag" aria-hidden>
-          {flag}
-        </span>
+        <S.LocFlag aria-hidden>{flag}</S.LocFlag>
       ) : (
         <MapPin size={12} strokeWidth={1.8} />
       )}
       {location.label}
-    </span>
+    </S.LocLine>
   );
 }
 
@@ -348,80 +362,82 @@ export function Activity() {
   }, [audit, category, query, failedOnly]);
 
   return (
-    <div className="activity-tab">
-      <div className="activity-head">
+    <S.ActivityTab>
+      <S.ActivityHead>
         <h2>Activity</h2>
-        <button className="ghost-btn" onClick={load} title="Refresh">
+        <GhostBtn onClick={load} title="Refresh">
           <RefreshCw size={15} strokeWidth={1.8} />
           Refresh
-        </button>
-      </div>
+        </GhostBtn>
+      </S.ActivityHead>
 
-      {error && <div className="auth-error inline">{error}</div>}
+      {error && <AuthError $inline>{error}</AuthError>}
 
-      <section className="activity-card">
-        <div className="activity-card-head">
+      <S.ActivityCard>
+        <S.ActivityCardHead>
           <Monitor size={16} strokeWidth={1.8} />
           <h3>Active sessions</h3>
           <span className="muted">{sessions.length}</span>
-        </div>
+        </S.ActivityCardHead>
         {sessions.length === 0 ? (
-          <div className="muted activity-empty">No active sessions.</div>
+          <S.ActivityEmpty className="muted">No active sessions.</S.ActivityEmpty>
         ) : (
-          <div className="sessions-table">
-            <div className="sessions-row sessions-row-head">
+          <S.SessionsTable>
+            <S.SessionsRow $head>
               <span>User</span>
               <span>Device</span>
               <span>IP</span>
               <span>Signed in</span>
               <span>Last seen</span>
               <span></span>
-            </div>
+            </S.SessionsRow>
             {sessions.map((s) => {
               const device = parseUserAgent(s.userAgent);
               const DeviceIcon = DEVICE_ICON[device.kind];
               return (
-              <div className={`sessions-row${s.current ? " current" : ""}`} key={s.id}>
-                <span className="sess-user">
+              <S.SessionsRow $current={s.current} key={s.id}>
+                <S.SessUser>
                   {s.username}
-                  {s.current && <span className="self-badge">you</span>}
-                  <span className={`role-badge ${s.role}`}>{s.role}</span>
-                </span>
-                <span className="sess-device" title={device.raw ?? "No device information"}>
+                  {s.current && <S.SelfBadge>you</S.SelfBadge>}
+                  <RoleBadge $role={s.role}>{s.role}</RoleBadge>
+                </S.SessUser>
+                <S.SessDevice title={device.raw ?? "No device information"}>
                   <DeviceIcon size={15} strokeWidth={1.8} />
-                  <span className="sess-device-text">
-                    <span className="sess-device-label">{device.label}</span>
-                    {device.os && <span className="sess-device-os muted">{device.os}</span>}
-                  </span>
-                </span>
-                <span className="sess-net">
+                  <S.SessDeviceText>
+                    <S.SessDeviceLabel>{device.label}</S.SessDeviceLabel>
+                    {device.os && (
+                      <S.SessDeviceOs className="muted">{device.os}</S.SessDeviceOs>
+                    )}
+                  </S.SessDeviceText>
+                </S.SessDevice>
+                <S.SessNet>
                   <span className="muted mono">{s.ip || "—"}</span>
                   <LocationLine location={s.location} />
-                </span>
+                </S.SessNet>
                 <span className="muted" title={formatDate(s.createdAt)}>
                   {formatRelative(s.createdAt, now)}
                 </span>
                 <span className="muted" title={formatDate(s.lastSeen)}>
                   {formatRelative(s.lastSeen, now)}
                 </span>
-                <span className="sess-actions">
-                  <button
-                    className="ghost-btn danger"
+                <S.SessActions>
+                  <GhostBtn
+                    $danger
                     onClick={() => setRevokeTarget(s)}
                     title={s.current ? "Revoke (signs you out)" : "Revoke session"}
                   >
                     <XCircle size={15} strokeWidth={1.8} />
-                  </button>
-                </span>
-              </div>
+                  </GhostBtn>
+                </S.SessActions>
+              </S.SessionsRow>
               );
             })}
-          </div>
+          </S.SessionsTable>
         )}
-      </section>
+      </S.ActivityCard>
 
-      <section className="activity-card activity-log">
-        <div className="activity-card-head">
+      <S.ActivityCard $log>
+        <S.ActivityCardHead>
           <ScrollText size={16} strokeWidth={1.8} />
           <h3>Activity log</h3>
           <span className="muted">
@@ -429,32 +445,33 @@ export function Activity() {
               ? audit.length
               : `${filtered.length} / ${audit.length}`}
           </span>
-        </div>
+        </S.ActivityCardHead>
 
         {audit.length > 0 && (
-          <div className="audit-filters">
-            <div className="audit-chips">
+          <S.AuditFilters>
+            <S.AuditChips>
               {CATEGORIES.map((c) => (
-                <button
+                <S.AuditChip
                   key={c.id}
-                  className={`audit-chip${category === c.id ? " active" : ""}`}
+                  $active={category === c.id}
                   onClick={() => setCategory(c.id)}
                 >
                   {c.label}
-                  <span className="audit-chip-count">{counts[c.id] ?? 0}</span>
-                </button>
+                  <S.AuditChipCount>{counts[c.id] ?? 0}</S.AuditChipCount>
+                </S.AuditChip>
               ))}
-            </div>
-            <div className="audit-filter-right">
-              <button
-                className={`audit-chip${failedOnly ? " active danger" : ""}`}
+            </S.AuditChips>
+            <S.AuditFilterRight>
+              <S.AuditChip
+                $active={failedOnly}
+                $danger
                 onClick={() => setFailedOnly((v) => !v)}
                 title="Show only failed actions"
               >
                 <ShieldAlert size={13} strokeWidth={1.9} />
                 Failures
-              </button>
-              <div className="audit-search">
+              </S.AuditChip>
+              <S.AuditSearch>
                 <Search size={14} strokeWidth={1.8} />
                 <input
                   type="text"
@@ -463,27 +480,27 @@ export function Activity() {
                   onChange={(e) => setQuery(e.target.value)}
                 />
                 {query && (
-                  <button
-                    className="audit-search-clear"
-                    onClick={() => setQuery("")}
-                    title="Clear"
-                  >
+                  <S.AuditSearchClear onClick={() => setQuery("")} title="Clear">
                     <X size={13} strokeWidth={2} />
-                  </button>
+                  </S.AuditSearchClear>
                 )}
-              </div>
-            </div>
-          </div>
+              </S.AuditSearch>
+            </S.AuditFilterRight>
+          </S.AuditFilters>
         )}
 
         {loading && audit.length === 0 ? (
-          <div className="loading">Loading…</div>
+          <Loading>Loading…</Loading>
         ) : audit.length === 0 ? (
-          <div className="muted activity-empty">No activity recorded yet.</div>
+          <S.ActivityEmpty className="muted">
+            No activity recorded yet.
+          </S.ActivityEmpty>
         ) : filtered.length === 0 ? (
-          <div className="muted activity-empty">No activity matches your filters.</div>
+          <S.ActivityEmpty className="muted">
+            No activity matches your filters.
+          </S.ActivityEmpty>
         ) : (
-          <div className="audit-list">
+          <S.AuditList>
             {filtered.map((e) => {
               const meta = actionMeta(e.action);
               const result = outcome(e);
@@ -492,46 +509,43 @@ export function Activity() {
               const Icon = result === "denied" ? ShieldAlert : meta.icon;
               const iconKind = result === "ok" ? meta.kind : "neutral";
               return (
-              <div
-                className={`audit-row outcome-${result}`}
-                key={e.id}
-              >
-                <span className={`audit-icon ${iconKind}`}>
+              <S.AuditRow $outcome={result} key={e.id}>
+                <S.AuditIcon $kind={iconKind}>
                   <Icon size={14} strokeWidth={1.9} />
-                </span>
-                <span className="audit-main">
-                  <span className="audit-action">{displayLabel(e)}</span>
-                  <span className={`audit-cat ${actionCategory(e.action)}`}>
+                </S.AuditIcon>
+                <S.AuditMain>
+                  <S.AuditAction>{displayLabel(e)}</S.AuditAction>
+                  <S.AuditCat className={actionCategory(e.action)}>
                     {actionCategory(e.action)}
-                  </span>
+                  </S.AuditCat>
                   {result === "denied" && (
-                    <span className="audit-status-badge denied">
+                    <S.AuditStatusBadge $denied>
                       denied{e.status ? ` · ${e.status}` : ""}
-                    </span>
+                    </S.AuditStatusBadge>
                   )}
                   {result === "failed" && e.action !== "auth.login_failed" && (
-                    <span className="audit-status-badge">
+                    <S.AuditStatusBadge>
                       failed{e.status ? ` · ${e.status}` : ""}
-                    </span>
+                    </S.AuditStatusBadge>
                   )}
-                </span>
-                <span className="audit-user">{e.username ?? "—"}</span>
-                <span className="audit-detail muted" title={e.detail ?? ""}>
+                </S.AuditMain>
+                <S.AuditUser>{e.username ?? "—"}</S.AuditUser>
+                <S.AuditDetail className="muted" title={e.detail ?? ""}>
                   {e.detail ?? ""}
-                </span>
-                <span className="audit-ip muted">
+                </S.AuditDetail>
+                <S.AuditIp className="muted">
                   {e.ip && <span className="mono">{e.ip}</span>}
                   <LocationLine location={e.location} hideUnknown />
-                </span>
-                <span className="audit-time muted" title={formatDate(e.ts)}>
+                </S.AuditIp>
+                <S.AuditTime className="muted" title={formatDate(e.ts)}>
                   {formatRelative(e.ts, now)}
-                </span>
-              </div>
+                </S.AuditTime>
+              </S.AuditRow>
               );
             })}
-          </div>
+          </S.AuditList>
         )}
-      </section>
+      </S.ActivityCard>
 
       {revokeTarget && (
         <RevokeModal
@@ -544,7 +558,7 @@ export function Activity() {
           }}
         />
       )}
-    </div>
+    </S.ActivityTab>
   );
 }
 
@@ -576,26 +590,26 @@ function RevokeModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
+    <ModalOverlay onClick={onClose} role="presentation">
+      <ModalCard onClick={(e) => e.stopPropagation()}>
+        <ModalHead>
           <h3>Revoke session</h3>
-          <button type="button" className="modal-close" onClick={onClose}>
+          <ModalClose type="button" onClick={onClose}>
             <X size={16} strokeWidth={1.8} />
-          </button>
-        </div>
+          </ModalClose>
+        </ModalHead>
 
-        <p className="modal-sub">
+        <ModalSub>
           This immediately signs out <strong>{session.username}</strong> on this
           session. They will need to log in again to continue.
-        </p>
+        </ModalSub>
 
-        <dl className="revoke-details">
+        <RevokeDetails>
           <div>
             <dt>User</dt>
             <dd>
               {session.username}
-              <span className={`role-badge ${session.role}`}>{session.role}</span>
+              <RoleBadge $role={session.role}>{session.role}</RoleBadge>
             </dd>
           </div>
           <div>
@@ -632,32 +646,27 @@ function RevokeModal({
               {formatRelative(session.lastSeen, now)}
             </dd>
           </div>
-        </dl>
+        </RevokeDetails>
 
         {session.current && (
-          <div className="revoke-warn">
+          <RevokeWarn>
             <AlertTriangle size={15} strokeWidth={1.8} />
             This is your own current session — revoking it will sign you out.
-          </div>
+          </RevokeWarn>
         )}
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && <AuthError>{error}</AuthError>}
 
-        <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>
+        <ModalActions>
+          <GhostBtn type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="danger-btn"
-            onClick={confirm}
-            disabled={busy}
-          >
+          </GhostBtn>
+          <DangerBtn type="button" onClick={confirm} disabled={busy}>
             <XCircle size={15} strokeWidth={1.8} />
             {busy ? "Revoking…" : "Revoke session"}
-          </button>
-        </div>
-      </div>
-    </div>
+          </DangerBtn>
+        </ModalActions>
+      </ModalCard>
+    </ModalOverlay>
   );
 }

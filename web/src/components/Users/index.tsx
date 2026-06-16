@@ -6,10 +6,23 @@ import {
   fetchUsers,
   formatDate,
   updateUserApi,
-} from "../api";
-import type { Role, User } from "../types";
-import { useAuth } from "../auth/AuthContext";
-import { Dropdown } from "./Dropdown";
+} from "../../api";
+import type { Role, User } from "../../types";
+import { useAuth } from "../../auth/AuthContext";
+import { Dropdown } from "../Dropdown";
+import {
+  AuthError,
+  AuthSubmit,
+  GhostBtn,
+  Loading,
+  ModalActions,
+  ModalCard,
+  ModalClose,
+  ModalHead,
+  ModalOverlay,
+  ModalSub,
+} from "../ui/styles";
+import * as S from "./styles";
 
 /** A custom dropdown for picking a role (shows the role hints in the menu). */
 function RoleSelect({
@@ -70,27 +83,27 @@ export function Users() {
   }
 
   return (
-    <div className="users-tab">
-      <div className="users-head">
+    <S.UsersTab>
+      <S.UsersHead>
         <h2>Users</h2>
         <span className="muted">{users.length} account(s)</span>
-      </div>
+      </S.UsersHead>
 
-      {error && <div className="auth-error inline">{error}</div>}
+      {error && <AuthError $inline>{error}</AuthError>}
 
       <CreateUserForm onCreate={(u, p, r) => act(() => createUserApi(u, p, r))} />
 
       {loading ? (
-        <div className="loading">Loading users…</div>
+        <Loading>Loading users…</Loading>
       ) : (
-        <div className="users-table">
-          <div className="users-row users-row-head">
+        <S.UsersTable>
+          <S.UsersRowHead>
             <span>User</span>
             <span>Role</span>
             <span>Status</span>
             <span>Created</span>
             <span>Actions</span>
-          </div>
+          </S.UsersRowHead>
           {users.map((u) => (
             <UserRow
               key={u.id}
@@ -104,7 +117,7 @@ export function Users() {
               onDelete={() => act(() => deleteUserApi(u.id))}
             />
           ))}
-        </div>
+        </S.UsersTable>
       )}
 
       {pwTarget && (
@@ -117,7 +130,7 @@ export function Users() {
           }}
         />
       )}
-    </div>
+    </S.UsersTab>
   );
 }
 
@@ -156,27 +169,19 @@ function PasswordModal({
   }
 
   return (
-    <div
-      className="modal-overlay"
-      onClick={onClose}
-      role="presentation"
-    >
-      <form
-        className="modal-card"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={submit}
-      >
-        <div className="modal-head">
+    <ModalOverlay onClick={onClose} role="presentation">
+      <ModalCard as="form" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <ModalHead>
           <h3>Reset password</h3>
-          <button type="button" className="modal-close" onClick={onClose}>
+          <ModalClose type="button" onClick={onClose}>
             <X size={16} strokeWidth={1.8} />
-          </button>
-        </div>
-        <p className="modal-sub">
+          </ModalClose>
+        </ModalHead>
+        <ModalSub>
           Set a new password for <strong>{user.username}</strong>. They will be
           signed out and must log in again.
-        </p>
-        <label className="auth-field">
+        </ModalSub>
+        <S.AuthField>
           <span>New password</span>
           <input
             type="password"
@@ -185,8 +190,8 @@ function PasswordModal({
             onChange={(e) => setPassword(e.target.value)}
             autoFocus
           />
-        </label>
-        <label className="auth-field">
+        </S.AuthField>
+        <S.AuthField>
           <span>Confirm password</span>
           <input
             type="password"
@@ -194,18 +199,18 @@ function PasswordModal({
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
           />
-        </label>
-        {error && <div className="auth-error">{error}</div>}
-        <div className="modal-actions">
-          <button type="button" className="ghost-btn" onClick={onClose}>
+        </S.AuthField>
+        {error && <AuthError>{error}</AuthError>}
+        <ModalActions>
+          <GhostBtn type="button" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className="auth-submit compact" disabled={busy}>
+          </GhostBtn>
+          <AuthSubmit type="submit" $compact disabled={busy}>
             {busy ? "Saving…" : "Reset password"}
-          </button>
-        </div>
-      </form>
-    </div>
+          </AuthSubmit>
+        </ModalActions>
+      </ModalCard>
+    </ModalOverlay>
   );
 }
 
@@ -228,26 +233,28 @@ function CreateUserForm({
   }
 
   return (
-    <form className="user-create" onSubmit={submit}>
-      <input
+    <S.CreateForm onSubmit={submit}>
+      <S.CreateInput
         type="text"
         placeholder="username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
       />
-      <input
+      <S.CreateInput
         type="password"
         placeholder="password (min 8 chars)"
         autoComplete="new-password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
       />
-      <RoleSelect value={role} onChange={setRole} />
-      <button type="submit">
+      <S.DropdownWrap>
+        <RoleSelect value={role} onChange={setRole} />
+      </S.DropdownWrap>
+      <S.CreateButton type="submit">
         <UserPlus size={16} strokeWidth={1.8} />
         Add user
-      </button>
-    </form>
+      </S.CreateButton>
+    </S.CreateForm>
   );
 }
 
@@ -273,11 +280,11 @@ function UserRow({
   }
 
   return (
-    <div className="users-row">
-      <span className="user-name">
+    <S.UsersRow>
+      <S.UserName>
         {user.username}
-        {isSelf && <span className="self-badge">you</span>}
-      </span>
+        {isSelf && <S.SelfBadge>you</S.SelfBadge>}
+      </S.UserName>
       <span>
         <RoleSelect
           value={user.role}
@@ -286,29 +293,29 @@ function UserRow({
         />
       </span>
       <span>
-        <button
-          className={`status-pill ${user.active ? "on" : "off"}`}
+        <S.StatusPill
+          $state={user.active ? "on" : "off"}
           onClick={onToggleActive}
           disabled={isSelf}
           title={isSelf ? "You cannot deactivate yourself" : "Toggle active"}
         >
           {user.active ? "active" : "disabled"}
-        </button>
+        </S.StatusPill>
       </span>
       <span className="muted">{formatDate(user.createdAt)}</span>
-      <span className="user-actions">
-        <button onClick={onResetPassword} title="Reset password">
+      <S.UserActions>
+        <S.ActionBtn onClick={onResetPassword} title="Reset password">
           <KeyRound size={15} strokeWidth={1.8} />
-        </button>
-        <button
+        </S.ActionBtn>
+        <S.ActionBtn
+          $danger
           onClick={remove}
           disabled={isSelf}
           title={isSelf ? "You cannot delete yourself" : "Delete user"}
-          className="danger"
         >
           <Trash2 size={15} strokeWidth={1.8} />
-        </button>
-      </span>
-    </div>
+        </S.ActionBtn>
+      </S.UserActions>
+    </S.UsersRow>
   );
 }

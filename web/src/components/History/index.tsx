@@ -15,22 +15,26 @@ import {
   formatBytes,
   formatDate,
   saveSettings,
-} from "../api";
-import { cache } from "../cache";
+} from "../../api";
+import { cache } from "../../cache";
 import type {
   HistorySeries,
   HistorySettings,
   HistoryStats,
   Settings,
   SystemSnapshot,
-} from "../types";
+} from "../../types";
 import {
   Bar,
   ChartCard,
+  Stat,
   TimeSeriesChart,
   type ChartSeries,
-} from "./widgets";
-import { useAuth, hasRole } from "../auth/AuthContext";
+} from "../widgets";
+import { useAuth, hasRole } from "../../auth/AuthContext";
+import { ModalBtn } from "../ui/styles";
+import { CardTitle } from "../widgets/styles";
+import * as S from "./styles";
 
 interface RangePreset {
   id: string;
@@ -443,9 +447,9 @@ export function History() {
     : null;
 
   return (
-    <div className="history">
-      <div className="history-toolbar">
-        <div className="seg">
+    <S.HistoryRoot>
+      <S.HistoryToolbar>
+        <S.Seg>
           {RANGES.map((r) => (
             <button
               key={r.id}
@@ -455,9 +459,9 @@ export function History() {
               {r.label}
             </button>
           ))}
-        </div>
+        </S.Seg>
         {(stats || (data && t.length > 0)) && (
-          <span className="history-meta muted">
+          <S.HistoryMeta className="muted">
             {stats && (
               <>
                 Recording every {stats.intervalSeconds}s
@@ -470,65 +474,64 @@ export function History() {
                 pts
               </>
             )}
-          </span>
+          </S.HistoryMeta>
         )}
-      </div>
+      </S.HistoryToolbar>
 
-      {error && <div className="history-error">Could not load history: {error}</div>}
+      {error && <S.HistoryError>Could not load history: {error}</S.HistoryError>}
 
       {stats && !stats.enabled && (
-        <div className="history-notice">
+        <S.HistoryNotice>
           Recording is currently <strong>off</strong>. Enable it below to start
           collecting metrics.
-        </div>
+        </S.HistoryNotice>
       )}
 
       {charts.length > 0 && (
-        <div className="chart-toggles">
+        <S.ChartToggles>
           {charts.map((c) => {
             const on = !hidden.has(c.id);
             return (
-              <button
+              <S.ChartToggle
                 key={c.id}
                 type="button"
-                className={`chart-toggle${on ? " active" : ""}`}
+                $active={on}
                 aria-pressed={on}
                 onClick={() => toggleChart(c.id)}
               >
                 {c.label}
-              </button>
+              </S.ChartToggle>
             );
           })}
-        </div>
+        </S.ChartToggles>
       )}
 
-      <div className="grid">
+      <S.ChartGrid>
         {visibleCharts.map((c) => (
           <Fragment key={c.id}>{c.render(false)}</Fragment>
         ))}
-      </div>
+      </S.ChartGrid>
 
       {visibleCharts.length === 0 && (
-        <div className="history-notice">
+        <S.HistoryNotice>
           All charts are hidden. Use the toggles above to show them.
-        </div>
+        </S.HistoryNotice>
       )}
 
       <StoragePanel stats={stats} canWrite={canWrite} onChanged={refreshStats} />
 
       {fullscreenChart && (
-        <div
-          className="chart-fs-overlay"
+        <S.ChartFsOverlay
           role="dialog"
           aria-modal="true"
           onClick={() => setFullscreenId(null)}
         >
-          <div className="chart-fs-body" onClick={(e) => e.stopPropagation()}>
+          <S.ChartFsBody onClick={(e) => e.stopPropagation()}>
             {fullscreenChart.render(true)}
-          </div>
-        </div>
+          </S.ChartFsBody>
+        </S.ChartFsOverlay>
       )}
-    </div>
+    </S.HistoryRoot>
   );
 }
 
@@ -579,7 +582,7 @@ function CpuCoresChart({
   // The combined/per-core switch only makes sense with the extra room fullscreen
   // provides, so it's hidden in the compact grid view.
   const actions = fullscreen ? (
-    <div className="chart-viewseg">
+    <S.ChartViewSeg>
       <button
         type="button"
         className={view === "combined" ? "active" : ""}
@@ -594,7 +597,7 @@ function CpuCoresChart({
       >
         Per core
       </button>
-    </div>
+    </S.ChartViewSeg>
   ) : undefined;
 
   const showSplit = fullscreen && view === "split";
@@ -608,24 +611,21 @@ function CpuCoresChart({
       headerActions={actions}
     >
       {showSplit ? (
-        <div className="core-grid">
+        <S.CoreGrid>
           {cores.map((c) => {
             const last = lastValue(c.load);
             const color = coreColor(c.index, cores.length);
             return (
-              <div className="core-cell" key={c.index}>
-                <div className="core-cell-head">
-                  <span className="core-cell-name">
-                    <span
-                      className="core-cell-dot"
-                      style={{ background: color }}
-                    />
+              <S.CoreCell key={c.index}>
+                <S.CoreCellHead>
+                  <S.CoreCellName>
+                    <S.CoreCellDot style={{ background: color }} />
                     Core {c.index}
-                  </span>
-                  <span className="core-cell-val">
+                  </S.CoreCellName>
+                  <S.CoreCellVal>
                     {last == null ? "—" : `${Math.round(last)}%`}
-                  </span>
-                </div>
+                  </S.CoreCellVal>
+                </S.CoreCellHead>
                 <TimeSeriesChart
                   t={t}
                   series={[{ label: `Core ${c.index}`, color, data: c.load }]}
@@ -635,10 +635,10 @@ function CpuCoresChart({
                   height={104}
                   formatTime={timeFmt}
                 />
-              </div>
+              </S.CoreCell>
             );
           })}
-        </div>
+        </S.CoreGrid>
       ) : (
         <TimeSeriesChart
           t={t}
@@ -802,154 +802,144 @@ function StoragePanel({
       : 0;
 
   return (
-    <section className="card storage-panel">
-      <h2 className="card-title">Storage &amp; recording</h2>
+    <S.StoragePanel>
+      <CardTitle as="h2">Storage &amp; recording</CardTitle>
 
-      <div className="storage-grid">
-        <div className="storage-stats">
+      <S.StorageGrid>
+        <S.StorageStats>
           {stats ? (
             <>
-              <div className="kv tight">
-                <div className="stat">
-                  <span className="stat-label">On disk</span>
-                  <span className="stat-value">{formatBytes(stats.dbBytes)}</span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Samples stored</span>
-                  <span className="stat-value">
-                    {stats.rowCount.toLocaleString()}
-                  </span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Per sample</span>
-                  <span className="stat-value">
-                    {stats.bytesPerSample > 0
+              <S.KvTight>
+                <Stat label="On disk" value={formatBytes(stats.dbBytes)} />
+                <Stat
+                  label="Samples stored"
+                  value={stats.rowCount.toLocaleString()}
+                />
+                <Stat
+                  label="Per sample"
+                  value={
+                    stats.bytesPerSample > 0
                       ? formatBytes(stats.bytesPerSample)
-                      : "—"}
-                  </span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Oldest record</span>
-                  <span className="stat-value">{formatDate(stats.oldest)}</span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Est. headroom</span>
-                  <span className="stat-value">
-                    {stats.estimatedDaysToFull != null
+                      : "—"
+                  }
+                />
+                <Stat label="Oldest record" value={formatDate(stats.oldest)} />
+                <Stat
+                  label="Est. headroom"
+                  value={
+                    stats.estimatedDaysToFull != null
                       ? `~${stats.estimatedDaysToFull.toFixed(1)} days`
-                      : "unlimited"}
-                  </span>
-                </div>
-              </div>
+                      : "unlimited"
+                  }
+                />
+              </S.KvTight>
               {stats.maxSizeMb > 0 && (
-                <div className="storage-bar">
+                <S.StorageBar>
                   <Bar value={usedPct} />
-                  <div className="muted storage-bar-foot">
+                  <S.StorageBarFoot className="muted">
                     {formatBytes(stats.dbBytes)} of {stats.maxSizeMb} MB cap (
                     {usedPct.toFixed(usedPct < 10 ? 1 : 0)}%)
-                  </div>
-                </div>
+                  </S.StorageBarFoot>
+                </S.StorageBar>
               )}
             </>
           ) : (
             <div className="muted">Loading storage stats…</div>
           )}
-        </div>
+        </S.StorageStats>
 
         {canWrite && (
-        <div className="storage-form">
-          <button
-            type="button"
-            className="toggle-row"
-            role="switch"
-            aria-checked={draft.enabled}
-            onClick={() => setDraft({ ...draft, enabled: !draft.enabled })}
-          >
-            <span className="toggle-text">
-              <span className="toggle-label">Record metrics</span>
-              <span className="toggle-desc">
-                Sample and store system stats in the background.
-              </span>
-            </span>
-            <span className={`switch ${draft.enabled ? "on" : ""}`}>
-              <span className="switch-knob" />
-            </span>
-          </button>
-
-          <NumberField
-            label="Sample interval"
-            unit="seconds"
-            min={1}
-            max={3600}
-            value={draft.intervalSeconds}
-            onChange={(v) => setDraft({ ...draft, intervalSeconds: v })}
-          />
-          <NumberField
-            label="Keep history for"
-            unit="days (0 = no age limit)"
-            min={0}
-            max={3650}
-            value={draft.retentionDays}
-            onChange={(v) => setDraft({ ...draft, retentionDays: v })}
-          />
-          <NumberField
-            label="Max database size"
-            unit="MB (0 = no size limit)"
-            min={0}
-            max={1048576}
-            value={draft.maxSizeMb}
-            onChange={(v) => setDraft({ ...draft, maxSizeMb: v })}
-          />
-
-          <div className="storage-actions">
-            <button
+          <S.StorageForm>
+            <S.ToggleRow
               type="button"
-              className="modal-btn danger-ghost"
-              onClick={() => setConfirmClear(true)}
-              disabled={busy}
+              role="switch"
+              aria-checked={draft.enabled}
+              onClick={() => setDraft({ ...draft, enabled: !draft.enabled })}
             >
-              Clear history
-            </button>
-            <div className="storage-actions-right">
-              {msg && <span className="storage-msg muted">{msg}</span>}
-              <button
+              <S.ToggleText>
+                <S.ToggleLabel>Record metrics</S.ToggleLabel>
+                <S.ToggleDesc>
+                  Sample and store system stats in the background.
+                </S.ToggleDesc>
+              </S.ToggleText>
+              <S.Switch $on={draft.enabled}>
+                <S.SwitchKnob />
+              </S.Switch>
+            </S.ToggleRow>
+
+            <NumberField
+              label="Sample interval"
+              unit="seconds"
+              min={1}
+              max={3600}
+              value={draft.intervalSeconds}
+              onChange={(v) => setDraft({ ...draft, intervalSeconds: v })}
+            />
+            <NumberField
+              label="Keep history for"
+              unit="days (0 = no age limit)"
+              min={0}
+              max={3650}
+              value={draft.retentionDays}
+              onChange={(v) => setDraft({ ...draft, retentionDays: v })}
+            />
+            <NumberField
+              label="Max database size"
+              unit="MB (0 = no size limit)"
+              min={0}
+              max={1048576}
+              value={draft.maxSizeMb}
+              onChange={(v) => setDraft({ ...draft, maxSizeMb: v })}
+            />
+
+            <S.StorageActions>
+              <ModalBtn
                 type="button"
-                className="modal-btn primary"
-                onClick={save}
-                disabled={busy || !dirty}
+                $variant="danger-ghost"
+                onClick={() => setConfirmClear(true)}
+                disabled={busy}
               >
-                {busy ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
+                Clear history
+              </ModalBtn>
+              <S.StorageActionsRight>
+                {msg && <S.StorageMsg className="muted">{msg}</S.StorageMsg>}
+                <ModalBtn
+                  type="button"
+                  $variant="primary"
+                  onClick={save}
+                  disabled={busy || !dirty}
+                >
+                  {busy ? "Saving…" : "Save"}
+                </ModalBtn>
+              </S.StorageActionsRight>
+            </S.StorageActions>
+          </S.StorageForm>
         )}
-      </div>
+      </S.StorageGrid>
 
       {confirmClear && (
-        <div className="storage-confirm">
+        <S.StorageConfirm>
           <span>Permanently delete all recorded history?</span>
-          <div className="storage-confirm-actions">
-            <button
+          <S.StorageConfirmActions>
+            <ModalBtn
               type="button"
-              className="modal-btn"
               onClick={() => setConfirmClear(false)}
               disabled={busy}
             >
               Cancel
-            </button>
-            <button
+            </ModalBtn>
+            <ModalBtn
               type="button"
-              className="modal-btn danger"
+              $variant="danger"
               onClick={doClear}
               disabled={busy}
             >
               Delete everything
-            </button>
-          </div>
-        </div>
+            </ModalBtn>
+          </S.StorageConfirmActions>
+        </S.StorageConfirm>
       )}
-    </section>
+    </S.StoragePanel>
   );
 }
 
@@ -969,9 +959,9 @@ function NumberField({
   onChange: (v: number) => void;
 }) {
   return (
-    <label className="num-field">
-      <span className="num-field-label">{label}</span>
-      <span className="num-field-input">
+    <S.NumField>
+      <S.NumFieldLabel>{label}</S.NumFieldLabel>
+      <S.NumFieldInput>
         <input
           type="number"
           min={min}
@@ -983,8 +973,8 @@ function NumberField({
             onChange(Math.max(min, Math.min(max, Math.round(n))));
           }}
         />
-        <span className="num-field-unit muted">{unit}</span>
-      </span>
-    </label>
+        <S.NumFieldUnit className="muted">{unit}</S.NumFieldUnit>
+      </S.NumFieldInput>
+    </S.NumField>
   );
 }

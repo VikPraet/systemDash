@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { BrandDot } from "../ui/styles";
+import * as S from "./styles";
 
 interface AuthLayoutProps {
   readonly children: ReactNode;
@@ -12,17 +14,17 @@ interface AuthLayoutProps {
  */
 export function AuthLayout({ children }: AuthLayoutProps) {
   return (
-    <div className="auth-screen">
-      <div className="auth-window">
-        <div className="auth-panel auth-panel--form">
-          <div className="auth-brand">
-            <span className="brand-dot" />
+    <S.AuthScreen>
+      <S.AuthWindow>
+        <S.AuthPanelForm>
+          <S.AuthBrand>
+            <BrandDot />
             <h1>SystemDash</h1>
-          </div>
+          </S.AuthBrand>
           {children}
-        </div>
-        <div className="auth-panel auth-panel--glass" aria-hidden="true" />
-      </div>
-    </div>
+        </S.AuthPanelForm>
+        <S.AuthPanelGlass aria-hidden="true" />
+      </S.AuthWindow>
+    </S.AuthScreen>
   );
 }
