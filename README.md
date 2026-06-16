@@ -18,13 +18,21 @@ and OS/host info.
 
 ![Processes](docs/screenshots/processes.png)
 
+**Containers** — Docker status, container list, logs, and start/stop controls:
+
+![Containers](docs/screenshots/containers.png)
+
 **Files** — browse drives, navigate folders, and manage files:
 
 ![Files](docs/screenshots/files.png)
 
-**Terminal** — an interactive shell session right in the browser:
+**Terminal** — multi-tab local shell with scrollback kept per tab:
 
 ![Terminal](docs/screenshots/terminal.png)
+
+**Activity** — active sessions and audit log (admin):
+
+![Activity](docs/screenshots/activity.png)
 
 ## Stack
 
