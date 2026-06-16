@@ -72,6 +72,23 @@ export function authDb(): DatabaseSync {
     );
   `);
   fresh.exec("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log (ts DESC);");
+  // Geo cache: maps an IP to its resolved location so we only hit the external
+  // geolocation service once per address. Local/private IPs are stored too (with
+  // status 'local') so they never trigger a lookup.
+  fresh.exec(`
+    CREATE TABLE IF NOT EXISTS geo_cache (
+      ip           TEXT PRIMARY KEY,
+      status       TEXT NOT NULL,
+      label        TEXT,
+      city         TEXT,
+      region       TEXT,
+      country      TEXT,
+      country_code TEXT,
+      lat          REAL,
+      lon          REAL,
+      resolved_at  INTEGER NOT NULL
+    );
+  `);
   db = fresh;
   return db;
 }

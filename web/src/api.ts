@@ -217,6 +217,15 @@ export async function fetchProcesses(signal?: AbortSignal): Promise<ProcessList>
   return (await res.json()) as ProcessList;
 }
 
+/** Terminates a process: `end` is graceful, `kill` forces it. */
+export function killProcess(
+  pid: number,
+  mode: "end" | "kill",
+  name?: string
+): Promise<{ ok: true }> {
+  return postJson("/api/processes/kill", { pid, mode, name });
+}
+
 export async function fetchRoots(signal?: AbortSignal): Promise<FsRoot[]> {
   const res = await fetch("/api/fs/roots", { signal });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);

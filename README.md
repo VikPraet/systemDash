@@ -125,9 +125,18 @@ Terminal:
   sessions are opaque tokens kept in an HttpOnly, SameSite=Lax cookie (marked `Secure`
   automatically over HTTPS). Run behind HTTPS (e.g. a reverse proxy) when exposing it
   beyond localhost.
-- **File access & command execution:** even when authenticated, the server reads/writes
-  the disk and runs the terminal **as the OS user that started it**, so `user`/`admin`
-  accounts effectively have that user's host privileges — grant those roles carefully.
+- **Privilege model — the dashboard runs with full host clearance:** SystemDash is the
+  server's control interface and never drops privileges. It reads/writes the disk, runs
+  the terminal, and ends/kills processes **as the OS account that started it**. Launch it
+  as a normal user and it's confined to that user; launch it elevated (Administrator on
+  Windows, root via `sudo`/systemd on Linux) and a signed-in `user`/`admin` can do
+  anything that account can on the machine — kill any process, touch any file, run any
+  command. This is intentional, but it means the in-app roles are your only guardrail, so
+  grant `user`/`admin` carefully and keep it behind HTTPS + strong passwords.
+- **Process control:** the Processes tab lets `user`/`admin` accounts **End** (graceful:
+  `taskkill` / `SIGTERM`) or **Force kill** (`taskkill /F /T` / `SIGKILL`) any process.
+  The only thing it refuses to terminate is its own server process, to avoid taking down
+  the interface from inside itself. Every termination is recorded in the activity log.
 - **Terminal limitations:** it pipes a shell rather than allocating a real PTY, so
   full-screen TUI programs (vim, htop, less) won't render correctly. Ordinary commands,
   output streaming, prompts and line editing work. A real PTY (node-pty) or SSH for
@@ -135,7 +144,6 @@ Terminal:
 
 ## Roadmap
 
-- Process control (end tasks), Docker container management, and scheduled jobs —
-  gated behind the `user`/`admin` roles.
+- Docker container management and scheduled jobs — gated behind the `user`/`admin` roles.
 - Real PTY terminal (node-pty) + SSH to remote hosts.
 - CSRF tokens / 2FA for hardening when exposed to untrusted networks.

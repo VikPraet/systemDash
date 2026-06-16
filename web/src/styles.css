@@ -911,6 +911,47 @@ body {
   padding: 28px;
 }
 
+.proc-actions-th {
+  width: 1%;
+}
+
+.proc-actions {
+  white-space: nowrap;
+}
+
+.proc-end-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.proc-table tbody tr:hover .proc-end-btn,
+.proc-end-btn:focus-visible {
+  opacity: 1;
+}
+
+.proc-end-btn:hover {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--border));
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+
+.proc-modal-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .usage {
   display: inline-block;
   min-width: 62px;
@@ -2785,7 +2826,7 @@ body {
 
 .sessions-row {
   display: grid;
-  grid-template-columns: 1.4fr 1.1fr 1fr 1fr 0.5fr;
+  grid-template-columns: 1.3fr 1.5fr 1.1fr 1fr 1fr 0.5fr;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
@@ -2820,16 +2861,189 @@ body {
   justify-content: flex-end;
 }
 
+.sess-device {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.sess-device > svg {
+  flex: none;
+  color: var(--text);
+}
+
+.sess-device-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.sess-device-label {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sess-device-os {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Stacked IP + location cell in the sessions table */
+.sess-net {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* "Where from" line: flag/icon + city, country. Reused in sessions, audit and
+   the revoke modal. */
+.loc-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  min-width: 0;
+}
+
+.loc-line > svg {
+  flex: none;
+}
+
+.loc-flag {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ---- Activity log: filters ---- */
+.audit-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.audit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.audit-filter-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.audit-chip:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.audit-chip.active {
+  background: rgba(79, 140, 255, 0.16);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.audit-chip.active.danger {
+  background: rgba(248, 113, 113, 0.16);
+  border-color: var(--bad);
+}
+
+.audit-chip-count {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.audit-chip.active .audit-chip-count {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.audit-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  color: var(--muted);
+}
+
+.audit-search:focus-within {
+  border-color: var(--accent);
+}
+
+.audit-search input {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+  width: 200px;
+}
+
+.audit-search input::placeholder {
+  color: var(--muted);
+}
+
+.audit-search-clear {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.audit-search-clear:hover {
+  color: var(--text);
+}
+
+/* ---- Activity log: rows ---- */
 .audit-list {
   display: flex;
   flex-direction: column;
-  max-height: 520px;
+  max-height: 560px;
   overflow-y: auto;
 }
 
 .audit-row {
   display: grid;
-  grid-template-columns: 14px 1.1fr 0.9fr 2fr 1fr 0.9fr;
+  grid-template-columns: 28px 1.4fr 0.9fr 2fr 1fr 0.9fr;
   align-items: center;
   gap: 10px;
   padding: 9px 14px;
@@ -2841,38 +3055,137 @@ body {
   border-top: none;
 }
 
-.audit-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--muted);
+.audit-row:hover {
+  background: rgba(255, 255, 255, 0.025);
 }
 
-.audit-dot.auth {
-  background: var(--accent);
+.audit-row.outcome-failed {
+  background: rgba(248, 113, 113, 0.06);
 }
 
-.audit-dot.write {
-  background: var(--good);
+/* Denied (no-permission) attempts: nothing actually happened, so we tint amber
+   and mute the headline rather than using the success "did it" styling. */
+.audit-row.outcome-denied {
+  background: rgba(251, 191, 36, 0.05);
 }
 
-.audit-dot.danger {
-  background: var(--bad);
+.audit-row.outcome-denied .audit-action,
+.audit-row.outcome-failed .audit-action {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.audit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(139, 151, 168, 0.14);
+}
+
+.audit-icon.info {
+  color: var(--accent);
+  background: rgba(79, 140, 255, 0.15);
+}
+
+.audit-icon.success {
+  color: var(--good);
+  background: rgba(52, 211, 153, 0.15);
+}
+
+.audit-icon.warn {
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.15);
+}
+
+.audit-icon.danger {
+  color: var(--bad);
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.audit-icon.terminal {
+  color: #c4a8ff;
+  background: rgba(167, 139, 250, 0.16);
+}
+
+.audit-icon.neutral {
+  color: var(--muted);
+  background: rgba(139, 151, 168, 0.14);
+}
+
+.audit-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
 .audit-action {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audit-cat {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.audit-status-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--bad);
+  background: rgba(248, 113, 113, 0.14);
+  flex-shrink: 0;
+}
+
+.audit-status-badge.denied {
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.14);
 }
 
 .audit-user {
   color: var(--text);
+  font-weight: 500;
 }
 
-.audit-detail,
-.audit-ip {
+.audit-detail {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.audit-ip {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.audit-ip .mono,
+.audit-ip .loc-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .audit-time {
@@ -2880,12 +3193,40 @@ body {
 }
 
 @media (max-width: 720px) {
-  .sessions-row,
-  .audit-row {
+  .sessions-row {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+  .audit-row {
+    grid-template-columns: 28px 1fr auto;
+    grid-template-areas:
+      "icon main time"
+      "icon user detail"
+      "icon ip ip";
+    row-gap: 2px;
+  }
+  .audit-icon {
+    grid-area: icon;
+  }
+  .audit-main {
+    grid-area: main;
+  }
+  .audit-user {
+    grid-area: user;
+  }
+  .audit-detail {
+    grid-area: detail;
+  }
+  .audit-ip {
+    grid-area: ip;
+  }
+  .audit-time {
+    grid-area: time;
+  }
   .sessions-row-head {
     display: none;
+  }
+  .audit-search input {
+    width: 130px;
   }
 }

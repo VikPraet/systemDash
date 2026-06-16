@@ -186,6 +186,19 @@ export interface AuthStatus {
   user: User | null;
 }
 
+export type GeoStatus = "local" | "resolved" | "unknown";
+
+export interface GeoLocation {
+  status: GeoStatus;
+  label: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  countryCode: string | null;
+  lat: number | null;
+  lon: number | null;
+}
+
 export interface SessionInfo {
   id: string;
   userId: number;
@@ -196,6 +209,7 @@ export interface SessionInfo {
   expiresAt: number;
   ip: string | null;
   userAgent: string | null;
+  location: GeoLocation | null;
   current: boolean;
 }
 
@@ -208,4 +222,5 @@ export interface AuditEntry {
   detail: string | null;
   status: number | null;
   ip: string | null;
+  location: GeoLocation | null;
 }

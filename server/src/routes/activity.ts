@@ -9,6 +9,25 @@ import {
   requireRole,
   revokeSession,
 } from "../auth.js";
+import { resolveLocations, normalizeForLookup, type GeoLocation } from "../geo.js";
+
+// Attaches a resolved `location` to each row that carries an `ip`, looking up
+// every distinct address once. Never throws — on failure rows just get a null
+// location and the response still succeeds.
+async function withLocations<T extends { ip: string | null }>(
+  rows: T[]
+): Promise<Array<T & { location: GeoLocation | null }>> {
+  let byIp = new Map<string, GeoLocation>();
+  try {
+    byIp = await resolveLocations(rows.map((r) => r.ip));
+  } catch (err) {
+    console.error("failed to resolve locations:", err);
+  }
+  return rows.map((r) => {
+    const key = normalizeForLookup(r.ip);
+    return { ...r, location: (key && byIp.get(key)) || null };
+  });
+}
 
 // Active-sessions + audit-log endpoints. Admin-only: this is sensitive activity
 // data about every user. The guard is applied per-route (not via router.use)
@@ -27,8 +46,13 @@ function sendError(res: import("express").Response, err: unknown): void {
   }
 }
 
-activityRouter.get("/sessions", adminOnly, (req, res) => {
-  res.json({ sessions: listSessions(currentSessionId(req)) });
+activityRouter.get("/sessions", adminOnly, async (req, res) => {
+  try {
+    const sessions = await withLocations(listSessions(currentSessionId(req)));
+    res.json({ sessions });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 activityRouter.post("/sessions/revoke", adminOnly, (req, res) => {
@@ -50,7 +74,12 @@ activityRouter.post("/sessions/revoke", adminOnly, (req, res) => {
   }
 });
 
-activityRouter.get("/audit", adminOnly, (req, res) => {
-  const limit = Number(req.query.limit);
-  res.json({ entries: listAudit(Number.isFinite(limit) ? limit : 200) });
+activityRouter.get("/audit", adminOnly, async (req, res) => {
+  try {
+    const limit = Number(req.query.limit);
+    const entries = await withLocations(listAudit(Number.isFinite(limit) ? limit : 200));
+    res.json({ entries });
+  } catch (err) {
+    sendError(res, err);
+  }
 });

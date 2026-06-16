@@ -123,3 +123,80 @@ export async function initSettings(): Promise<Settings> {
   configureHistory(settings.history);
   return settings;
 }
+
+// Human-friendly names for sections and fields, used when describing what a user
+// changed in the audit log. Adding a new settings section later (e.g.
+// "dashboard") just means adding its labels here — the diff itself is generic.
+const SECTION_LABELS: Record<string, string> = {
+  files: "Files",
+  history: "History",
+};
+
+const FIELD_LABELS: Record<string, Record<string, string>> = {
+  files: {
+    showHiddenFiles: "Show hidden files",
+    showFileExtensions: "Show file extensions",
+    showFolderSizes: "Show folder sizes",
+    confirmDelete: "Confirm before delete",
+  },
+  history: {
+    enabled: "Recording enabled",
+    intervalSeconds: "Sample interval (s)",
+    retentionDays: "Retention (days)",
+    maxSizeMb: "Max size (MB)",
+  },
+};
+
+function formatSettingValue(v: unknown): string {
+  if (typeof v === "boolean") return v ? "on" : "off";
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number" || typeof v === "string") return String(v);
+  return JSON.stringify(v);
+}
+
+export interface SettingsDiff {
+  /** A human-readable summary like "Files — Show hidden files: off → on". */
+  detail: string;
+  /** Section keys that had at least one changed field. */
+  sections: string[];
+  /** Total number of changed leaf fields. */
+  count: number;
+}
+
+/**
+ * Diffs two settings objects into a per-section, per-field summary suitable for
+ * an audit-log detail string. Iterates generically over whatever sections exist
+ * so new settings groups are picked up automatically.
+ */
+export function diffSettings(prev: Settings, next: Settings): SettingsDiff {
+  const parts: string[] = [];
+  const sections: string[] = [];
+  let count = 0;
+
+  for (const section of Object.keys(next) as (keyof Settings)[]) {
+    const before = (prev?.[section] ?? {}) as unknown as Record<string, unknown>;
+    const after = next[section] as unknown as Record<string, unknown>;
+    if (!after || typeof after !== "object") continue;
+
+    const changes: string[] = [];
+    for (const key of Object.keys(after)) {
+      if (before[key] !== after[key]) {
+        const label = FIELD_LABELS[section]?.[key] ?? key;
+        changes.push(
+          `${label}: ${formatSettingValue(before[key])} → ${formatSettingValue(
+            after[key]
+          )}`
+        );
+        count++;
+      }
+    }
+
+    if (changes.length > 0) {
+      sections.push(section);
+      const sectionLabel = SECTION_LABELS[section] ?? section;
+      parts.push(`${sectionLabel} — ${changes.join(", ")}`);
+    }
+  }
+
+  return { detail: parts.join("; "), sections, count };
+}

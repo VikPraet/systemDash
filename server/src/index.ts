@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { getSnapshot } from "./stats.js";
-import { getProcesses } from "./processes.js";
+import { getProcesses, killProcess, ProcessError, type KillMode } from "./processes.js";
 import {
   getRoots,
   listDirectory,
@@ -21,7 +21,7 @@ import {
   writeTextFile,
   HttpError,
 } from "./files.js";
-import { getSettings, saveSettings, initSettings } from "./settings.js";
+import { getSettings, saveSettings, initSettings, diffSettings } from "./settings.js";
 import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
 import {
@@ -62,6 +62,44 @@ app.use("/api", requireAuth);
 app.use("/api/users", usersRouter);
 app.use("/api", activityRouter);
 
+// Process control. Defined before the generic audit middleware so we can record
+// a richer, explicit audit entry (with the process name + mode) instead of the
+// generic one. Requires the `user` role; `kill` force-terminates, `end` is graceful.
+app.post("/api/processes/kill", requireRole("user"), async (req, res) => {
+  const body = (req.body ?? {}) as { pid?: unknown; mode?: unknown; name?: unknown };
+  const pid = Number(body.pid);
+  const mode: KillMode = body.mode === "kill" ? "kill" : "end";
+  const name = typeof body.name === "string" ? body.name : "";
+  const label = `${name ? `${name} ` : ""}(pid ${Number.isFinite(pid) ? pid : "?"})`;
+  try {
+    await killProcess(pid, mode);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: mode === "kill" ? "process.kill" : "process.end",
+      detail: label,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: mode === "kill" ? "process.kill" : "process.end",
+      detail: `failed: ${label}`,
+      status: err instanceof ProcessError ? err.status : 500,
+      ip: clientIp(req),
+    });
+    if (err instanceof ProcessError) {
+      res.status(err.status).json({ error: err.message });
+    } else {
+      console.error("Failed to terminate process:", err);
+      res.status(500).json({ error: "failed to terminate process" });
+    }
+  }
+});
+
 // Audit any state-changing operational request (file writes, settings, history
 // clear, etc.). Mounted after the user/session routers so those don't get logged
 // twice — they record richer entries themselves. Reads (GET) are not logged.
@@ -70,6 +108,12 @@ app.use("/api", (req, res, next) => {
     return next();
   }
   res.on("finish", () => {
+    // Successful settings saves are logged explicitly by the route with a
+    // field-level diff. Still fall through for failures/denials (>=400) so
+    // blocked attempts aren't lost.
+    if (req.path.startsWith("/api/settings") && res.statusCode < 400) {
+      return;
+    }
     const action =
       req.path.replace(/^\/api\//, "").replace(/\/+$/, "").replace(/\//g, ".") ||
       "request";
@@ -233,7 +277,24 @@ app.get("/api/settings", async (_req, res) => {
 
 app.put("/api/settings", requireRole("user"), async (req, res) => {
   try {
-    res.json(await saveSettings(req.body));
+    const prev = await getSettings();
+    const next = await saveSettings(req.body);
+    // Log exactly which fields changed (grouped by section) instead of a bare
+    // "changed settings". A no-op save records nothing. Denied attempts are
+    // still captured by the generic middleware (see its /api/settings note).
+    const diff = diffSettings(prev, next);
+    if (diff.count > 0) {
+      recordAudit({
+        userId: req.user?.id ?? null,
+        username: req.user?.username ?? null,
+        action:
+          diff.sections.length === 1 ? `settings.${diff.sections[0]}` : "settings",
+        detail: diff.detail,
+        status: 200,
+        ip: clientIp(req),
+      });
+    }
+    res.json(next);
   } catch (err) {
     sendError(res, err, "failed to save settings");
   }

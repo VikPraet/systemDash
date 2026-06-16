@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchProcesses, formatBytes } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Power, X } from "lucide-react";
+import { fetchProcesses, formatBytes, killProcess } from "../api";
 import { cache } from "../cache";
+import { hasRole, useAuth } from "../auth/AuthContext";
 import type { ProcessInfo, ProcessList } from "../types";
 import { ProcessIcon } from "./ProcessIcon";
 
@@ -9,13 +11,26 @@ const POLL_MS = 2000;
 type SortKey = "name" | "pid" | "cpuPercent" | "memBytes" | "user";
 
 export function Processes() {
+  const { user } = useAuth();
+  const canManage = hasRole(user, "user");
   const [data, setData] = useState<ProcessList | null>(() => cache.processes);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("cpuPercent");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filter, setFilter] = useState<"all" | "apps" | "background">("all");
+  const [target, setTarget] = useState<ProcessInfo | null>(null);
   const inFlight = useRef(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetchProcesses();
+      cache.processes = res;
+      setData(res);
+    } catch {
+      // a manual refresh failing is non-fatal; the poll loop will retry
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +106,8 @@ export function Processes() {
     );
   }
 
+  const cols = canManage ? 6 : 5;
+
   return (
     <div className="proc">
       <div className="proc-toolbar">
@@ -135,28 +152,29 @@ export function Processes() {
               <Th label="User" col="user" {...{ sortKey, sortDir, toggleSort }} />
               <Th label="CPU" col="cpuPercent" align="right" {...{ sortKey, sortDir, toggleSort }} />
               <Th label="Memory" col="memBytes" align="right" {...{ sortKey, sortDir, toggleSort }} />
+              {canManage && <th className="ta-right proc-actions-th" aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
             {filter !== "background" && apps.length > 0 && (
               <>
-                <GroupRow label="Apps" count={apps.length} />
+                <GroupRow label="Apps" count={apps.length} span={cols} />
                 {apps.map((p) => (
-                  <Row key={p.pid} p={p} />
+                  <Row key={p.pid} p={p} canManage={canManage} onManage={setTarget} />
                 ))}
               </>
             )}
             {filter !== "apps" && background.length > 0 && (
               <>
-                <GroupRow label="Background processes" count={background.length} />
+                <GroupRow label="Background processes" count={background.length} span={cols} />
                 {background.map((p) => (
-                  <Row key={p.pid} p={p} />
+                  <Row key={p.pid} p={p} canManage={canManage} onManage={setTarget} />
                 ))}
               </>
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="muted proc-empty">
+                <td colSpan={cols} className="muted proc-empty">
                   No matching processes.
                 </td>
               </tr>
@@ -164,14 +182,25 @@ export function Processes() {
           </tbody>
         </table>
       </div>
+
+      {target && (
+        <ProcessActionModal
+          p={target}
+          onClose={() => setTarget(null)}
+          onDone={() => {
+            setTarget(null);
+            void reload();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function GroupRow({ label, count }: { label: string; count: number }) {
+function GroupRow({ label, count, span }: { label: string; count: number; span: number }) {
   return (
     <tr className="proc-group">
-      <td colSpan={5}>
+      <td colSpan={span}>
         {label} <span className="muted">({count})</span>
       </td>
     </tr>
@@ -226,7 +255,15 @@ function intensity(v: number): number {
   return Math.max(0, Math.min(1, (t - 0.12) / 0.88));
 }
 
-function Row({ p }: { p: ProcessInfo }) {
+function Row({
+  p,
+  canManage,
+  onManage,
+}: {
+  p: ProcessInfo;
+  canManage: boolean;
+  onManage: (p: ProcessInfo) => void;
+}) {
   return (
     <tr>
       <td className="proc-name" title={p.name}>
@@ -249,7 +286,119 @@ function Row({ p }: { p: ProcessInfo }) {
           title={`${pct(p.memPercent)} of RAM`}
         />
       </td>
+      {canManage && (
+        <td className="ta-right proc-actions">
+          <button
+            type="button"
+            className="proc-end-btn"
+            title={`End ${p.name}…`}
+            onClick={() => onManage(p)}
+          >
+            <Power size={14} strokeWidth={2} />
+            <span>End</span>
+          </button>
+        </td>
+      )}
     </tr>
+  );
+}
+
+function ProcessActionModal({
+  p,
+  onClose,
+  onDone,
+}: {
+  p: ProcessInfo;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState<"end" | "kill" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(mode: "end" | "kill") {
+    setBusy(mode);
+    setError(null);
+    try {
+      await killProcess(p.pid, mode, p.name);
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose} role="presentation">
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <h3>End process</h3>
+          <button type="button" className="modal-close" onClick={onClose}>
+            <X size={16} strokeWidth={1.8} />
+          </button>
+        </div>
+
+        <p className="modal-sub">
+          Choose how to terminate this process. <strong>End task</strong> asks it
+          to close gracefully; <strong>Force kill</strong> terminates it
+          immediately and may cause unsaved work to be lost.
+        </p>
+
+        <dl className="revoke-details">
+          <div>
+            <dt>Process</dt>
+            <dd className="proc-modal-name">
+              <ProcessIcon name={p.name} hasWindow={p.hasWindow} />
+              {p.name}
+            </dd>
+          </div>
+          <div>
+            <dt>PID</dt>
+            <dd className="mono">{p.pid}</dd>
+          </div>
+          <div>
+            <dt>User</dt>
+            <dd>{shortUser(p.user)}</dd>
+          </div>
+          <div>
+            <dt>CPU / Memory</dt>
+            <dd>
+              {pct(p.cpuPercent)} · {formatBytes(p.memBytes)}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="revoke-warn">
+          <AlertTriangle size={15} strokeWidth={1.8} />
+          Terminating a system process can make the machine unstable.
+        </div>
+
+        {error && <div className="auth-error">{error}</div>}
+
+        <div className="modal-actions">
+          <button type="button" className="ghost-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => run("end")}
+            disabled={busy !== null}
+          >
+            <Power size={15} strokeWidth={1.8} />
+            {busy === "end" ? "Ending…" : "End task"}
+          </button>
+          <button
+            type="button"
+            className="danger-btn"
+            onClick={() => run("kill")}
+            disabled={busy !== null}
+          >
+            <X size={15} strokeWidth={1.8} />
+            {busy === "kill" ? "Killing…" : "Force kill"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
