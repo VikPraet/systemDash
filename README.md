@@ -56,6 +56,11 @@ yarn start   # serves API + built UI from http://localhost:3001
 
 Set a custom port with the `PORT` env var.
 
+**Linux server (releases):** push a tag → CI builds
+`systemdash-<version>-linux-x64.tar.gz` → server installs with
+[docs/deploy-linux.md](docs/deploy-linux.md). No build tools on the server. In-app
+**Update** button (download latest release) is planned next.
+
 ## API
 
 Read:
@@ -187,9 +192,9 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   SMTP or an email API (Resend, SendGrid, etc.). Start with security-focused events;
   terminal-command alerts opt-in and filterable to avoid noise.
 - **SSH** — connect to remote hosts from the built-in terminal.
-- **Deployment helpers** — optional install docs / sample units (`systemd`, Windows Task
-  Scheduler) and env vars (`HOST`, `PORT`) for LAN binding; no built-in Cloudflare Tunnel
-  manager (tunnel stays a one-time host-level `cloudflared` setup in front of this app).
+- **Deployment helpers** — GitHub Actions release builds (precompiled linux-x64 tarball);
+  server install via `scripts/install-release.sh` (Node.js only, no on-host build).
+  Planned: in-app update check + one-click install from latest GitHub Release.
 - **Security** — TOTP 2FA (authenticator apps); CSRF hardening when exposed beyond a
   trusted LAN. Optional OAuth (Google / Apple) later for sign-in convenience once a
   public HTTPS callback URL is available (e.g. via Cloudflare Tunnel).

@@ -4,3 +4,6 @@ dist/
 .DS_Store
 .env
 .vite/
+.release-staging/
+systemdash-*.tar.gz
+.systemdash-install.json
