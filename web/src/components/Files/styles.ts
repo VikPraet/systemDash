@@ -326,7 +326,7 @@ export const FilesTable = styled.table`
     cursor: default;
   }
 
-  .row-dir .file-name:hover .file-label {
+  .file-name:hover .file-label {
     color: ${({ theme }) => theme.color.accent};
   }
 

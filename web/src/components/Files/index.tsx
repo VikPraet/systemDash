@@ -25,7 +25,7 @@ import type {
 } from "../../types";
 import { cache, type DirSize } from "../../cache";
 import { Bar } from "../widgets";
-import { FileEditor } from "../Editor";
+import { FileEditor, type FileEditorMode } from "../Editor";
 import { useAuth, hasRole } from "../../auth/AuthContext";
 import {
   Modal,
@@ -80,7 +80,10 @@ export function Files() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [settings, setSettings] = useState<Settings>(() => cache.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [editing, setEditing] = useState<FsEntry | null>(null);
+  const [filePanel, setFilePanel] = useState<{
+    entry: FsEntry;
+    mode: FileEditorMode;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -461,7 +464,8 @@ export function Files() {
                   showExtensions={settings.files.showFileExtensions}
                   showFolderSizes={settings.files.showFolderSizes}
                   onOpen={() => setPath(e.path)}
-                  onEdit={() => setEditing(e)}
+                  onView={() => setFilePanel({ entry: e, mode: "view" })}
+                  onEdit={() => setFilePanel({ entry: e, mode: "edit" })}
                   onRename={() => handleRename(e)}
                   onDelete={() => handleDelete(e)}
                   onCut={() => setClipboard({ entry: e, op: "cut" })}
@@ -533,10 +537,15 @@ export function Files() {
         />
       )}
 
-      {editing && (
+      {filePanel && (
         <FileEditor
-          entry={editing}
-          onClose={() => setEditing(null)}
+          entry={filePanel.entry}
+          mode={filePanel.mode}
+          canEdit={canWrite}
+          onModeChange={(mode) =>
+            setFilePanel((prev) => (prev ? { ...prev, mode } : null))
+          }
+          onClose={() => setFilePanel(null)}
           onSaved={reload}
         />
       )}
@@ -631,6 +640,7 @@ function FileRow({
   showExtensions,
   showFolderSizes,
   onOpen,
+  onView,
   onEdit,
   onRename,
   onDelete,
@@ -645,6 +655,7 @@ function FileRow({
   showExtensions: boolean;
   showFolderSizes: boolean;
   onOpen: () => void;
+  onView: () => void;
   onEdit: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -658,8 +669,8 @@ function FileRow({
       <td>
         <button
           className="file-name"
-          onClick={isDir ? onOpen : undefined}
-          disabled={!isDir}
+          onClick={isDir ? onOpen : onView}
+          title={isDir ? undefined : "View file"}
         >
           {isDir ? <FolderIcon /> : <FileIcon ext={e.ext} />}
           <span className="file-label" title={e.name}>
@@ -681,6 +692,16 @@ function FileRow({
       <td className="ta-right muted">{formatDate(e.modifiedMs)}</td>
       <td className="ta-right">
         <div className="row-actions">
+          {!isDir && (
+            <button
+              className="row-act"
+              title="View"
+              onClick={onView}
+              disabled={busy}
+            >
+              <EyeIcon />
+            </button>
+          )}
           {!isDir && canWrite && (
             <button
               className="row-act"
@@ -1125,6 +1146,15 @@ function DownloadIcon() {
   return (
     <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
       <path d="M12 4v12M7 11l5 5 5-5M5 20h14" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

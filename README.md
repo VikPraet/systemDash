@@ -144,6 +144,25 @@ Terminal:
 
 ## Roadmap
 
-- Docker container management and scheduled jobs — gated behind the `user`/`admin` roles.
-- SSH to remote hosts from the terminal.
-- CSRF tokens / 2FA for hardening when exposed to untrusted networks.
+- **Code editor** — replace the plain textarea with a proper editor (syntax highlighting,
+  line numbers, bracket matching; Monaco or CodeMirror). Keep the existing read/write API;
+  broaden supported file types beyond plain `.txt` where the server already allows edits.
+- **Docker** — container overview and control (list/start/stop/restart, logs, basic stats)
+  via the Docker Engine API / CLI. Detect whether Docker is installed; gate mutating actions
+  behind `user`/`admin`. Intended for game servers and other services running in containers
+  on the same host while SystemDash stays native on the host.
+- **Scheduled jobs** — in-app cron-style tasks (e.g. restart a container nightly, run a
+  backup script). Not a replacement for OS autostart (`systemd` / Task Scheduler); those
+  remain the way to boot SystemDash itself.
+- **Email & alerts** — optional verified email per user; per-user notification
+  preferences (e.g. login/logout, failed login, new session/IP, terminal connect,
+  file delete, process kill). Dispatch from the existing audit log via admin-configured
+  SMTP or an email API (Resend, SendGrid, etc.). Start with security-focused events;
+  terminal-command alerts opt-in and filterable to avoid noise.
+- **SSH** — connect to remote hosts from the built-in terminal.
+- **Deployment helpers** — optional install docs / sample units (`systemd`, Windows Task
+  Scheduler) and env vars (`HOST`, `PORT`) for LAN binding; no built-in Cloudflare Tunnel
+  manager (tunnel stays a one-time host-level `cloudflared` setup in front of this app).
+- **Security** — TOTP 2FA (authenticator apps); CSRF hardening when exposed beyond a
+  trusted LAN. Optional OAuth (Google / Apple) later for sign-in convenience once a
+  public HTTPS callback URL is available (e.g. via Cloudflare Tunnel).
