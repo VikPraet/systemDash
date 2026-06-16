@@ -87,6 +87,27 @@ export interface ProcessList {
   list: ProcessInfo[];
 }
 
+export interface DockerStatus {
+  available: boolean;
+  version: string | null;
+  error: string | null;
+}
+
+export interface DockerContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  state: string;
+  ports: string;
+  running: boolean;
+}
+
+export interface DockerContainerList {
+  timestamp: number;
+  containers: DockerContainer[];
+}
+
 export interface FsEntry {
   name: string;
   path: string;

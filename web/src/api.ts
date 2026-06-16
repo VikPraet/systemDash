@@ -2,6 +2,8 @@ import type {
   AuditEntry,
   AuthStatus,
   DirListing,
+  DockerContainerList,
+  DockerStatus,
   FsEntry,
   FsRoot,
   HistorySeries,
@@ -215,6 +217,53 @@ export async function fetchProcesses(signal?: AbortSignal): Promise<ProcessList>
     throw new Error(`Request failed: ${res.status}`);
   }
   return (await res.json()) as ProcessList;
+}
+
+export async function fetchDockerStatus(signal?: AbortSignal): Promise<DockerStatus> {
+  const res = await fetch("/api/docker/status", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as DockerStatus;
+}
+
+export async function fetchDockerContainers(
+  signal?: AbortSignal
+): Promise<DockerContainerList> {
+  const res = await fetch("/api/docker/containers", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as DockerContainerList;
+}
+
+export async function fetchDockerLogs(
+  id: string,
+  tail = 300,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await fetch(
+    `/api/docker/containers/${encodeURIComponent(id)}/logs?tail=${tail}`,
+    { signal }
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { logs: string }).logs;
+}
+
+export function dockerContainerAction(
+  id: string,
+  action: "start" | "stop" | "restart"
+): Promise<{ ok: true }> {
+  return postJson(`/api/docker/containers/${encodeURIComponent(id)}/${action}`, {});
+}
+
+export function removeDockerContainer(
+  id: string,
+  force = false
+): Promise<{ ok: true }> {
+  return postJson(`/api/docker/containers/${encodeURIComponent(id)}/remove`, { force });
 }
 
 /** Terminates a process: `end` is graceful, `kill` forces it. */

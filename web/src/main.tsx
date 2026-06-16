@@ -6,6 +6,13 @@ import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { GlobalStyle } from "./theme/GlobalStyle";
 import { theme } from "./theme/theme";
+import { cache } from "./cache";
+import { getDefaultTerminalLayout, initTerminalCache } from "./components/Terminal/terminalPersist";
+
+initTerminalCache();
+if (!cache.terminal.tabs.length) {
+  Object.assign(cache.terminal, getDefaultTerminalLayout());
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

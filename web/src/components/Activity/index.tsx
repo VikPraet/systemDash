@@ -64,6 +64,7 @@ import {
   RevokeWarn,
   RoleBadge,
 } from "../ui/styles";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 // Turns an ISO 3166-1 alpha-2 code into its flag emoji (regional indicators).
@@ -365,10 +366,12 @@ export function Activity() {
     <S.ActivityTab>
       <S.ActivityHead>
         <h2>Activity</h2>
-        <GhostBtn onClick={load} title="Refresh">
-          <RefreshCw size={15} strokeWidth={1.8} />
-          Refresh
-        </GhostBtn>
+        <Tooltip label="Refresh">
+          <GhostBtn onClick={load}>
+            <RefreshCw size={15} strokeWidth={1.8} />
+            Refresh
+          </GhostBtn>
+        </Tooltip>
       </S.ActivityHead>
 
       {error && <AuthError $inline>{error}</AuthError>}
@@ -421,13 +424,13 @@ export function Activity() {
                   {formatRelative(s.lastSeen, now)}
                 </span>
                 <S.SessActions>
-                  <GhostBtn
-                    $danger
-                    onClick={() => setRevokeTarget(s)}
-                    title={s.current ? "Revoke (signs you out)" : "Revoke session"}
+                  <Tooltip
+                    label={s.current ? "Revoke (signs you out)" : "Revoke session"}
                   >
-                    <XCircle size={15} strokeWidth={1.8} />
-                  </GhostBtn>
+                    <GhostBtn $danger onClick={() => setRevokeTarget(s)}>
+                      <XCircle size={15} strokeWidth={1.8} />
+                    </GhostBtn>
+                  </Tooltip>
                 </S.SessActions>
               </S.SessionsRow>
               );
@@ -462,15 +465,16 @@ export function Activity() {
               ))}
             </S.AuditChips>
             <S.AuditFilterRight>
-              <S.AuditChip
-                $active={failedOnly}
-                $danger
-                onClick={() => setFailedOnly((v) => !v)}
-                title="Show only failed actions"
-              >
-                <ShieldAlert size={13} strokeWidth={1.9} />
-                Failures
-              </S.AuditChip>
+              <Tooltip label="Show only failed actions">
+                <S.AuditChip
+                  $active={failedOnly}
+                  $danger
+                  onClick={() => setFailedOnly((v) => !v)}
+                >
+                  <ShieldAlert size={13} strokeWidth={1.9} />
+                  Failures
+                </S.AuditChip>
+              </Tooltip>
               <S.AuditSearch>
                 <Search size={14} strokeWidth={1.8} />
                 <input
@@ -480,9 +484,11 @@ export function Activity() {
                   onChange={(e) => setQuery(e.target.value)}
                 />
                 {query && (
-                  <S.AuditSearchClear onClick={() => setQuery("")} title="Clear">
-                    <X size={13} strokeWidth={2} />
-                  </S.AuditSearchClear>
+                  <Tooltip label="Clear">
+                    <S.AuditSearchClear onClick={() => setQuery("")}>
+                      <X size={13} strokeWidth={2} />
+                    </S.AuditSearchClear>
+                  </Tooltip>
                 )}
               </S.AuditSearch>
             </S.AuditFilterRight>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
   Activity as ActivityIcon,
+  Box,
   FolderOpen,
   Gauge as GaugeIcon,
   LineChart,
@@ -35,10 +36,13 @@ import { Terminal } from "./components/Terminal";
 import { History } from "./components/History";
 import { Users } from "./components/Users";
 import { Activity } from "./components/Activity";
+import { Containers } from "./components/Containers";
 import { Login } from "./components/Login";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
+import { cache } from "./cache";
 import { BrandDot, Loading, RoleBadge } from "./components/ui/styles";
+import { Tooltip } from "./components/ui/Tooltip";
 import { AuthScreen } from "./components/AuthLayout/styles";
 import * as S from "./App.styles";
 
@@ -56,6 +60,7 @@ const NAV: NavItem[] = [
   { path: "/overview", label: "Overview", icon: GaugeIcon },
   { path: "/history", label: "History", icon: LineChart },
   { path: "/processes", label: "Processes", icon: ActivityIcon },
+  { path: "/containers", label: "Containers", icon: Box },
   { path: "/files", label: "Files", icon: FolderOpen },
   { path: "/terminal", label: "Terminal", icon: TerminalSquare, minRole: "user" },
   { path: "/users", label: "Users", icon: UsersIcon, minRole: "admin" },
@@ -101,12 +106,13 @@ export default function App() {
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/history" element={<History />} />
           <Route path="/processes" element={<Processes />} />
+          <Route path="/containers" element={<Containers />} />
           <Route path="/files" element={<Files />} />
           <Route
             path="/terminal"
             element={
               <RequireRole min="user">
-                <Terminal />
+                <></>
               </RequireRole>
             }
           />
@@ -172,12 +178,22 @@ function OverviewPage() {
 function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [snap, setSnap] = useState<SystemSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
 
   const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
+  const canUseTerminal = hasRole(user, "user");
+  const onTerminalRoute = location.pathname === "/terminal";
+  const [terminalMounted, setTerminalMounted] = useState(
+    () => canUseTerminal && cache.terminal.tabs.length > 0
+  );
+
+  useEffect(() => {
+    if (onTerminalRoute && canUseTerminal) setTerminalMounted(true);
+  }, [onTerminalRoute, canUseTerminal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,9 +261,11 @@ function DashboardLayout() {
               <S.UserChipName>{user?.username}</S.UserChipName>
               <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
             </S.UserChipInfo>
-            <S.LogoutBtn onClick={onLogout} title="Sign out">
-              <LogOut size={16} strokeWidth={1.8} />
-            </S.LogoutBtn>
+            <Tooltip label="Sign out">
+              <S.LogoutBtn onClick={onLogout}>
+                <LogOut size={16} strokeWidth={1.8} />
+              </S.LogoutBtn>
+            </Tooltip>
           </S.UserChip>
           <S.FooterMeta>
             <StatusIndicator snap={snap} error={error} now={now} />
@@ -257,7 +275,14 @@ function DashboardLayout() {
       </S.Sidebar>
 
       <S.Content>
-        <Outlet context={{ snap, error, now } satisfies DashboardContext} />
+        <S.ContentLayer $active={!onTerminalRoute}>
+          <Outlet context={{ snap, error, now } satisfies DashboardContext} />
+        </S.ContentLayer>
+        {canUseTerminal && terminalMounted && (
+          <S.ContentLayer $active={onTerminalRoute}>
+            <Terminal active={onTerminalRoute} />
+          </S.ContentLayer>
+        )}
       </S.Content>
     </S.AppShell>
   );
@@ -289,17 +314,12 @@ function StatusIndicator({
   }
 
   return (
-    <S.StatusWrap>
+    <Tooltip label={title} detail={detail ?? undefined}>
       <S.Status>
         <S.Dot $state={state} />
         {label}
       </S.Status>
-      <S.StatusTooltip role="tooltip">
-        <S.StatusTooltipTitle>{title}</S.StatusTooltipTitle>
-        {detail && <S.StatusTooltipDetail>{detail}</S.StatusTooltipDetail>}
-        <S.StatusTooltipArrow />
-      </S.StatusTooltip>
-    </S.StatusWrap>
+    </Tooltip>
   );
 }
 

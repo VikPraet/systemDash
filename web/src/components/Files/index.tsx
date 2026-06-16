@@ -38,6 +38,7 @@ import {
   ModalOverlay,
   ModalTitle,
 } from "../ui/styles";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 // `null` path = the "This PC" overview that lists drives.
@@ -372,20 +373,21 @@ export function Files() {
           />
         )}
         {canWrite && (
-          <S.FilesSettingsBtn
-            title="File manager settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <GearIcon />
-            Settings
-          </S.FilesSettingsBtn>
+          <Tooltip label="File manager settings">
+            <S.FilesSettingsBtn onClick={() => setSettingsOpen(true)}>
+              <GearIcon />
+              Settings
+            </S.FilesSettingsBtn>
+          </Tooltip>
         )}
       </S.FilesToolbar>
 
       <S.FilesNav>
-        <S.FilesUp disabled={atThisPc} onClick={goUp} title="Up one level">
-          ↑
-        </S.FilesUp>
+        <Tooltip label="Up one level">
+          <S.FilesUp disabled={atThisPc} onClick={goUp}>
+            ↑
+          </S.FilesUp>
+        </Tooltip>
         <S.Crumbs>
           <S.Crumb>
             <button onClick={() => setPath(null)}>This PC</button>
@@ -667,16 +669,23 @@ function FileRow({
   return (
     <tr className={`${isDir ? "row-dir" : ""}${cut ? " row-cut" : ""}`}>
       <td>
-        <button
-          className="file-name"
-          onClick={isDir ? onOpen : onView}
-          title={isDir ? undefined : "View file"}
-        >
-          {isDir ? <FolderIcon /> : <FileIcon ext={e.ext} />}
-          <span className="file-label" title={e.name}>
-            {label}
-          </span>
-        </button>
+        {isDir ? (
+          <button className="file-name" onClick={onOpen}>
+            <FolderIcon />
+            <span className="file-label" title={e.name}>
+              {label}
+            </span>
+          </button>
+        ) : (
+          <Tooltip label="View file">
+            <button className="file-name" onClick={onView}>
+              <FileIcon ext={e.ext} />
+              <span className="file-label" title={e.name}>
+                {label}
+              </span>
+            </button>
+          </Tooltip>
+        )}
       </td>
       <td className="ta-right muted">
         {isDir ? (
@@ -693,69 +702,48 @@ function FileRow({
       <td className="ta-right">
         <div className="row-actions">
           {!isDir && (
-            <button
-              className="row-act"
-              title="View"
-              onClick={onView}
-              disabled={busy}
-            >
-              <EyeIcon />
-            </button>
+            <Tooltip label="View">
+              <button className="row-act" onClick={onView} disabled={busy}>
+                <EyeIcon />
+              </button>
+            </Tooltip>
           )}
           {!isDir && canWrite && (
-            <button
-              className="row-act"
-              title="Edit"
-              onClick={onEdit}
-              disabled={busy}
-            >
-              <EditIcon />
-            </button>
+            <Tooltip label="Edit">
+              <button className="row-act" onClick={onEdit} disabled={busy}>
+                <EditIcon />
+              </button>
+            </Tooltip>
           )}
           {!isDir && (
-            <a
-              className="row-act"
-              href={downloadUrl(e.path)}
-              title="Download"
-              download
-            >
-              <DownloadIcon />
-            </a>
+            <Tooltip label="Download">
+              <a className="row-act" href={downloadUrl(e.path)} download>
+                <DownloadIcon />
+              </a>
+            </Tooltip>
           )}
           {canWrite && (
             <>
-              <button
-                className="row-act"
-                title="Rename"
-                onClick={onRename}
-                disabled={busy}
-              >
-                <PencilIcon />
-              </button>
-              <button
-                className="row-act"
-                title="Copy"
-                onClick={onCopy}
-                disabled={busy}
-              >
-                <CopyIcon />
-              </button>
-              <button
-                className="row-act"
-                title="Cut (move)"
-                onClick={onCut}
-                disabled={busy}
-              >
-                <CutIcon />
-              </button>
-              <button
-                className="row-act danger"
-                title="Delete"
-                onClick={onDelete}
-                disabled={busy}
-              >
-                <TrashIcon />
-              </button>
+              <Tooltip label="Rename">
+                <button className="row-act" onClick={onRename} disabled={busy}>
+                  <PencilIcon />
+                </button>
+              </Tooltip>
+              <Tooltip label="Copy">
+                <button className="row-act" onClick={onCopy} disabled={busy}>
+                  <CopyIcon />
+                </button>
+              </Tooltip>
+              <Tooltip label="Cut (move)">
+                <button className="row-act" onClick={onCut} disabled={busy}>
+                  <CutIcon />
+                </button>
+              </Tooltip>
+              <Tooltip label="Delete">
+                <button className="row-act danger" onClick={onDelete} disabled={busy}>
+                  <TrashIcon />
+                </button>
+              </Tooltip>
             </>
           )}
         </div>

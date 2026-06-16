@@ -104,6 +104,34 @@ Terminal:
 - `WS /api/terminal` → interactive shell session (PowerShell on Windows, `$SHELL`
   elsewhere). Keystrokes stream to the shell; output streams back.
 
+Docker (requires Docker Engine / Docker Desktop on the host; SystemDash itself stays
+native, not containerised):
+
+- `GET /api/docker/status` → `{ available, version, error }`
+- `GET /api/docker/containers` → list all containers
+- `GET /api/docker/containers/:id/logs?tail=300` → recent log output
+- `POST /api/docker/containers/:id/start|stop|restart` → control (`user`/`admin`)
+
+### Testing the Containers tab
+
+1. Install and start [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (Windows/macOS) or Docker Engine (Linux).
+2. In a terminal (or the SystemDash **Terminal** tab), run a throwaway container:
+
+   ```bash
+   docker run -d --name systemdash-test -p 8080:80 nginx:alpine
+   ```
+
+3. Open **Containers** in the sidebar — you should see `systemdash-test` running.
+4. Try **Logs**, **Stop**, **Start**, and **Restart**. Visit http://localhost:8080 to
+   confirm nginx is serving while running.
+5. Clean up when done: `docker rm -f systemdash-test`
+
+If Docker is installed but the tab says “not available”, ensure Docker Desktop is
+running and that the account starting SystemDash can access the Docker socket (on Linux,
+add your user to the `docker` group or run elevated). Override the CLI path with
+`DOCKER_BIN` if needed.
+
 ## Notes
 
 - Some metrics (CPU temperature, GPU utilization) depend on OS/driver support and may
@@ -147,10 +175,9 @@ Terminal:
 - **Code editor** — replace the plain textarea with a proper editor (syntax highlighting,
   line numbers, bracket matching; Monaco or CodeMirror). Keep the existing read/write API;
   broaden supported file types beyond plain `.txt` where the server already allows edits.
-- **Docker** — container overview and control (list/start/stop/restart, logs, basic stats)
-  via the Docker Engine API / CLI. Detect whether Docker is installed; gate mutating actions
-  behind `user`/`admin`. Intended for game servers and other services running in containers
-  on the same host while SystemDash stays native on the host.
+- **Docker** — container overview and control (list/start/stop/restart, logs) via the
+  Docker CLI on the host. Detect whether Docker is installed; gate mutating actions
+  behind `user`/`admin`. Compose stacks and image creation remain future work.
 - **Scheduled jobs** — in-app cron-style tasks (e.g. restart a container nightly, run a
   backup script). Not a replacement for OS autostart (`systemd` / Task Scheduler); those
   remain the way to boot SystemDash itself.

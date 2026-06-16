@@ -19,6 +19,7 @@ import {
   RevokeDetails,
   RevokeWarn,
 } from "../ui/styles";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 const POLL_MS = 2000;
@@ -302,15 +303,16 @@ function Row({
       </td>
       {canManage && (
         <td className="ta-right proc-actions">
-          <button
-            type="button"
-            className="proc-end-btn"
-            title={`End ${p.name}…`}
-            onClick={() => onManage(p)}
-          >
-            <Power size={14} strokeWidth={2} />
-            <span>End</span>
-          </button>
+          <Tooltip label={`End ${p.name}…`}>
+            <button
+              type="button"
+              className="proc-end-btn"
+              onClick={() => onManage(p)}
+            >
+              <Power size={14} strokeWidth={2} />
+              <span>End</span>
+            </button>
+          </Tooltip>
         </td>
       )}
     </tr>

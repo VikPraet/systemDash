@@ -51,15 +51,17 @@ export const Content = styled.main`
   overflow-y: auto;
   padding: 20px;
 
-  & > * {
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-
   @media (max-width: 720px) {
     height: auto;
     overflow-y: visible;
   }
+`;
+
+export const ContentLayer = styled.div<{ $active?: boolean }>`
+  display: ${({ $active }) => ($active ? "block" : "none")};
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 0;
 `;
 
 export const Brand = styled.div`
@@ -246,11 +248,6 @@ export const LogoutBtn = styled.button`
 `;
 
 /* ---- Connection status indicator ---------------------------------------- */
-export const StatusWrap = styled.div`
-  position: relative;
-  display: inline-flex;
-`;
-
 export const Status = styled.div`
   display: flex;
   align-items: center;
@@ -272,82 +269,6 @@ export const Dot = styled.span<{ $state: "good" | "bad" | "idle" }>`
       : theme.color.muted};
   ${({ $state, theme }) =>
     $state === "good" && `box-shadow: 0 0 8px ${theme.color.good};`}
-`;
-
-export const StatusTooltip = styled.div`
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: max-content;
-  padding: 8px 10px;
-  background: ${({ theme }) => theme.color.panel2};
-  border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  opacity: 0;
-  transform: translateY(4px);
-  pointer-events: none;
-  transition: opacity 0.15s ease, transform 0.15s ease;
-
-  ${StatusWrap}:hover &,
-  ${StatusWrap}:focus-within & {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  @media (max-width: 720px) {
-    bottom: auto;
-    top: calc(100% + 10px);
-    left: auto;
-    right: 0;
-    transform: translateY(-4px);
-
-    ${StatusWrap}:hover &,
-    ${StatusWrap}:focus-within & {
-      transform: translateY(0);
-    }
-  }
-`;
-
-export const StatusTooltipTitle = styled.span`
-  font-size: 12px;
-  font-weight: 600;
-  color: ${({ theme }) => theme.color.text};
-  font-variant-numeric: tabular-nums;
-`;
-
-export const StatusTooltipDetail = styled.span`
-  font-size: 11px;
-  color: ${({ theme }) => theme.color.muted};
-  font-variant-numeric: tabular-nums;
-`;
-
-export const StatusTooltipArrow = styled.span`
-  position: absolute;
-  top: 100%;
-  left: 14px;
-  width: 8px;
-  height: 8px;
-  background: ${({ theme }) => theme.color.panel2};
-  border-right: 1px solid ${({ theme }) => theme.color.border};
-  border-bottom: 1px solid ${({ theme }) => theme.color.border};
-  transform: translateY(-50%) rotate(45deg);
-
-  @media (max-width: 720px) {
-    top: auto;
-    bottom: 100%;
-    left: auto;
-    right: 14px;
-    border-right: none;
-    border-bottom: none;
-    border-left: 1px solid ${({ theme }) => theme.color.border};
-    border-top: 1px solid ${({ theme }) => theme.color.border};
-    transform: translateY(50%) rotate(45deg);
-  }
 `;
 
 /* ---- Overview dashboard -------------------------------------------------- */

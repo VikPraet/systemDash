@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 export interface DropdownOption<T extends string> {
@@ -83,8 +84,9 @@ export function Dropdown<T extends string>({
   }, [open]);
 
   return (
-    <S.DropdownRoot title={title}>
-      <S.DropdownTrigger
+    <Tooltip label={title}>
+      <S.DropdownRoot>
+        <S.DropdownTrigger
         ref={triggerRef}
         type="button"
         $open={open}
@@ -131,6 +133,7 @@ export function Dropdown<T extends string>({
           </S.DropdownMenu>,
           document.body
         )}
-    </S.DropdownRoot>
+      </S.DropdownRoot>
+    </Tooltip>
   );
 }

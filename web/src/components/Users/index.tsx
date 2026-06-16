@@ -22,6 +22,7 @@ import {
   ModalOverlay,
   ModalSub,
 } from "../ui/styles";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 /** A custom dropdown for picking a role (shows the role hints in the menu). */
@@ -293,28 +294,30 @@ function UserRow({
         />
       </span>
       <span>
-        <S.StatusPill
-          $state={user.active ? "on" : "off"}
-          onClick={onToggleActive}
-          disabled={isSelf}
-          title={isSelf ? "You cannot deactivate yourself" : "Toggle active"}
+        <Tooltip
+          label={isSelf ? "You cannot deactivate yourself" : "Toggle active"}
         >
-          {user.active ? "active" : "disabled"}
-        </S.StatusPill>
+          <S.StatusPill
+            $state={user.active ? "on" : "off"}
+            onClick={onToggleActive}
+            disabled={isSelf}
+          >
+            {user.active ? "active" : "disabled"}
+          </S.StatusPill>
+        </Tooltip>
       </span>
       <span className="muted">{formatDate(user.createdAt)}</span>
       <S.UserActions>
-        <S.ActionBtn onClick={onResetPassword} title="Reset password">
-          <KeyRound size={15} strokeWidth={1.8} />
-        </S.ActionBtn>
-        <S.ActionBtn
-          $danger
-          onClick={remove}
-          disabled={isSelf}
-          title={isSelf ? "You cannot delete yourself" : "Delete user"}
-        >
-          <Trash2 size={15} strokeWidth={1.8} />
-        </S.ActionBtn>
+        <Tooltip label="Reset password">
+          <S.ActionBtn onClick={onResetPassword}>
+            <KeyRound size={15} strokeWidth={1.8} />
+          </S.ActionBtn>
+        </Tooltip>
+        <Tooltip label={isSelf ? "You cannot delete yourself" : "Delete user"}>
+          <S.ActionBtn $danger onClick={remove} disabled={isSelf}>
+            <Trash2 size={15} strokeWidth={1.8} />
+          </S.ActionBtn>
+        </Tooltip>
       </S.UserActions>
     </S.UsersRow>
   );

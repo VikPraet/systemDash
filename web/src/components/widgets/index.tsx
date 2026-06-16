@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { Maximize2, X } from "lucide-react";
+import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
 export function Card({
@@ -476,24 +477,26 @@ export function ChartCard({
             <S.ChartCardActions>
               {headerActions}
               {onFullscreen && (
-                <S.ChartIconBtn
-                  type="button"
-                  onClick={onFullscreen}
-                  title="Fullscreen"
-                  aria-label="Fullscreen"
-                >
-                  <Maximize2 size={15} />
-                </S.ChartIconBtn>
+                <Tooltip label="Fullscreen">
+                  <S.ChartIconBtn
+                    type="button"
+                    onClick={onFullscreen}
+                    aria-label="Fullscreen"
+                  >
+                    <Maximize2 size={15} />
+                  </S.ChartIconBtn>
+                </Tooltip>
               )}
               {onExitFullscreen && (
-                <S.ChartIconBtn
-                  type="button"
-                  onClick={onExitFullscreen}
-                  title="Close"
-                  aria-label="Close fullscreen"
-                >
-                  <X size={16} />
-                </S.ChartIconBtn>
+                <Tooltip label="Close">
+                  <S.ChartIconBtn
+                    type="button"
+                    onClick={onExitFullscreen}
+                    aria-label="Close fullscreen"
+                  >
+                    <X size={16} />
+                  </S.ChartIconBtn>
+                </Tooltip>
               )}
             </S.ChartCardActions>
           )}

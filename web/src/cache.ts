@@ -1,5 +1,7 @@
 import type {
   DirListing,
+  DockerContainer,
+  DockerStatus,
   FsRoot,
   HistorySeries,
   HistoryStats,
@@ -34,8 +36,31 @@ interface HistoryCache {
   hiddenCharts: string[];
 }
 
+interface ContainersCache {
+  status: DockerStatus | null;
+  containers: DockerContainer[];
+  error: string | null;
+  query: string;
+}
+
+interface TerminalTabState {
+  id: string;
+  title: string;
+}
+
+interface TerminalCache {
+  tabs: TerminalTabState[];
+  primaryTabId: string;
+  secondaryTabId: string | null;
+  splitMode: "none" | "horizontal" | "vertical";
+  focusedPane: "primary" | "secondary";
+  scrollback: Record<string, string>;
+}
+
 interface AppCache {
   processes: ProcessList | null;
+  containers: ContainersCache;
+  terminal: TerminalCache;
   snapshot: SystemSnapshot | null;
   files: FilesCache;
   history: HistoryCache;
@@ -47,6 +72,20 @@ interface AppCache {
 // fetch happens in the background, instead of flashing a loading screen.
 export const cache: AppCache = {
   processes: null,
+  containers: {
+    status: null,
+    containers: [],
+    error: null,
+    query: "",
+  },
+  terminal: {
+    tabs: [],
+    primaryTabId: "",
+    secondaryTabId: null,
+    splitMode: "none",
+    focusedPane: "primary",
+    scrollback: {},
+  },
   snapshot: null,
   files: {
     roots: [],
