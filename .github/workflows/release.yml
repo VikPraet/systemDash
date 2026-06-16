@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+
+      - name: Enable Yarn
+        run: corepack enable || npm install -g yarn@1.22.22
+
+      - name: Build release tarball
+        run: bash scripts/package-release.sh linux-x64
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: systemdash-*-linux-x64.tar.gz
+          generate_release_notes: true
