@@ -88,6 +88,17 @@ Settings:
 - `GET /api/settings` / `PUT /api/settings` → file-manager preferences, persisted to
   `~/.systemdash/settings.json` (override dir with `SYSTEMDASH_DATA_DIR`)
 
+Authentication & users:
+
+- `GET /api/auth/status` → `{ needsSetup, user }` (drives first-run vs login vs app)
+- `POST /api/auth/setup` `{ username, password }` → create the first admin (only
+  works while no users exist) and start a session
+- `POST /api/auth/login` `{ username, password }` → start a session
+- `POST /api/auth/logout` → end the current session
+- `GET /api/auth/me` → the currently signed-in user
+- `GET /api/users` / `POST /api/users` / `PATCH /api/users/:id` / `DELETE /api/users/:id`
+  → user management (admin only): create/edit roles, reset passwords, enable/disable, delete
+
 Terminal:
 
 - `WS /api/terminal` → interactive shell session (PowerShell on Windows, `$SHELL`
@@ -102,10 +113,21 @@ Terminal:
   that started it**. Folders that account can't touch return `permission denied`. To see
   into / modify protected system locations, launch the server elevated (Run as
   Administrator on Windows, `sudo` on Linux/macOS).
-- **Security:** the file-management, editor, and **terminal** endpoints are **not
-  authenticated**. The terminal in particular grants full command execution on the host
-  as the server's user — only run this on a trusted host/network (it binds to localhost
-  by default). Add the admin login before exposing it anywhere.
+- **Authentication & roles:** every `/api` endpoint (except `/api/health`) and the
+  terminal WebSocket now require a signed-in user. On first launch the UI shows a
+  one-time setup screen to create the admin account (no default password is shipped).
+  Users have one of three roles:
+  - `viewer` — read-only (overview, history, process list, browse/read/download files)
+  - `user` — viewer plus write actions (file create/edit/upload/delete, terminal)
+  - `admin` — everything plus user management
+  Accounts and sessions are stored in a local SQLite file at `~/.systemdash/auth.db`
+  (override the dir with `SYSTEMDASH_DATA_DIR`). Passwords are hashed with scrypt;
+  sessions are opaque tokens kept in an HttpOnly, SameSite=Lax cookie (marked `Secure`
+  automatically over HTTPS). Run behind HTTPS (e.g. a reverse proxy) when exposing it
+  beyond localhost.
+- **File access & command execution:** even when authenticated, the server reads/writes
+  the disk and runs the terminal **as the OS user that started it**, so `user`/`admin`
+  accounts effectively have that user's host privileges — grant those roles carefully.
 - **Terminal limitations:** it pipes a shell rather than allocating a real PTY, so
   full-screen TUI programs (vim, htop, less) won't render correctly. Ordinary commands,
   output streaming, prompts and line editing work. A real PTY (node-pty) or SSH for
@@ -113,6 +135,7 @@ Terminal:
 
 ## Roadmap
 
-- Admin authentication to gate the write / file-management / terminal endpoints.
+- Process control (end tasks), Docker container management, and scheduled jobs —
+  gated behind the `user`/`admin` roles.
 - Real PTY terminal (node-pty) + SSH to remote hosts.
-- Historical charts / time-series.
+- CSRF tokens / 2FA for hardening when exposed to untrusted networks.

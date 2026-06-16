@@ -26,6 +26,7 @@ import type {
 import { cache, type DirSize } from "../cache";
 import { Bar } from "./widgets";
 import { FileEditor } from "./Editor";
+import { useAuth, hasRole } from "../auth/AuthContext";
 
 // `null` path = the "This PC" overview that lists drives.
 type Path = string | null;
@@ -40,6 +41,10 @@ type Dialog =
 const SIZE_CONCURRENCY = 4;
 
 export function Files() {
+  const { user } = useAuth();
+  // Viewers get read-only access: browse, open folders, preview/download. All
+  // mutating controls are hidden (the server also enforces this with 403s).
+  const canWrite = hasRole(user, "user");
   const [roots, setRoots] = useState<FsRoot[]>(() => cache.files.roots);
   const [path, setPath] = useState<Path>(() => cache.files.path);
   const [listing, setListing] = useState<DirListing | null>(
@@ -352,14 +357,16 @@ export function Files() {
             onChange={(e) => setQuery(e.target.value)}
           />
         )}
-        <button
-          className="files-settings-btn"
-          title="File manager settings"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <GearIcon />
-          Settings
-        </button>
+        {canWrite && (
+          <button
+            className="files-settings-btn"
+            title="File manager settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <GearIcon />
+            Settings
+          </button>
+        )}
       </div>
 
       <div className="files-nav">
@@ -384,7 +391,7 @@ export function Files() {
         </div>
       </div>
 
-      {!atThisPc && (
+      {!atThisPc && canWrite && (
         <div className="files-actions">
           <button onClick={handleNewFolder} disabled={busy}>
             <PlusIcon /> New folder
@@ -444,6 +451,7 @@ export function Files() {
                   e={e}
                   dirSize={e.type === "dir" ? dirSizes[e.path] : undefined}
                   busy={busy}
+                  canWrite={canWrite}
                   cut={clipboard?.op === "cut" && clipboard.entry.path === e.path}
                   showExtensions={settings.files.showFileExtensions}
                   showFolderSizes={settings.files.showFolderSizes}
@@ -613,6 +621,7 @@ function FileRow({
   e,
   dirSize,
   busy,
+  canWrite,
   cut,
   showExtensions,
   showFolderSizes,
@@ -626,6 +635,7 @@ function FileRow({
   e: FsEntry;
   dirSize?: DirSize;
   busy: boolean;
+  canWrite: boolean;
   cut: boolean;
   showExtensions: boolean;
   showFolderSizes: boolean;
@@ -666,7 +676,7 @@ function FileRow({
       <td className="ta-right muted">{formatDate(e.modifiedMs)}</td>
       <td className="ta-right">
         <div className="row-actions">
-          {!isDir && (
+          {!isDir && canWrite && (
             <button
               className="row-act"
               title="Edit"
@@ -686,38 +696,42 @@ function FileRow({
               <DownloadIcon />
             </a>
           )}
-          <button
-            className="row-act"
-            title="Rename"
-            onClick={onRename}
-            disabled={busy}
-          >
-            <PencilIcon />
-          </button>
-          <button
-            className="row-act"
-            title="Copy"
-            onClick={onCopy}
-            disabled={busy}
-          >
-            <CopyIcon />
-          </button>
-          <button
-            className="row-act"
-            title="Cut (move)"
-            onClick={onCut}
-            disabled={busy}
-          >
-            <CutIcon />
-          </button>
-          <button
-            className="row-act danger"
-            title="Delete"
-            onClick={onDelete}
-            disabled={busy}
-          >
-            <TrashIcon />
-          </button>
+          {canWrite && (
+            <>
+              <button
+                className="row-act"
+                title="Rename"
+                onClick={onRename}
+                disabled={busy}
+              >
+                <PencilIcon />
+              </button>
+              <button
+                className="row-act"
+                title="Copy"
+                onClick={onCopy}
+                disabled={busy}
+              >
+                <CopyIcon />
+              </button>
+              <button
+                className="row-act"
+                title="Cut (move)"
+                onClick={onCut}
+                disabled={busy}
+              >
+                <CutIcon />
+              </button>
+              <button
+                className="row-act danger"
+                title="Delete"
+                onClick={onDelete}
+                disabled={busy}
+              >
+                <TrashIcon />
+              </button>
+            </>
+          )}
         </div>
       </td>
     </tr>

@@ -23,6 +23,7 @@ import {
   TimeSeriesChart,
   type ChartSeries,
 } from "./widgets";
+import { useAuth, hasRole } from "../auth/AuthContext";
 
 interface RangePreset {
   id: string;
@@ -130,6 +131,8 @@ function MetricChart({
 }
 
 export function History() {
+  const { user } = useAuth();
+  const canWrite = hasRole(user, "user");
   const [rangeId, setRangeId] = useState<string>(() => cache.history.rangeId);
   const [data, setData] = useState<HistorySeries | null>(() => cache.history.data);
   const [stats, setStats] = useState<HistoryStats | null>(
@@ -359,7 +362,7 @@ export function History() {
         ))}
       </div>
 
-      <StoragePanel stats={stats} onChanged={refreshStats} />
+      <StoragePanel stats={stats} canWrite={canWrite} onChanged={refreshStats} />
     </div>
   );
 }
@@ -438,9 +441,11 @@ function GpuCharts({
 
 function StoragePanel({
   stats,
+  canWrite,
   onChanged,
 }: {
   stats: HistoryStats | null;
+  canWrite: boolean;
   onChanged: () => void;
 }) {
   const [draft, setDraft] = useState<HistorySettings | null>(null);
@@ -561,6 +566,7 @@ function StoragePanel({
           )}
         </div>
 
+        {canWrite && (
         <div className="storage-form">
           <button
             type="button"
@@ -627,6 +633,7 @@ function StoragePanel({
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {confirmClear && (

@@ -1,12 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
-  Activity,
+  Activity as ActivityIcon,
   FolderOpen,
   Gauge as GaugeIcon,
   LineChart,
+  LogOut,
+  ScrollText,
   TerminalSquare,
+  Users as UsersIcon,
   type LucideIcon,
 } from "lucide-react";
+import {
+  NavLink,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+} from "react-router-dom";
 import {
   fetchSnapshot,
   formatBytes,
@@ -14,31 +27,154 @@ import {
   formatRelative,
   formatUptime,
 } from "./api";
-import type { SystemSnapshot } from "./types";
+import type { Role, SystemSnapshot } from "./types";
 import { Card, Gauge, Bar, LabeledBar, Stat } from "./components/widgets";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
 import { History } from "./components/History";
+import { Users } from "./components/Users";
+import { Activity } from "./components/Activity";
+import { Login } from "./components/Login";
+import { Setup } from "./components/Setup";
+import { useAuth, hasRole } from "./auth/AuthContext";
 
 const POLL_MS = 1000;
 
-type Tab = "overview" | "history" | "processes" | "files" | "terminal";
+interface NavItem {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+  minRole?: Role;
+}
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "overview", label: "Overview", icon: GaugeIcon },
-  { id: "history", label: "History", icon: LineChart },
-  { id: "processes", label: "Processes", icon: Activity },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "terminal", label: "Terminal", icon: TerminalSquare },
+// `minRole` gates a route/link to a role rank; omitted means any logged-in user.
+const NAV: NavItem[] = [
+  { path: "/overview", label: "Overview", icon: GaugeIcon },
+  { path: "/history", label: "History", icon: LineChart },
+  { path: "/processes", label: "Processes", icon: ActivityIcon },
+  { path: "/files", label: "Files", icon: FolderOpen },
+  { path: "/terminal", label: "Terminal", icon: TerminalSquare, minRole: "user" },
+  { path: "/users", label: "Users", icon: UsersIcon, minRole: "admin" },
+  { path: "/activity", label: "Activity", icon: ScrollText, minRole: "admin" },
 ];
 
+// Snapshot data (used by the Overview page and the sidebar status indicator) is
+// polled once in the layout and shared with child routes via the Outlet context.
+interface DashboardContext {
+  snap: SystemSnapshot | null;
+  error: string | null;
+  now: number;
+}
+function useDashboard(): DashboardContext {
+  return useOutletContext<DashboardContext>();
+}
+
 export default function App() {
+  const { loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="auth-screen">
+        <div className="loading">Loading…</div>
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route path="/setup" element={<SetupRoute />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<DashboardLayout />}>
+          <Route index element={<Navigate to="/overview" replace />} />
+          <Route path="/overview" element={<OverviewPage />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/processes" element={<Processes />} />
+          <Route path="/files" element={<Files />} />
+          <Route
+            path="/terminal"
+            element={
+              <RequireRole min="user">
+                <Terminal />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <RequireRole min="admin">
+                <Users />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/activity"
+            element={
+              <RequireRole min="admin">
+                <Activity />
+              </RequireRole>
+            }
+          />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/overview" replace />} />
+    </Routes>
+  );
+}
+
+// Renders children only when logged out; otherwise sends the user into the app
+// (or to setup when no users exist yet).
+function PublicOnly({ children }: { children: ReactElement }) {
+  const { user, needsSetup } = useAuth();
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  if (user) return <Navigate to="/overview" replace />;
+  return children;
+}
+
+function SetupRoute() {
+  const { needsSetup, user } = useAuth();
+  if (!needsSetup) return <Navigate to={user ? "/overview" : "/login"} replace />;
+  return <Setup />;
+}
+
+// Gate for every dashboard route: bounce to setup/login as appropriate, keeping
+// the attempted location so login can return the user to it.
+function RequireAuth() {
+  const { user, needsSetup } = useAuth();
+  const location = useLocation();
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  return <Outlet />;
+}
+
+function RequireRole({ min, children }: { min: Role; children: ReactElement }) {
+  const { user } = useAuth();
+  if (!hasRole(user, min)) return <Navigate to="/overview" replace />;
+  return children;
+}
+
+function OverviewPage() {
+  const { snap, error } = useDashboard();
+  return <Overview snap={snap} error={error} />;
+}
+
+function DashboardLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [snap, setSnap] = useState<SystemSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
+
+  const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +212,11 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  async function onLogout() {
+    await logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -84,29 +225,36 @@ export default function App() {
           <h1>SystemDash</h1>
         </div>
         <nav className="tabs">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={tab === id ? "active" : ""}
-              onClick={() => setTab(id)}
+          {visibleNav.map(({ path, label, icon: Icon }) => (
+            <NavLink
+              key={path}
+              to={path}
+              className={({ isActive }) => (isActive ? "active" : "")}
             >
               <Icon className="nav-icon" size={18} strokeWidth={1.8} />
               <span>{label}</span>
-            </button>
+            </NavLink>
           ))}
         </nav>
         <div className="sidebar-footer">
-          <StatusIndicator snap={snap} error={error} now={now} />
-          {snap && <span className="version">v{snap.app.version}</span>}
+          <div className="user-chip">
+            <div className="user-chip-info">
+              <span className="user-chip-name">{user?.username}</span>
+              <span className={`role-badge ${user?.role}`}>{user?.role}</span>
+            </div>
+            <button className="logout-btn" onClick={onLogout} title="Sign out">
+              <LogOut size={16} strokeWidth={1.8} />
+            </button>
+          </div>
+          <div className="footer-meta">
+            <StatusIndicator snap={snap} error={error} now={now} />
+            {snap && <span className="version">v{snap.app.version}</span>}
+          </div>
         </div>
       </aside>
 
       <main className="content">
-        {tab === "overview" && <Overview snap={snap} error={error} />}
-        {tab === "history" && <History />}
-        {tab === "processes" && <Processes />}
-        {tab === "files" && <Files />}
-        {tab === "terminal" && <Terminal />}
+        <Outlet context={{ snap, error, now } satisfies DashboardContext} />
       </main>
     </div>
   );

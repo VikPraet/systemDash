@@ -170,3 +170,42 @@ export interface HistoryStats {
   bytesPerSample: number;
   estimatedDaysToFull: number | null;
 }
+
+export type Role = "viewer" | "user" | "admin";
+
+export interface User {
+  id: number;
+  username: string;
+  role: Role;
+  active: boolean;
+  createdAt: number;
+}
+
+export interface AuthStatus {
+  needsSetup: boolean;
+  user: User | null;
+}
+
+export interface SessionInfo {
+  id: string;
+  userId: number;
+  username: string;
+  role: Role;
+  createdAt: number;
+  lastSeen: number;
+  expiresAt: number;
+  ip: string | null;
+  userAgent: string | null;
+  current: boolean;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: number;
+  userId: number | null;
+  username: string | null;
+  action: string;
+  detail: string | null;
+  status: number | null;
+  ip: string | null;
+}

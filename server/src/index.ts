@@ -24,13 +24,72 @@ import {
 import { getSettings, saveSettings, initSettings } from "./settings.js";
 import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
+import {
+  requireAuth,
+  requireRole,
+  pruneSessions,
+  pruneAudit,
+  recordAudit,
+  clientIp,
+} from "./auth.js";
+import { authRouter } from "./routes/auth.js";
+import { usersRouter } from "./routes/users.js";
+import { activityRouter } from "./routes/activity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
 
 const app = express();
+// We're behind a single host (and optionally a reverse proxy); trust the proxy
+// so req.secure / x-forwarded-proto are honoured for Secure cookies.
+app.set("trust proxy", true);
 // Raise the body limit so the editor can save reasonably large text files.
 app.use(express.json({ limit: "8mb" }));
+
+// Health check stays public so uptime monitors work without credentials.
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Auth endpoints (status/setup/login/logout/me) must be reachable while logged
+// out, so they are mounted before the auth gate below.
+app.use("/api/auth", authRouter);
+
+// Everything under /api from here on requires a valid session. Read endpoints
+// only need a logged-in user (viewer+); mutating endpoints additionally require
+// requireRole("user") inline. User management requires admin (inside its router).
+app.use("/api", requireAuth);
+app.use("/api/users", usersRouter);
+app.use("/api", activityRouter);
+
+// Audit any state-changing operational request (file writes, settings, history
+// clear, etc.). Mounted after the user/session routers so those don't get logged
+// twice — they record richer entries themselves. Reads (GET) are not logged.
+app.use("/api", (req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    return next();
+  }
+  res.on("finish", () => {
+    const action =
+      req.path.replace(/^\/api\//, "").replace(/\/+$/, "").replace(/\//g, ".") ||
+      "request";
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const detail =
+      (typeof body.path === "string" && body.path) ||
+      (typeof body.dir === "string" && body.dir) ||
+      (typeof req.query.dir === "string" ? req.query.dir : null) ||
+      null;
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action,
+      detail,
+      status: res.statusCode,
+      ip: clientIp(req),
+    });
+  });
+  next();
+});
 
 /** Parses a query-string number, falling back to a default when absent/invalid. */
 function numParam(value: unknown, fallback: number): number {
@@ -47,10 +106,6 @@ function sendError(res: express.Response, err: unknown, fallback: string): void 
     res.status(500).json({ error: fallback });
   }
 }
-
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
-});
 
 app.get("/api/system", async (_req, res) => {
   try {
@@ -119,14 +174,24 @@ app.get("/api/fs/dirsize", async (req, res) => {
 });
 
 app.get("/api/fs/read", async (req, res) => {
+  const target = String(req.query.path ?? "");
   try {
-    res.json(await readTextFile(String(req.query.path ?? "")));
+    const result = await readTextFile(target);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.read",
+      detail: target,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json(result);
   } catch (err) {
     sendError(res, err, "failed to read file");
   }
 });
 
-app.post("/api/fs/write", async (req, res) => {
+app.post("/api/fs/write", requireRole("user"), async (req, res) => {
   try {
     const { path: target, content } = req.body ?? {};
     res.json({ entry: await writeTextFile(String(target ?? ""), String(content ?? "")) });
@@ -136,8 +201,17 @@ app.post("/api/fs/write", async (req, res) => {
 });
 
 app.get("/api/fs/download", async (req, res) => {
+  const target = String(req.query.path ?? "");
   try {
-    const file = await resolveFile(String(req.query.path ?? ""));
+    const file = await resolveFile(target);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.download",
+      detail: target,
+      status: 200,
+      ip: clientIp(req),
+    });
     res.download(file);
   } catch (err) {
     if (err instanceof HttpError) {
@@ -157,7 +231,7 @@ app.get("/api/settings", async (_req, res) => {
   }
 });
 
-app.put("/api/settings", async (req, res) => {
+app.put("/api/settings", requireRole("user"), async (req, res) => {
   try {
     res.json(await saveSettings(req.body));
   } catch (err) {
@@ -187,7 +261,7 @@ app.get("/api/history/stats", (_req, res) => {
   }
 });
 
-app.post("/api/history/clear", (_req, res) => {
+app.post("/api/history/clear", requireRole("user"), (_req, res) => {
   try {
     clearHistory();
     res.json({ ok: true });
@@ -196,7 +270,7 @@ app.post("/api/history/clear", (_req, res) => {
   }
 });
 
-app.post("/api/fs/folder", async (req, res) => {
+app.post("/api/fs/folder", requireRole("user"), async (req, res) => {
   try {
     const { path: parent, name } = req.body ?? {};
     res.json({ entry: await createFolder(String(parent ?? ""), String(name ?? "")) });
@@ -205,7 +279,7 @@ app.post("/api/fs/folder", async (req, res) => {
   }
 });
 
-app.post("/api/fs/file", async (req, res) => {
+app.post("/api/fs/file", requireRole("user"), async (req, res) => {
   try {
     const { path: parent, name } = req.body ?? {};
     res.json({ entry: await createFile(String(parent ?? ""), String(name ?? "")) });
@@ -214,7 +288,7 @@ app.post("/api/fs/file", async (req, res) => {
   }
 });
 
-app.post("/api/fs/rename", async (req, res) => {
+app.post("/api/fs/rename", requireRole("user"), async (req, res) => {
   try {
     const { path: target, newName } = req.body ?? {};
     res.json({ entry: await renameEntry(String(target ?? ""), String(newName ?? "")) });
@@ -223,7 +297,7 @@ app.post("/api/fs/rename", async (req, res) => {
   }
 });
 
-app.post("/api/fs/move", async (req, res) => {
+app.post("/api/fs/move", requireRole("user"), async (req, res) => {
   try {
     const { path: source, dest } = req.body ?? {};
     res.json({ entry: await moveEntry(String(source ?? ""), String(dest ?? "")) });
@@ -232,7 +306,7 @@ app.post("/api/fs/move", async (req, res) => {
   }
 });
 
-app.post("/api/fs/copy", async (req, res) => {
+app.post("/api/fs/copy", requireRole("user"), async (req, res) => {
   try {
     const { path: source, dest } = req.body ?? {};
     res.json({ entry: await copyEntry(String(source ?? ""), String(dest ?? "")) });
@@ -241,7 +315,7 @@ app.post("/api/fs/copy", async (req, res) => {
   }
 });
 
-app.post("/api/fs/delete", async (req, res) => {
+app.post("/api/fs/delete", requireRole("user"), async (req, res) => {
   try {
     const { path: target } = req.body ?? {};
     await deleteEntry(String(target ?? ""));
@@ -253,7 +327,7 @@ app.post("/api/fs/delete", async (req, res) => {
 
 // Upload streams the raw request body straight to disk so large files don't
 // have to be buffered in memory. The target dir + filename come from the query.
-app.post("/api/fs/upload", async (req, res) => {
+app.post("/api/fs/upload", requireRole("user"), async (req, res) => {
   try {
     const target = await resolveUploadTarget(
       String(req.query.dir ?? ""),
@@ -309,6 +383,15 @@ attachTerminal(server);
 initSettings().catch((err) => {
   console.error("Failed to initialise settings/history recorder:", err);
 });
+
+// Periodically drop expired sessions and trim the audit log so the auth DB
+// doesn't grow unbounded.
+pruneSessions();
+pruneAudit();
+setInterval(() => {
+  pruneSessions();
+  pruneAudit();
+}, 60 * 60 * 1000).unref?.();
 
 server.listen(PORT, () => {
   console.log(`SystemDash server listening on http://localhost:${PORT}`);
