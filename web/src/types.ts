@@ -87,6 +87,27 @@ export interface ProcessList {
   list: ProcessInfo[];
 }
 
+export interface DockerStatus {
+  available: boolean;
+  version: string | null;
+  error: string | null;
+}
+
+export interface DockerContainer {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  state: string;
+  ports: string;
+  running: boolean;
+}
+
+export interface DockerContainerList {
+  timestamp: number;
+  containers: DockerContainer[];
+}
+
 export interface FsEntry {
   name: string;
   path: string;
@@ -155,7 +176,13 @@ export interface HistorySeries {
   procCount: (number | null)[];
   procRunning: (number | null)[];
   memTotalBytes: number | null;
+  cpuCores: HistoryCpuCoreSeries[];
   gpus: HistoryGpuSeries[];
+}
+
+export interface HistoryCpuCoreSeries {
+  index: number;
+  load: (number | null)[];
 }
 
 export interface HistoryStats {
@@ -169,4 +196,58 @@ export interface HistoryStats {
   dbBytes: number;
   bytesPerSample: number;
   estimatedDaysToFull: number | null;
+}
+
+export type Role = "viewer" | "user" | "admin";
+
+export interface User {
+  id: number;
+  username: string;
+  role: Role;
+  active: boolean;
+  createdAt: number;
+}
+
+export interface AuthStatus {
+  needsSetup: boolean;
+  user: User | null;
+}
+
+export type GeoStatus = "local" | "resolved" | "unknown";
+
+export interface GeoLocation {
+  status: GeoStatus;
+  label: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  countryCode: string | null;
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface SessionInfo {
+  id: string;
+  userId: number;
+  username: string;
+  role: Role;
+  createdAt: number;
+  lastSeen: number;
+  expiresAt: number;
+  ip: string | null;
+  userAgent: string | null;
+  location: GeoLocation | null;
+  current: boolean;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: number;
+  userId: number | null;
+  username: string | null;
+  action: string;
+  detail: string | null;
+  status: number | null;
+  ip: string | null;
+  location: GeoLocation | null;
 }

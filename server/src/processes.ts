@@ -120,6 +120,77 @@ export async function getProcesses(): Promise<ProcessList> {
   return cache as ProcessList;
 }
 
+export type KillMode = "end" | "kill";
+
+export class ProcessError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+/**
+ * Terminates a process. `end` requests a graceful shutdown (taskkill without
+ * /F on Windows, SIGTERM elsewhere); `kill` forces it (taskkill /F /T,
+ * SIGKILL). Refuses to target the dashboard server itself or invalid PIDs.
+ */
+export async function killProcess(pid: number, mode: KillMode): Promise<void> {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new ProcessError(400, "invalid process id");
+  }
+  if (pid === process.pid) {
+    throw new ProcessError(400, "refusing to terminate the dashboard server");
+  }
+
+  if (process.platform === "win32") {
+    await runTaskkill(pid, mode === "kill");
+  } else {
+    try {
+      process.kill(pid, mode === "kill" ? "SIGKILL" : "SIGTERM");
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") throw new ProcessError(404, "no such process");
+      if (code === "EPERM") {
+        throw new ProcessError(403, "permission denied (process owned by another user)");
+      }
+      throw new ProcessError(500, "failed to terminate process");
+    }
+  }
+
+  // Invalidate the cache so the next poll reflects the change promptly.
+  cache = null;
+}
+
+/** Runs Windows `taskkill`, resolving on success and rejecting with its message. */
+function runTaskkill(pid: number, force: boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = ["/PID", String(pid)];
+    if (force) args.push("/F", "/T");
+    let child;
+    try {
+      child = spawn("taskkill", args, { windowsHide: true });
+    } catch {
+      reject(new ProcessError(500, "failed to launch taskkill"));
+      return;
+    }
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.on("error", () => reject(new ProcessError(500, "failed to launch taskkill")));
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const msg = (err || out).trim().toLowerCase();
+      if (msg.includes("not found")) reject(new ProcessError(404, "no such process"));
+      else if (msg.includes("access is denied")) {
+        reject(new ProcessError(403, "permission denied (try running the server elevated)"));
+      } else reject(new ProcessError(500, (err || out).trim() || "failed to terminate process"));
+    });
+  });
+}
+
 function round(n: number | null | undefined): number {
   if (typeof n !== "number" || !Number.isFinite(n)) return 0;
   return Math.round(n * 10) / 10;

@@ -1,22 +1,11 @@
 import type { ReactElement } from "react";
+import { ProcIconSvg, type IconCategory } from "./styles";
 
 // We can't reliably extract real executable icons across Windows/Linux/macOS
 // without heavy, platform-specific work, so instead we recognise common process
 // names and draw a matching line-icon. Anything unknown falls back to a generic
 // "app" (has a window) or "background process" glyph.
-type Category =
-  | "browser"
-  | "code"
-  | "terminal"
-  | "chat"
-  | "media"
-  | "game"
-  | "document"
-  | "shield"
-  | "system"
-  | "files"
-  | "app"
-  | "process";
+type Category = IconCategory;
 
 const LABELS: Record<Category, string> = {
   browser: "Web browser",
@@ -227,14 +216,14 @@ export function ProcessIcon({
 }) {
   const category = categorize(name, hasWindow);
   return (
-    <svg
-      className={`proc-icon pi-${category}`}
+    <ProcIconSvg
+      $category={category}
       viewBox="0 0 24 24"
       role="img"
       aria-label={LABELS[category]}
     >
       <title>{LABELS[category]}</title>
       {ICONS[category]}
-    </svg>
+    </ProcIconSvg>
   );
 }

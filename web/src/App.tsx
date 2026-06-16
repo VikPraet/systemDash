@@ -1,12 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
-  Activity,
+  Activity as ActivityIcon,
+  Box,
   FolderOpen,
   Gauge as GaugeIcon,
   LineChart,
+  LogOut,
+  ScrollText,
   TerminalSquare,
+  Users as UsersIcon,
   type LucideIcon,
 } from "lucide-react";
+import {
+  NavLink,
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+} from "react-router-dom";
 import {
   fetchSnapshot,
   formatBytes,
@@ -14,31 +28,172 @@ import {
   formatRelative,
   formatUptime,
 } from "./api";
-import type { SystemSnapshot } from "./types";
+import type { Role, SystemSnapshot } from "./types";
 import { Card, Gauge, Bar, LabeledBar, Stat } from "./components/widgets";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
 import { History } from "./components/History";
+import { Users } from "./components/Users";
+import { Activity } from "./components/Activity";
+import { Containers } from "./components/Containers";
+import { Login } from "./components/Login";
+import { Setup } from "./components/Setup";
+import { useAuth, hasRole } from "./auth/AuthContext";
+import { cache } from "./cache";
+import { BrandDot, Loading, RoleBadge } from "./components/ui/styles";
+import { Tooltip } from "./components/ui/Tooltip";
+import { AuthScreen } from "./components/AuthLayout/styles";
+import * as S from "./App.styles";
 
 const POLL_MS = 1000;
 
-type Tab = "overview" | "history" | "processes" | "files" | "terminal";
+interface NavItem {
+  path: string;
+  label: string;
+  icon: LucideIcon;
+  minRole?: Role;
+}
 
-const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
-  { id: "overview", label: "Overview", icon: GaugeIcon },
-  { id: "history", label: "History", icon: LineChart },
-  { id: "processes", label: "Processes", icon: Activity },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "terminal", label: "Terminal", icon: TerminalSquare },
+// `minRole` gates a route/link to a role rank; omitted means any logged-in user.
+const NAV: NavItem[] = [
+  { path: "/overview", label: "Overview", icon: GaugeIcon },
+  { path: "/history", label: "History", icon: LineChart },
+  { path: "/processes", label: "Processes", icon: ActivityIcon },
+  { path: "/containers", label: "Containers", icon: Box },
+  { path: "/files", label: "Files", icon: FolderOpen },
+  { path: "/terminal", label: "Terminal", icon: TerminalSquare, minRole: "user" },
+  { path: "/users", label: "Users", icon: UsersIcon, minRole: "admin" },
+  { path: "/activity", label: "Activity", icon: ScrollText, minRole: "admin" },
 ];
 
+// Snapshot data (used by the Overview page and the sidebar status indicator) is
+// polled once in the layout and shared with child routes via the Outlet context.
+interface DashboardContext {
+  snap: SystemSnapshot | null;
+  error: string | null;
+  now: number;
+}
+function useDashboard(): DashboardContext {
+  return useOutletContext<DashboardContext>();
+}
+
 export default function App() {
+  const { loading } = useAuth();
+
+  if (loading) {
+    return (
+      <AuthScreen>
+        <Loading>Loading…</Loading>
+      </AuthScreen>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route
+        path="/login"
+        element={
+          <PublicOnly>
+            <Login />
+          </PublicOnly>
+        }
+      />
+      <Route path="/setup" element={<SetupRoute />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<DashboardLayout />}>
+          <Route index element={<Navigate to="/overview" replace />} />
+          <Route path="/overview" element={<OverviewPage />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/processes" element={<Processes />} />
+          <Route path="/containers" element={<Containers />} />
+          <Route path="/files" element={<Files />} />
+          <Route
+            path="/terminal"
+            element={
+              <RequireRole min="user">
+                <></>
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <RequireRole min="admin">
+                <Users />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/activity"
+            element={
+              <RequireRole min="admin">
+                <Activity />
+              </RequireRole>
+            }
+          />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/overview" replace />} />
+    </Routes>
+  );
+}
+
+// Renders children only when logged out; otherwise sends the user into the app
+// (or to setup when no users exist yet).
+function PublicOnly({ children }: { children: ReactElement }) {
+  const { user, needsSetup } = useAuth();
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  if (user) return <Navigate to="/overview" replace />;
+  return children;
+}
+
+function SetupRoute() {
+  const { needsSetup, user } = useAuth();
+  if (!needsSetup) return <Navigate to={user ? "/overview" : "/login"} replace />;
+  return <Setup />;
+}
+
+// Gate for every dashboard route: bounce to setup/login as appropriate, keeping
+// the attempted location so login can return the user to it.
+function RequireAuth() {
+  const { user, needsSetup } = useAuth();
+  const location = useLocation();
+  if (needsSetup) return <Navigate to="/setup" replace />;
+  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
+  return <Outlet />;
+}
+
+function RequireRole({ min, children }: { min: Role; children: ReactElement }) {
+  const { user } = useAuth();
+  if (!hasRole(user, min)) return <Navigate to="/overview" replace />;
+  return children;
+}
+
+function OverviewPage() {
+  const { snap, error } = useDashboard();
+  return <Overview snap={snap} error={error} />;
+}
+
+function DashboardLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [snap, setSnap] = useState<SystemSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("overview");
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
+
+  const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
+  const canUseTerminal = hasRole(user, "user");
+  const onTerminalRoute = location.pathname === "/terminal";
+  const [terminalMounted, setTerminalMounted] = useState(
+    () => canUseTerminal && cache.terminal.tabs.length > 0
+  );
+
+  useEffect(() => {
+    if (onTerminalRoute && canUseTerminal) setTerminalMounted(true);
+  }, [onTerminalRoute, canUseTerminal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,39 +231,60 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  async function onLogout() {
+    await logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-dot" />
+    <S.AppShell>
+      <S.Sidebar>
+        <S.Brand>
+          <BrandDot />
           <h1>SystemDash</h1>
-        </div>
-        <nav className="tabs">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={tab === id ? "active" : ""}
-              onClick={() => setTab(id)}
+        </S.Brand>
+        <S.Tabs>
+          {visibleNav.map(({ path, label, icon: Icon }) => (
+            <NavLink
+              key={path}
+              to={path}
+              className={({ isActive }) => (isActive ? "active" : "")}
             >
               <Icon className="nav-icon" size={18} strokeWidth={1.8} />
               <span>{label}</span>
-            </button>
+            </NavLink>
           ))}
-        </nav>
-        <div className="sidebar-footer">
-          <StatusIndicator snap={snap} error={error} now={now} />
-          {snap && <span className="version">v{snap.app.version}</span>}
-        </div>
-      </aside>
+        </S.Tabs>
+        <S.SidebarFooter>
+          <S.UserChip>
+            <S.UserChipInfo>
+              <S.UserChipName>{user?.username}</S.UserChipName>
+              <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
+            </S.UserChipInfo>
+            <Tooltip label="Sign out">
+              <S.LogoutBtn onClick={onLogout}>
+                <LogOut size={16} strokeWidth={1.8} />
+              </S.LogoutBtn>
+            </Tooltip>
+          </S.UserChip>
+          <S.FooterMeta>
+            <StatusIndicator snap={snap} error={error} now={now} />
+            {snap && <S.Version>v{snap.app.version}</S.Version>}
+          </S.FooterMeta>
+        </S.SidebarFooter>
+      </S.Sidebar>
 
-      <main className="content">
-        {tab === "overview" && <Overview snap={snap} error={error} />}
-        {tab === "history" && <History />}
-        {tab === "processes" && <Processes />}
-        {tab === "files" && <Files />}
-        {tab === "terminal" && <Terminal />}
-      </main>
-    </div>
+      <S.Content>
+        <S.ContentLayer $active={!onTerminalRoute}>
+          <Outlet context={{ snap, error, now } satisfies DashboardContext} />
+        </S.ContentLayer>
+        {canUseTerminal && terminalMounted && (
+          <S.ContentLayer $active={onTerminalRoute}>
+            <Terminal active={onTerminalRoute} />
+          </S.ContentLayer>
+        )}
+      </S.Content>
+    </S.AppShell>
   );
 }
 
@@ -138,17 +314,12 @@ function StatusIndicator({
   }
 
   return (
-    <div className="status-wrap">
-      <div className="status">
-        <span className={`dot ${state}`} />
+    <Tooltip label={title} detail={detail ?? undefined}>
+      <S.Status>
+        <S.Dot $state={state} />
         {label}
-      </div>
-      <div className="status-tooltip" role="tooltip">
-        <span className="status-tooltip-title">{title}</span>
-        {detail && <span className="status-tooltip-detail">{detail}</span>}
-        <span className="status-tooltip-arrow" />
-      </div>
-    </div>
+      </S.Status>
+    </Tooltip>
   );
 }
 
@@ -161,23 +332,20 @@ function Overview({
 }) {
   if (!snap) {
     return (
-      <div className="loading">
+      <Loading>
         {error ? `Could not reach the backend: ${error}` : "Loading system stats…"}
-      </div>
+      </Loading>
     );
   }
 
   const { host, cpu, memory, disks, gpus } = snap;
 
   return (
-    <div className="grid">
+    <S.Grid>
       <Card title="System" span={2}>
-        <div className="kv">
+        <S.Kv>
           <Stat label="Host" value={host.hostname} />
-          <Stat
-            label="OS"
-            value={`${host.distro} ${host.release}`.trim()}
-          />
+          <Stat label="OS" value={`${host.distro} ${host.release}`.trim()} />
           <Stat label="Kernel" value={host.kernel || "—"} />
           <Stat label="Architecture" value={host.arch} />
           <Stat label="Platform" value={host.platform} />
@@ -190,79 +358,78 @@ function Overview({
             }
           />
           <Stat label="Uptime" value={formatUptime(host.uptimeSeconds)} />
-        </div>
+        </S.Kv>
       </Card>
 
       <Card title="CPU">
-        <div className="card-split">
+        <S.CardSplit>
           <Gauge value={cpu.loadPercent} label="load" />
-          <div className="readouts">
-            <div className="readout">
-              <span className="readout-value">
+          <S.Readouts>
+            <S.Readout>
+              <S.ReadoutValue>
                 {cpu.currentSpeedGHz.toFixed(2)}
-                <span className="readout-unit">GHz</span>
-              </span>
-              <span className="readout-label">current clock</span>
-            </div>
-            <div className="readout">
-              <span className="readout-value readout-sm">
+                <S.ReadoutUnit>GHz</S.ReadoutUnit>
+              </S.ReadoutValue>
+              <S.ReadoutLabel>current clock</S.ReadoutLabel>
+            </S.Readout>
+            <S.Readout>
+              <S.ReadoutValue $sm>
                 {cpu.baseSpeedGHz.toFixed(2)}
-                <span className="readout-unit">GHz</span>
-              </span>
-              <span className="readout-label">base clock</span>
-            </div>
-          </div>
-        </div>
-        <div className="kv tight">
+                <S.ReadoutUnit>GHz</S.ReadoutUnit>
+              </S.ReadoutValue>
+              <S.ReadoutLabel>base clock</S.ReadoutLabel>
+            </S.Readout>
+          </S.Readouts>
+        </S.CardSplit>
+        <S.Kv $tight>
           <Stat label="Model" value={`${cpu.manufacturer} ${cpu.brand}`} />
           <Stat
             label="Cores"
             value={`${cpu.physicalCores} physical / ${cpu.cores} logical`}
           />
-        </div>
+        </S.Kv>
         {cpu.temperatureC !== null && (
-          <div className="bars">
+          <S.Bars>
             <LabeledBar
               label="Temperature"
               value={cpu.temperatureC}
               max={cpu.temperatureMaxC}
               valueText={`${cpu.temperatureC} / ${cpu.temperatureMaxC} °C`}
             />
-          </div>
+          </S.Bars>
         )}
         {cpu.perCoreLoad.length > 0 && (
           <>
-            <div className="subhead">Per-core load</div>
-            <div className="cores">
+            <S.Subhead>Per-core load</S.Subhead>
+            <S.Cores>
               {cpu.perCoreLoad.map((load, i) => (
-                <div
+                <S.Core
                   key={i}
-                  className="core"
                   title={`Core ${i}: ${load}%${
-                    cpu.perCoreSpeed[i] ? ` · ${cpu.perCoreSpeed[i].toFixed(2)} GHz` : ""
+                    cpu.perCoreSpeed[i]
+                      ? ` · ${cpu.perCoreSpeed[i].toFixed(2)} GHz`
+                      : ""
                   }`}
                 >
-                  <div className="core-fill" style={{ height: `${load}%` }} />
-                </div>
+                  <S.CoreFill style={{ height: `${load}%` }} />
+                </S.Core>
               ))}
-            </div>
+            </S.Cores>
           </>
         )}
       </Card>
 
       <Card title="Memory">
-        <div className="card-split">
+        <S.CardSplit>
           <Gauge value={memory.usedPercent} label="used" />
-          <div className="readouts">
-            <div className="readout">
-              <span className="readout-value">{formatBytes(memory.usedBytes)}</span>
-              <span className="readout-label">
-                of {formatBytes(memory.totalBytes)}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="bars">
+          <S.Readouts>
+            <S.Readout>
+              <S.ReadoutValue>{formatBytes(memory.usedBytes)}</S.ReadoutValue>
+              <S.ReadoutLabel>of {formatBytes(memory.totalBytes)}</S.ReadoutLabel>
+            </S.Readout>
+          </S.Readouts>
+        </S.CardSplit>
+        <S.Bars>
           <LabeledBar
             label="RAM usage"
             value={memory.usedBytes}
@@ -281,33 +448,33 @@ function Overview({
               )}`}
             />
           )}
-        </div>
-        <div className="kv tight">
+        </S.Bars>
+        <S.Kv $tight>
           <Stat label="Available" value={formatBytes(memory.availableBytes)} />
-        </div>
+        </S.Kv>
       </Card>
 
       <Card title="Storage" span={2}>
-        <div className="disks">
+        <S.Disks>
           {disks.length === 0 && <div className="muted">No volumes reported.</div>}
           {disks.map((d) => (
-            <div key={`${d.fs}-${d.mount}`} className="disk">
-              <div className="disk-head">
-                <span className="disk-mount">{d.mount || d.fs}</span>
+            <S.Disk key={`${d.fs}-${d.mount}`}>
+              <S.DiskHead>
+                <S.DiskMount>{d.mount || d.fs}</S.DiskMount>
                 <span className="muted">{d.type}</span>
-              </div>
+              </S.DiskHead>
               <Bar value={d.usedPercent} />
-              <div className="disk-foot muted">
+              <S.DiskFoot className="muted">
                 {formatBytes(d.usedBytes)} used · {formatBytes(d.availableBytes)} free
                 · {formatBytes(d.sizeBytes)} total
-              </div>
-            </div>
+              </S.DiskFoot>
+            </S.Disk>
           ))}
-        </div>
+        </S.Disks>
       </Card>
 
       <Card title="GPU" span={2}>
-        <div className="gpus">
+        <S.Gpus>
           {gpus.length === 0 && <div className="muted">No GPU reported.</div>}
           {gpus.map((g, i) => {
             const hasBars =
@@ -315,12 +482,12 @@ function Overview({
               g.memoryTotalMb !== null ||
               g.temperatureC !== null;
             return (
-              <div key={i} className="gpu">
-                <div className="gpu-name">
+              <S.Gpu key={i}>
+                <S.GpuName>
                   {g.vendor} {g.model}
-                </div>
+                </S.GpuName>
                 {hasBars && (
-                  <div className="bars">
+                  <S.Bars>
                     {g.utilizationPercent !== null && (
                       <LabeledBar
                         label="Utilization"
@@ -345,9 +512,9 @@ function Overview({
                         valueText={`${g.temperatureC} / ${g.temperatureMaxC} °C`}
                       />
                     )}
-                  </div>
+                  </S.Bars>
                 )}
-                <div className="kv tight gpu-meta">
+                <S.GpuMeta $tight>
                   {g.vramMb ? <Stat label="VRAM" value={`${g.vramMb} MB`} /> : null}
                   {g.clockCoreMhz !== null && (
                     <Stat label="Core clock" value={`${g.clockCoreMhz} MHz`} />
@@ -368,13 +535,12 @@ function Overview({
                   {g.fanPercent !== null && (
                     <Stat label="Fan" value={`${g.fanPercent}%`} />
                   )}
-                </div>
-              </div>
+                </S.GpuMeta>
+              </S.Gpu>
             );
           })}
-        </div>
+        </S.Gpus>
       </Card>
-    </div>
+    </S.Grid>
   );
 }
-

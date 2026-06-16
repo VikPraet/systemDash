@@ -88,10 +88,49 @@ Settings:
 - `GET /api/settings` / `PUT /api/settings` → file-manager preferences, persisted to
   `~/.systemdash/settings.json` (override dir with `SYSTEMDASH_DATA_DIR`)
 
+Authentication & users:
+
+- `GET /api/auth/status` → `{ needsSetup, user }` (drives first-run vs login vs app)
+- `POST /api/auth/setup` `{ username, password }` → create the first admin (only
+  works while no users exist) and start a session
+- `POST /api/auth/login` `{ username, password }` → start a session
+- `POST /api/auth/logout` → end the current session
+- `GET /api/auth/me` → the currently signed-in user
+- `GET /api/users` / `POST /api/users` / `PATCH /api/users/:id` / `DELETE /api/users/:id`
+  → user management (admin only): create/edit roles, reset passwords, enable/disable, delete
+
 Terminal:
 
 - `WS /api/terminal` → interactive shell session (PowerShell on Windows, `$SHELL`
   elsewhere). Keystrokes stream to the shell; output streams back.
+
+Docker (requires Docker Engine / Docker Desktop on the host; SystemDash itself stays
+native, not containerised):
+
+- `GET /api/docker/status` → `{ available, version, error }`
+- `GET /api/docker/containers` → list all containers
+- `GET /api/docker/containers/:id/logs?tail=300` → recent log output
+- `POST /api/docker/containers/:id/start|stop|restart` → control (`user`/`admin`)
+
+### Testing the Containers tab
+
+1. Install and start [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   (Windows/macOS) or Docker Engine (Linux).
+2. In a terminal (or the SystemDash **Terminal** tab), run a throwaway container:
+
+   ```bash
+   docker run -d --name systemdash-test -p 8080:80 nginx:alpine
+   ```
+
+3. Open **Containers** in the sidebar — you should see `systemdash-test` running.
+4. Try **Logs**, **Stop**, **Start**, and **Restart**. Visit http://localhost:8080 to
+   confirm nginx is serving while running.
+5. Clean up when done: `docker rm -f systemdash-test`
+
+If Docker is installed but the tab says “not available”, ensure Docker Desktop is
+running and that the account starting SystemDash can access the Docker socket (on Linux,
+add your user to the `docker` group or run elevated). Override the CLI path with
+`DOCKER_BIN` if needed.
 
 ## Notes
 
@@ -102,17 +141,55 @@ Terminal:
   that started it**. Folders that account can't touch return `permission denied`. To see
   into / modify protected system locations, launch the server elevated (Run as
   Administrator on Windows, `sudo` on Linux/macOS).
-- **Security:** the file-management, editor, and **terminal** endpoints are **not
-  authenticated**. The terminal in particular grants full command execution on the host
-  as the server's user — only run this on a trusted host/network (it binds to localhost
-  by default). Add the admin login before exposing it anywhere.
-- **Terminal limitations:** it pipes a shell rather than allocating a real PTY, so
-  full-screen TUI programs (vim, htop, less) won't render correctly. Ordinary commands,
-  output streaming, prompts and line editing work. A real PTY (node-pty) or SSH for
-  remote hosts can be added later.
+- **Authentication & roles:** every `/api` endpoint (except `/api/health`) and the
+  terminal WebSocket now require a signed-in user. On first launch the UI shows a
+  one-time setup screen to create the admin account (no default password is shipped).
+  Users have one of three roles:
+  - `viewer` — read-only (overview, history, process list, browse/read/download files)
+  - `user` — viewer plus write actions (file create/edit/upload/delete, terminal)
+  - `admin` — everything plus user management
+  Accounts and sessions are stored in a local SQLite file at `~/.systemdash/auth.db`
+  (override the dir with `SYSTEMDASH_DATA_DIR`). Passwords are hashed with scrypt;
+  sessions are opaque tokens kept in an HttpOnly, SameSite=Lax cookie (marked `Secure`
+  automatically over HTTPS). Run behind HTTPS (e.g. a reverse proxy) when exposing it
+  beyond localhost.
+- **Privilege model — the dashboard runs with full host clearance:** SystemDash is the
+  server's control interface and never drops privileges. It reads/writes the disk, runs
+  the terminal, and ends/kills processes **as the OS account that started it**. Launch it
+  as a normal user and it's confined to that user; launch it elevated (Administrator on
+  Windows, root via `sudo`/systemd on Linux) and a signed-in `user`/`admin` can do
+  anything that account can on the machine — kill any process, touch any file, run any
+  command. This is intentional, but it means the in-app roles are your only guardrail, so
+  grant `user`/`admin` carefully and keep it behind HTTPS + strong passwords.
+- **Process control:** the Processes tab lets `user`/`admin` accounts **End** (graceful:
+  `taskkill` / `SIGTERM`) or **Force kill** (`taskkill /F /T` / `SIGKILL`) any process.
+  The only thing it refuses to terminate is its own server process, to avoid taking down
+  the interface from inside itself. Every termination is recorded in the activity log.
+- **Terminal:** it allocates a real PTY (via `node-pty`), so the shell behaves like a
+  native terminal — arrow-key history, `Ctrl+C` to interrupt the foreground process,
+  `clear`/`cls`, and full-screen TUI programs (vim, htop, less) all work. SSH to remote
+  hosts can be added later.
 
 ## Roadmap
 
-- Admin authentication to gate the write / file-management / terminal endpoints.
-- Real PTY terminal (node-pty) + SSH to remote hosts.
-- Historical charts / time-series.
+- **Code editor** — replace the plain textarea with a proper editor (syntax highlighting,
+  line numbers, bracket matching; Monaco or CodeMirror). Keep the existing read/write API;
+  broaden supported file types beyond plain `.txt` where the server already allows edits.
+- **Docker** — container overview and control (list/start/stop/restart, logs) via the
+  Docker CLI on the host. Detect whether Docker is installed; gate mutating actions
+  behind `user`/`admin`. Compose stacks and image creation remain future work.
+- **Scheduled jobs** — in-app cron-style tasks (e.g. restart a container nightly, run a
+  backup script). Not a replacement for OS autostart (`systemd` / Task Scheduler); those
+  remain the way to boot SystemDash itself.
+- **Email & alerts** — optional verified email per user; per-user notification
+  preferences (e.g. login/logout, failed login, new session/IP, terminal connect,
+  file delete, process kill). Dispatch from the existing audit log via admin-configured
+  SMTP or an email API (Resend, SendGrid, etc.). Start with security-focused events;
+  terminal-command alerts opt-in and filterable to avoid noise.
+- **SSH** — connect to remote hosts from the built-in terminal.
+- **Deployment helpers** — optional install docs / sample units (`systemd`, Windows Task
+  Scheduler) and env vars (`HOST`, `PORT`) for LAN binding; no built-in Cloudflare Tunnel
+  manager (tunnel stays a one-time host-level `cloudflared` setup in front of this app).
+- **Security** — TOTP 2FA (authenticator apps); CSRF hardening when exposed beyond a
+  trusted LAN. Optional OAuth (Google / Apple) later for sign-in convenience once a
+  public HTTPS callback URL is available (e.g. via Cloudflare Tunnel).

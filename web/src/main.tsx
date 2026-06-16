@@ -1,10 +1,28 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { ThemeProvider } from "styled-components";
 import App from "./App";
-import "./styles.css";
+import { AuthProvider } from "./auth/AuthContext";
+import { GlobalStyle } from "./theme/GlobalStyle";
+import { theme } from "./theme/theme";
+import { cache } from "./cache";
+import { getDefaultTerminalLayout, initTerminalCache } from "./components/Terminal/terminalPersist";
+
+initTerminalCache();
+if (!cache.terminal.tabs.length) {
+  Object.assign(cache.terminal, getDefaultTerminalLayout());
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ThemeProvider theme={theme}>
+      <GlobalStyle />
+      <BrowserRouter>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   </React.StrictMode>
 );

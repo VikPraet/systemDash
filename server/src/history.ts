@@ -69,6 +69,16 @@ function open(): DatabaseSync {
       PRIMARY KEY (ts, idx)
     );
   `);
+  // Per-core CPU load over time (one row per core per sample), mirroring the
+  // gpu_metrics shape so the cores can be charted individually.
+  fresh.exec(`
+    CREATE TABLE IF NOT EXISTS cpu_core_metrics (
+      ts   INTEGER NOT NULL,
+      idx  INTEGER NOT NULL,
+      load REAL,
+      PRIMARY KEY (ts, idx)
+    );
+  `);
   db = fresh;
   return db;
 }
@@ -77,6 +87,7 @@ function open(): DatabaseSync {
 type Stmt = ReturnType<DatabaseSync["prepare"]>;
 let insertMetricStmt: Stmt | null = null;
 let insertGpuStmt: Stmt | null = null;
+let insertCoreStmt: Stmt | null = null;
 
 function insertMetric(): Stmt {
   if (!insertMetricStmt) {
@@ -99,6 +110,16 @@ function insertGpu(): Stmt {
     `);
   }
   return insertGpuStmt;
+}
+
+function insertCore(): Stmt {
+  if (!insertCoreStmt) {
+    insertCoreStmt = open().prepare(`
+      INSERT OR REPLACE INTO cpu_core_metrics (ts, idx, load)
+      VALUES (?, ?, ?)
+    `);
+  }
+  return insertCoreStmt;
 }
 
 let current: HistorySettings = HISTORY_DEFAULTS;
@@ -158,6 +179,10 @@ async function sample(): Promise<void> {
       );
     });
 
+    snap.cpu.perCoreLoad.forEach((load, i) => {
+      insertCore().run(ts, i, load);
+    });
+
     enforceRetention();
   } finally {
     sampling = false;
@@ -181,6 +206,7 @@ function enforceRetention(): void {
     const cutoff = Date.now() - current.retentionDays * 86_400_000;
     const a = d.prepare("DELETE FROM metrics WHERE ts < ?").run(cutoff);
     d.prepare("DELETE FROM gpu_metrics WHERE ts < ?").run(cutoff);
+    d.prepare("DELETE FROM cpu_core_metrics WHERE ts < ?").run(cutoff);
     if (a.changes > 0) pruned = true;
   }
 
@@ -200,6 +226,7 @@ function enforceRetention(): void {
       const cutoff = edge?.ts ?? Date.now();
       d.prepare("DELETE FROM metrics WHERE ts < ?").run(cutoff);
       d.prepare("DELETE FROM gpu_metrics WHERE ts < ?").run(cutoff);
+      d.prepare("DELETE FROM cpu_core_metrics WHERE ts < ?").run(cutoff);
       d.exec("PRAGMA incremental_vacuum;");
       pruned = true;
     }
@@ -245,6 +272,10 @@ export interface HistorySeries {
   procCount: (number | null)[];
   procRunning: (number | null)[];
   memTotalBytes: number | null;
+  cpuCores: Array<{
+    index: number;
+    load: (number | null)[];
+  }>;
   gpus: Array<{
     index: number;
     util: (number | null)[];
@@ -292,7 +323,7 @@ export function queryHistory(opts: {
   const bucketIndex = new Map<number, number>();
   const series: Omit<
     HistorySeries,
-    "from" | "to" | "bucketMs" | "t" | "gpus" | "memTotalBytes"
+    "from" | "to" | "bucketMs" | "t" | "gpus" | "cpuCores" | "memTotalBytes"
   > = {
     cpuLoad: [],
     cpuTemp: [],
@@ -361,6 +392,30 @@ export function queryHistory(opts: {
     g.power[pos] = num(row.power);
   }
 
+  const coreRows = d
+    .prepare(
+      `SELECT (ts / ${bucket}) * ${bucket} AS b, idx,
+         AVG(load) AS load
+       FROM cpu_core_metrics
+       WHERE ts BETWEEN ? AND ?
+       GROUP BY b, idx
+       ORDER BY idx, b`
+    )
+    .all(from, to) as Array<Record<string, number | null>>;
+
+  const coreMap = new Map<number, HistorySeries["cpuCores"][number]>();
+  for (const row of coreRows) {
+    const idx = Number(row.idx);
+    const pos = bucketIndex.get(Number(row.b));
+    if (pos == null) continue;
+    let c = coreMap.get(idx);
+    if (!c) {
+      c = { index: idx, load: blank() };
+      coreMap.set(idx, c);
+    }
+    c.load[pos] = num(row.load);
+  }
+
   return {
     from,
     to,
@@ -368,6 +423,7 @@ export function queryHistory(opts: {
     t,
     ...series,
     memTotalBytes,
+    cpuCores: [...coreMap.values()].sort((a, b) => a.index - b.index),
     gpus: [...gpuMap.values()].sort((a, b) => a.index - b.index),
   };
 }
@@ -429,6 +485,7 @@ export function clearHistory(): void {
   const d = open();
   d.exec("DELETE FROM metrics;");
   d.exec("DELETE FROM gpu_metrics;");
+  d.exec("DELETE FROM cpu_core_metrics;");
   d.exec("PRAGMA incremental_vacuum;");
 }
 

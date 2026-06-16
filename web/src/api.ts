@@ -1,13 +1,145 @@
 import type {
+  AuditEntry,
+  AuthStatus,
   DirListing,
+  DockerContainerList,
+  DockerStatus,
   FsEntry,
   FsRoot,
   HistorySeries,
   HistoryStats,
   ProcessList,
+  Role,
+  SessionInfo,
   Settings,
   SystemSnapshot,
+  User,
 } from "./types";
+
+// When any /api call (other than the auth endpoints themselves) comes back 401,
+// the session has expired/been revoked. We notify a single registered handler so
+// the app can drop back to the login screen, without each caller handling it.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
+// Centralise the 401 handling by wrapping window.fetch once. Cookies are sent
+// automatically for same-origin requests (the SPA is served from the API host,
+// and the dev server proxies /api), so we only need to watch responses.
+const rawFetch = window.fetch.bind(window);
+window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const res = await rawFetch(input, init);
+  const url = typeof input === "string" ? input : input.toString();
+  if (
+    res.status === 401 &&
+    url.includes("/api/") &&
+    !url.includes("/api/auth/")
+  ) {
+    onUnauthorized?.();
+  }
+  return res;
+};
+
+export async function fetchAuthStatus(signal?: AbortSignal): Promise<AuthStatus> {
+  const res = await fetch("/api/auth/status", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as AuthStatus;
+}
+
+export async function setupAdmin(
+  username: string,
+  password: string
+): Promise<User> {
+  const { user } = await postJson<{ user: User }>("/api/auth/setup", {
+    username,
+    password,
+  });
+  return user;
+}
+
+export async function login(username: string, password: string): Promise<User> {
+  const { user } = await postJson<{ user: User }>("/api/auth/login", {
+    username,
+    password,
+  });
+  return user;
+}
+
+export async function logout(): Promise<void> {
+  await postJson("/api/auth/logout", {});
+}
+
+export async function fetchUsers(signal?: AbortSignal): Promise<User[]> {
+  const res = await fetch("/api/users", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { users: User[] }).users;
+}
+
+export async function createUserApi(
+  username: string,
+  password: string,
+  role: Role
+): Promise<User> {
+  const { user } = await postJson<{ user: User }>("/api/users", {
+    username,
+    password,
+    role,
+  });
+  return user;
+}
+
+export async function updateUserApi(
+  id: number,
+  patch: { role?: Role; active?: boolean; password?: string }
+): Promise<User> {
+  const res = await fetch(`/api/users/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { user: User }).user;
+}
+
+export async function deleteUserApi(id: number): Promise<void> {
+  const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+}
+
+export async function fetchSessions(signal?: AbortSignal): Promise<SessionInfo[]> {
+  const res = await fetch("/api/sessions", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { sessions: SessionInfo[] }).sessions;
+}
+
+export async function revokeSession(id: string): Promise<void> {
+  await postJson("/api/sessions/revoke", { id });
+}
+
+export async function fetchAudit(
+  limit = 200,
+  signal?: AbortSignal
+): Promise<AuditEntry[]> {
+  const res = await fetch(`/api/audit?limit=${limit}`, { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { entries: AuditEntry[] }).entries;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   files: {
@@ -85,6 +217,62 @@ export async function fetchProcesses(signal?: AbortSignal): Promise<ProcessList>
     throw new Error(`Request failed: ${res.status}`);
   }
   return (await res.json()) as ProcessList;
+}
+
+export async function fetchDockerStatus(signal?: AbortSignal): Promise<DockerStatus> {
+  const res = await fetch("/api/docker/status", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as DockerStatus;
+}
+
+export async function fetchDockerContainers(
+  signal?: AbortSignal
+): Promise<DockerContainerList> {
+  const res = await fetch("/api/docker/containers", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as DockerContainerList;
+}
+
+export async function fetchDockerLogs(
+  id: string,
+  tail = 300,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await fetch(
+    `/api/docker/containers/${encodeURIComponent(id)}/logs?tail=${tail}`,
+    { signal }
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { logs: string }).logs;
+}
+
+export function dockerContainerAction(
+  id: string,
+  action: "start" | "stop" | "restart"
+): Promise<{ ok: true }> {
+  return postJson(`/api/docker/containers/${encodeURIComponent(id)}/${action}`, {});
+}
+
+export function removeDockerContainer(
+  id: string,
+  force = false
+): Promise<{ ok: true }> {
+  return postJson(`/api/docker/containers/${encodeURIComponent(id)}/remove`, { force });
+}
+
+/** Terminates a process: `end` is graceful, `kill` forces it. */
+export function killProcess(
+  pid: number,
+  mode: "end" | "kill",
+  name?: string
+): Promise<{ ok: true }> {
+  return postJson("/api/processes/kill", { pid, mode, name });
 }
 
 export async function fetchRoots(signal?: AbortSignal): Promise<FsRoot[]> {
