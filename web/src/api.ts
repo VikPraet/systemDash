@@ -273,8 +273,14 @@ export function removeDockerContainer(
   return postJson(`/api/docker/containers/${encodeURIComponent(id)}/remove`, { force });
 }
 
-export async function fetchUpdatesStatus(signal?: AbortSignal): Promise<UpdatesStatus> {
-  const res = await fetch("/api/updates/status", { signal });
+export async function fetchUpdatesStatus(
+  opts?: { refresh?: boolean; descriptions?: boolean; signal?: AbortSignal }
+): Promise<UpdatesStatus> {
+  const params = new URLSearchParams();
+  if (opts?.refresh) params.set("refresh", "1");
+  if (opts?.descriptions) params.set("descriptions", "1");
+  const qs = params.toString();
+  const res = await fetch(`/api/updates/status${qs ? `?${qs}` : ""}`, { signal: opts?.signal });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `Request failed: ${res.status}`);

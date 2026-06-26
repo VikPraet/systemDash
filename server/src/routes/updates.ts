@@ -24,9 +24,11 @@ function sendError(res: import("express").Response, err: unknown): void {
   }
 }
 
-updatesRouter.get("/status", adminOnly, async (_req, res) => {
+updatesRouter.get("/status", adminOnly, async (req, res) => {
   try {
-    res.json(await getUpdatesStatus());
+    const refresh = req.query.refresh === "1";
+    const descriptions = req.query.descriptions === "1";
+    res.json(await getUpdatesStatus({ refresh, descriptions }));
   } catch (err) {
     sendError(res, err);
   }

@@ -12,7 +12,13 @@ export default defineConfig(({ mode }) => {
       port,
       proxy: {
         // `ws: true` lets the terminal's WebSocket (/api/terminal) proxy through too.
-        "/api": { target: apiTarget, ws: true, changeOrigin: true },
+        "/api": {
+          target: apiTarget,
+          ws: true,
+          changeOrigin: true,
+          timeout: 600_000,
+          proxyTimeout: 600_000,
+        },
       },
     },
   };

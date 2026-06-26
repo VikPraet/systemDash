@@ -92,13 +92,17 @@ function createSession(tabId: string): TerminalSession {
     };
     ws.onclose = () => {
       writeSession(session, "\r\n\x1b[90m[disconnected]\x1b[0m\r\n", tabId);
+      ws = null;
+      if (!cancelled) {
+        connectTimer = window.setTimeout(connect, 1500);
+      }
     };
     ws.onerror = () => {
       writeSession(session, "\r\n\x1b[31m[connection error]\x1b[0m\r\n", tabId);
     };
   };
 
-  const connectTimer = window.setTimeout(connect, 0);
+  let connectTimer = window.setTimeout(connect, 0);
 
   const dataSub = term.onData((data) => {
     if (ws?.readyState === WebSocket.OPEN) {

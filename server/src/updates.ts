@@ -232,7 +232,13 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   return results;
 }
 
-async function aptPending(refresh = true): Promise<PendingPackage[]> {
+async function aptPending(opts?: {
+  refresh?: boolean;
+  descriptions?: boolean;
+}): Promise<PendingPackage[]> {
+  const refresh = opts?.refresh ?? false;
+  const descriptions = opts?.descriptions ?? false;
+
   if (refresh) {
     await run("apt-get", ["update"], { timeout: 300_000, elevate: true });
   }
@@ -244,10 +250,17 @@ async function aptPending(refresh = true): Promise<PendingPackage[]> {
     .map(parseAptUpgradableLine)
     .filter((p): p is Omit<PendingPackage, "description"> => p !== null);
 
-  return mapPool(parsed, 8, async (pkg) => ({
+  if (!descriptions) {
+    return parsed.map((pkg) => ({ ...pkg, description: null }));
+  }
+
+  const describe = parsed.slice(0, 24);
+  const described = await mapPool(describe, 3, async (pkg) => ({
     ...pkg,
     description: await packageDescription(pkg.name),
   }));
+  const tail = parsed.slice(24).map((pkg) => ({ ...pkg, description: null }));
+  return [...described, ...tail];
 }
 
 async function wingetPending(): Promise<PendingPackage[]> {
@@ -297,7 +310,39 @@ export function getUpdateJob(): UpdateJob {
   return { ...updateJob, log: updateJob.log };
 }
 
-export async function getUpdatesStatus(): Promise<UpdatesStatus> {
+let statusCache: { at: number; key: string; data: UpdatesStatus } | null = null;
+let statusInFlight: Promise<UpdatesStatus> | null = null;
+const STATUS_CACHE_MS = 45_000;
+
+function statusCacheKey(opts?: { refresh?: boolean; descriptions?: boolean }): string {
+  return `${opts?.refresh ? 1 : 0}:${opts?.descriptions ? 1 : 0}`;
+}
+
+export async function getUpdatesStatus(opts?: {
+  refresh?: boolean;
+  descriptions?: boolean;
+}): Promise<UpdatesStatus> {
+  if (statusInFlight) return statusInFlight;
+
+  statusInFlight = getUpdatesStatusInner(opts).finally(() => {
+    statusInFlight = null;
+  });
+  return statusInFlight;
+}
+
+async function getUpdatesStatusInner(opts?: {
+  refresh?: boolean;
+  descriptions?: boolean;
+}): Promise<UpdatesStatus> {
+  const cacheKey = statusCacheKey(opts);
+  if (
+    !opts?.refresh &&
+    statusCache?.key === cacheKey &&
+    Date.now() - statusCache.at < STATUS_CACHE_MS
+  ) {
+    return statusCache.data;
+  }
+
   const manager = detectManager();
   const base: UpdatesStatus = {
     available: manager !== null,
@@ -329,11 +374,18 @@ export async function getUpdatesStatus(): Promise<UpdatesStatus> {
   try {
     const items =
       manager === "apt"
-        ? await aptPending()
+        ? await aptPending({
+            refresh: opts?.refresh ?? false,
+            descriptions: opts?.descriptions ?? false,
+          })
         : manager === "winget"
           ? await wingetPending()
           : await macPending();
-    return { ...base, pendingCount: items.length, items };
+    const result = { ...base, pendingCount: items.length, items };
+    if (!opts?.refresh) {
+      statusCache = { at: Date.now(), key: cacheKey, data: result };
+    }
+    return result;
   } catch (err) {
     const message = err instanceof UpdatesError ? err.message : (err as Error).message;
     return { ...base, hint: message };

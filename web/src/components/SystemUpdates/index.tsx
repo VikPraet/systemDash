@@ -38,11 +38,11 @@ export function SystemUpdates() {
   const [showLog, setShowLog] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (refresh = false, descriptions = false) => {
     setLoading(true);
     setError(null);
     try {
-      const next = await fetchUpdatesStatus();
+      const next = await fetchUpdatesStatus({ refresh, descriptions });
       setStatus(next);
       setSelected(new Set((next.items ?? []).map((p) => p.name)));
     } catch (e) {
@@ -53,7 +53,7 @@ export function SystemUpdates() {
   }, []);
 
   useEffect(() => {
-    void reload();
+    void reload(false, false);
   }, [reload]);
 
   useEffect(() => {
@@ -193,12 +193,15 @@ export function SystemUpdates() {
             <strong>{selected.size}</strong> selected
           </span>
         </S.Summary>
-        <Tooltip label="Refresh available packages">
-          <GhostBtn type="button" onClick={() => void reload()} disabled={loading || busy}>
+        <Tooltip label="Refresh package lists from apt (can take a minute)">
+          <GhostBtn type="button" onClick={() => void reload(true, true)} disabled={loading || busy}>
             <RefreshCw size={14} />
             Refresh
           </GhostBtn>
         </Tooltip>
+        <GhostBtn type="button" onClick={() => void reload(false, true)} disabled={loading || busy}>
+          Load descriptions
+        </GhostBtn>
         <GhostBtn
           type="button"
           disabled={!status.canInstall || busy || pending === 0}

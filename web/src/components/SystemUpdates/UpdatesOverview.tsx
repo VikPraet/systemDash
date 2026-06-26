@@ -17,7 +17,7 @@ export function UpdatesOverview() {
     setError(null);
     try {
       const [next, job] = await Promise.all([
-        fetchUpdatesStatus(),
+        fetchUpdatesStatus({ descriptions: false }),
         fetchUpdatesJob().catch(() => null),
       ]);
       setStatus(next);
