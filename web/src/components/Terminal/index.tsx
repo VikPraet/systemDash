@@ -7,6 +7,7 @@ import {
   PanelLeftClose,
 } from "lucide-react";
 import { cache } from "../../cache";
+import { randomId } from "../../randomId";
 import { TerminalPane, closeTerminalTabSession } from "./TerminalPane";
 import {
   syncTerminalLayout,
@@ -38,7 +39,7 @@ function nextFreeShellTitle(tabs: TerminalTab[]): string {
 }
 
 function newTab(tabs: TerminalTab[]): TerminalTab {
-  return { id: crypto.randomUUID(), title: nextFreeShellTitle(tabs) };
+  return { id: randomId(), title: nextFreeShellTitle(tabs) };
 }
 
 function paneHomeCell(

@@ -1,4 +1,5 @@
 import { cache } from "../../cache";
+import { randomId } from "../../randomId";
 
 const STORAGE_KEY = "systemdash-terminal";
 const MAX_SCROLLBACK_CHARS = 512_000;
@@ -23,7 +24,7 @@ export interface TerminalLayoutState {
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 
 function defaultTab(): TerminalTabState {
-  const id = crypto.randomUUID();
+  const id = randomId();
   return { id, title: "Shell 1" };
 }
 

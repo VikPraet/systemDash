@@ -18,13 +18,13 @@ Server: download release → extract → systemd restart
 
 | Required | Not required on server |
 |----------|-------------------------|
-| Node.js 18+ (20 LTS recommended) | Yarn |
+| Node.js 22+ (built-in `node:sqlite`) | Yarn |
 | `curl`, `tar` (for install script) | Git |
 | systemd (recommended) | gcc / python (node-pty is prebuilt in the tarball) |
 
 ```bash
 # Ubuntu/Debian — runtime only
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs curl
 ```
 
