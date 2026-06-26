@@ -242,7 +242,7 @@ async function aptPending(opts?: {
   if (refresh) {
     await run("apt-get", ["update"], { timeout: 300_000, elevate: true });
   }
-  const list = await run("apt", ["list", "--upgradable"], { timeout: 120_000, elevate: false });
+  const list = await run("apt", ["list", "--upgradable"], { timeout: 60_000, elevate: false });
   const parsed = list
     .split("\n")
     .map((line) => line.trim())
@@ -311,7 +311,7 @@ export function getUpdateJob(): UpdateJob {
 }
 
 let statusCache: { at: number; key: string; data: UpdatesStatus } | null = null;
-let statusInFlight: Promise<UpdatesStatus> | null = null;
+const statusInFlight = new Map<string, Promise<UpdatesStatus>>();
 const STATUS_CACHE_MS = 45_000;
 
 function statusCacheKey(opts?: { refresh?: boolean; descriptions?: boolean }): string {
@@ -322,12 +322,15 @@ export async function getUpdatesStatus(opts?: {
   refresh?: boolean;
   descriptions?: boolean;
 }): Promise<UpdatesStatus> {
-  if (statusInFlight) return statusInFlight;
+  const key = statusCacheKey(opts);
+  const existing = statusInFlight.get(key);
+  if (existing) return existing;
 
-  statusInFlight = getUpdatesStatusInner(opts).finally(() => {
-    statusInFlight = null;
+  const p = getUpdatesStatusInner(opts).finally(() => {
+    statusInFlight.delete(key);
   });
-  return statusInFlight;
+  statusInFlight.set(key, p);
+  return p;
 }
 
 async function getUpdatesStatusInner(opts?: {
@@ -372,10 +375,20 @@ async function getUpdatesStatusInner(opts?: {
   }
 
   try {
+    const refresh = opts?.refresh ?? false;
+    if (!refresh && manager !== "apt") {
+      if (statusCache) return statusCache.data;
+      return {
+        ...base,
+        pendingCount: 0,
+        hint: "Click Refresh to scan for updates.",
+      };
+    }
+
     const items =
       manager === "apt"
         ? await aptPending({
-            refresh: opts?.refresh ?? false,
+            refresh,
             descriptions: opts?.descriptions ?? false,
           })
         : manager === "winget"

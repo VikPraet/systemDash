@@ -43,6 +43,7 @@ function createSession(tabId: string): TerminalSession {
     term,
     fit,
     fitTerminal: () => {},
+    ensureConnected: () => {},
     host: null,
     visible: true,
     restored: false,
@@ -91,11 +92,11 @@ function createSession(tabId: string): TerminalSession {
       if (typeof ev.data === "string") writeSession(session, ev.data, tabId);
     };
     ws.onclose = () => {
-      writeSession(session, "\r\n\x1b[90m[disconnected]\x1b[0m\r\n", tabId);
       ws = null;
-      if (!cancelled) {
-        connectTimer = window.setTimeout(connect, 1500);
-      }
+      if (cancelled) return;
+      if (!session.visible) return;
+      writeSession(session, "\r\n\x1b[90m[disconnected]\x1b[0m\r\n", tabId);
+      connectTimer = window.setTimeout(connect, 2000);
     };
     ws.onerror = () => {
       writeSession(session, "\r\n\x1b[31m[connection error]\x1b[0m\r\n", tabId);
@@ -103,6 +104,14 @@ function createSession(tabId: string): TerminalSession {
   };
 
   let connectTimer = window.setTimeout(connect, 0);
+  session.ensureConnected = () => {
+    if (cancelled) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    window.clearTimeout(connectTimer);
+    connect();
+  };
 
   const dataSub = term.onData((data) => {
     if (ws?.readyState === WebSocket.OPEN) {
@@ -174,17 +183,20 @@ export function TerminalPane({
     if (!session) return;
     session.visible = visible;
 
-    if (!visible) return;
-
-    const id = window.requestAnimationFrame(() => {
-      session.fitTerminal();
-      window.requestAnimationFrame(() => {
+    if (visible) {
+      session.ensureConnected();
+      const id = window.requestAnimationFrame(() => {
         session.fitTerminal();
-        session.term.refresh(0, session.term.rows - 1);
-        if (focused) session.term.focus();
+        window.requestAnimationFrame(() => {
+          session.fitTerminal();
+          session.term.refresh(0, session.term.rows - 1);
+          if (focused) session.term.focus();
+        });
       });
-    });
-    return () => window.cancelAnimationFrame(id);
+      return () => window.cancelAnimationFrame(id);
+    }
+
+    return;
   }, [tabId, visible, focused]);
 
   return (

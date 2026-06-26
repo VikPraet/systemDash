@@ -5,6 +5,7 @@ export interface TerminalSession {
   term: XTerm;
   fit: FitAddon;
   fitTerminal: () => void;
+  ensureConnected: () => void;
   host: HTMLDivElement | null;
   visible: boolean;
   restored: boolean;
