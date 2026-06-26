@@ -37,6 +37,7 @@ import { usersRouter } from "./routes/users.js";
 import { activityRouter } from "./routes/activity.js";
 import { dockerRouter } from "./routes/docker.js";
 import { updatesRouter } from "./routes/updates.js";
+import { appUpdateRouter } from "./routes/appUpdate.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -65,6 +66,7 @@ app.use("/api/users", usersRouter);
 app.use("/api", activityRouter);
 app.use("/api/docker", dockerRouter);
 app.use("/api/updates", updatesRouter);
+app.use("/api/app-update", appUpdateRouter);
 
 // Process control. Defined before the generic audit middleware so we can record
 // a richer, explicit audit entry (with the process name + mode) instead of the

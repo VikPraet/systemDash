@@ -87,14 +87,27 @@ export const Brand = styled.div`
   }
 `;
 
-export const Version = styled.span`
+export const Version = styled.span<{ $available?: boolean }>`
   font-size: 11px;
-  color: ${({ theme }) => theme.color.muted};
+  color: ${({ $available, theme }) => ($available ? theme.color.good : theme.color.muted)};
   background: ${({ theme }) => theme.color.panel2};
-  border: 1px solid ${({ theme }) => theme.color.border};
+  border: 1px solid
+    ${({ $available, theme }) =>
+      $available
+        ? `color-mix(in srgb, ${theme.color.good} 40%, transparent)`
+        : theme.color.border};
   padding: 2px 8px;
   border-radius: ${({ theme }) => theme.radius.sm};
   font-variant-numeric: tabular-nums;
+
+  &[type="button"] {
+    cursor: pointer;
+    font: inherit;
+
+    &:hover {
+      color: ${({ theme }) => theme.color.text};
+    }
+  }
 `;
 
 /* ---- Sidebar navigation -------------------------------------------------- */

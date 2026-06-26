@@ -1,34 +1,50 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
-import { fetchUpdatesStatus, runSystemUpdates } from "../../api";
-import type { UpdatesStatus } from "../../types";
 import {
-  DangerBtn,
-  GhostBtn,
-  ModalActions,
-  ModalCard,
-  ModalError,
-  ModalHead,
-  ModalMessage,
-  ModalOverlay,
-  ModalSub,
-} from "../ui/styles";
+  fetchUpdatesJob,
+  fetchUpdatesStatus,
+  startSystemUpdates,
+} from "../../api";
+import type { PendingPackage, UpdateJob, UpdatesStatus } from "../../types";
+import { DangerBtn, GhostBtn, Loading } from "../ui/styles";
+import { Tooltip } from "../ui/Tooltip";
+import { AppUpdatePanel } from "./AppUpdatePanel";
 import * as S from "./styles";
+
+const JOB_POLL_MS = 800;
+
+function phaseLabel(phase: UpdateJob["phase"]): string {
+  switch (phase) {
+    case "refresh":
+      return "Refreshing package lists…";
+    case "apply":
+      return "Installing updates…";
+    case "done":
+      return "Update finished";
+    case "error":
+      return "Update failed";
+    default:
+      return "";
+  }
+}
 
 export function SystemUpdates() {
   const [status, setStatus] = useState<UpdatesStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [confirmScope, setConfirmScope] = useState<"packages" | "all" | null>(null);
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [runOutput, setRunOutput] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [job, setJob] = useState<UpdateJob | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const logRef = useRef<HTMLPreElement>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setStatus(await fetchUpdatesStatus());
+      const next = await fetchUpdatesStatus();
+      setStatus(next);
+      setSelected(new Set((next.items ?? []).map((p) => p.name)));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -40,150 +56,239 @@ export function SystemUpdates() {
     void reload();
   }, [reload]);
 
-  async function onConfirmRun() {
-    if (!confirmScope) return;
-    setRunning(true);
-    setRunError(null);
-    setRunOutput(null);
+  useEffect(() => {
+    if (!job?.running && job?.phase !== "refresh" && job?.phase !== "apply") {
+      return;
+    }
+
+    const id = setInterval(async () => {
+      try {
+        const next = await fetchUpdatesJob();
+        setJob(next);
+        setShowLog(true);
+        if (!next.running && (next.phase === "done" || next.phase === "error")) {
+          await reload();
+        }
+      } catch {
+        // ignore transient poll errors
+      }
+    }, JOB_POLL_MS);
+
+    return () => clearInterval(id);
+  }, [job?.running, job?.phase, reload]);
+
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [job?.log]);
+
+  const rows = useMemo(() => {
+    const items = status?.items ?? [];
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description ?? "").toLowerCase().includes(q) ||
+        p.source.toLowerCase().includes(q)
+    );
+  }, [status?.items, query]);
+
+  const allSelected = rows.length > 0 && rows.every((p) => selected.has(p.name));
+
+  function toggleAll(checked: boolean): void {
+    if (!checked) {
+      setSelected(new Set());
+      return;
+    }
+    setSelected(new Set(rows.map((p) => p.name)));
+  }
+
+  function toggleOne(name: string, checked: boolean): void {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(name);
+      else next.delete(name);
+      return next;
+    });
+  }
+
+  async function runUpdate(scope: "packages" | "all", onlySelected: boolean): Promise<void> {
+    if (!status?.canInstall) return;
+    const packages =
+      onlySelected && selected.size > 0 && selected.size < (status.items.length ?? 0)
+        ? [...selected]
+        : undefined;
+
+    setShowLog(true);
+    setJob({
+      running: true,
+      phase: "refresh",
+      progress: 5,
+      log: "",
+      error: null,
+    });
+
     try {
-      const result = await runSystemUpdates(confirmScope);
-      setRunOutput(result.output || result.message);
-      setConfirmScope(null);
-      await reload();
+      await startSystemUpdates({ scope, packages });
+      const first = await fetchUpdatesJob();
+      setJob(first);
     } catch (e) {
-      setRunError((e as Error).message);
-    } finally {
-      setRunning(false);
+      setJob({
+        running: false,
+        phase: "error",
+        progress: 0,
+        log: "",
+        error: (e as Error).message,
+      });
     }
   }
 
   if (loading && !status) {
-    return <S.Wrap>Checking for updates…</S.Wrap>;
+    return <Loading>Fetching package lists — this can take a minute…</Loading>;
   }
 
   if (error && !status) {
     return (
-      <S.Wrap>
-        <S.ErrorText>{error}</S.ErrorText>
-        <GhostBtn type="button" onClick={() => void reload()}>
-          Retry
-        </GhostBtn>
-      </S.Wrap>
+      <S.Root>
+        <S.Banner $bad>{error}</S.Banner>
+        <S.Empty>
+          <GhostBtn type="button" onClick={() => void reload()}>
+            Retry
+          </GhostBtn>
+        </S.Empty>
+      </S.Root>
     );
   }
 
   if (!status?.available) {
     return (
-      <S.Wrap>
-        <S.Muted>{status?.hint ?? "Updates are not available on this platform."}</S.Muted>
-      </S.Wrap>
+      <S.Root>
+        <S.Banner $bad>{status?.hint ?? "Updates are not available on this platform."}</S.Banner>
+      </S.Root>
     );
   }
 
-  const pending =
-    status.pendingCount === null
-      ? "unknown"
-      : status.pendingCount === 0
-        ? "none"
-        : String(status.pendingCount);
-
-  const managerLabel =
-    status.manager === "apt"
-      ? "apt"
-      : status.manager === "winget"
-        ? "winget"
-        : "softwareupdate";
+  const busy = job?.running ?? false;
+  const pending = status.pendingCount ?? 0;
 
   return (
-    <>
-      <S.Wrap>
-        <S.Row>
-          <S.Summary>
-            <S.Label>Package manager</S.Label>
-            <S.Value>{managerLabel}</S.Value>
-          </S.Summary>
-          <S.Summary>
-            <S.Label>Pending</S.Label>
-            <S.Value>{pending}</S.Value>
-          </S.Summary>
-          <GhostBtn type="button" onClick={() => void reload()} disabled={loading || running}>
+    <S.Root>
+      <AppUpdatePanel />
+      <S.SectionHead>OS packages</S.SectionHead>
+      <S.Toolbar>
+        <S.Search
+          type="text"
+          placeholder="Find packages…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          disabled={busy}
+        />
+        <S.Summary>
+          <span>
+            <strong>{pending}</strong> updates
+          </span>
+          <span>
+            <strong>{selected.size}</strong> selected
+          </span>
+        </S.Summary>
+        <Tooltip label="Refresh available packages">
+          <GhostBtn type="button" onClick={() => void reload()} disabled={loading || busy}>
             <RefreshCw size={14} />
             Refresh
           </GhostBtn>
-        </S.Row>
-
-        {status.hint && <S.Hint>{status.hint}</S.Hint>}
-
-        {status.packages.length > 0 && (
-          <S.PackageList>
-            {status.packages.map((pkg) => (
-              <li key={pkg}>{pkg}</li>
-            ))}
-            {status.pendingCount !== null && status.pendingCount > status.packages.length && (
-              <li>…and {status.pendingCount - status.packages.length} more</li>
-            )}
-          </S.PackageList>
-        )}
-
-        {runOutput && <S.Output>{runOutput}</S.Output>}
-
-        <S.Actions>
-          <GhostBtn
+        </Tooltip>
+        <GhostBtn
+          type="button"
+          disabled={!status.canInstall || busy || pending === 0}
+          onClick={() => void runUpdate("packages", true)}
+        >
+          <Download size={14} />
+          Update selected
+        </GhostBtn>
+        <DangerBtn
+          type="button"
+          disabled={!status.canInstall || busy || pending === 0}
+          onClick={() => void runUpdate("packages", false)}
+        >
+          Update all packages
+        </DangerBtn>
+        {status.manager === "apt" && (
+          <DangerBtn
             type="button"
-            disabled={!status.canInstall || running}
-            onClick={() => {
-              setRunError(null);
-              setConfirmScope("packages");
-            }}
+            disabled={!status.canInstall || busy || pending === 0}
+            onClick={() => void runUpdate("all", false)}
           >
-            <Download size={14} />
-            Update packages
-          </GhostBtn>
-          {status.manager === "apt" && (
-            <DangerBtn
-              type="button"
-              disabled={!status.canInstall || running}
-              onClick={() => {
-                setRunError(null);
-                setConfirmScope("all");
-              }}
-            >
-              Update all (incl. OS)
-            </DangerBtn>
-          )}
-        </S.Actions>
-
-        {running && (
-          <S.Muted>Running upgrade — this can take several minutes. Do not close the page.</S.Muted>
+            Full upgrade (incl. OS)
+          </DangerBtn>
         )}
-      </S.Wrap>
+      </S.Toolbar>
 
-      {confirmScope && (
-        <ModalOverlay onClick={() => !running && setConfirmScope(null)}>
-          <ModalCard onClick={(e) => e.stopPropagation()}>
-            <ModalHead>
-              {confirmScope === "all" ? "Update all packages and OS?" : "Update packages?"}
-            </ModalHead>
-            <ModalSub>
-              {confirmScope === "all"
-                ? "Runs apt full-upgrade (kernel and system components may change). A reboot may be required."
-                : "Runs apt upgrade for installed packages."}
-            </ModalSub>
-            <ModalMessage>
-              This uses {managerLabel} on the host and may take a long time.
-            </ModalMessage>
-            {runError && <ModalError>{runError}</ModalError>}
-            <ModalActions>
-              <GhostBtn type="button" disabled={running} onClick={() => setConfirmScope(null)}>
-                Cancel
-              </GhostBtn>
-              <DangerBtn type="button" disabled={running} onClick={() => void onConfirmRun()}>
-                {running ? "Updating…" : "Start update"}
-              </DangerBtn>
-            </ModalActions>
-          </ModalCard>
-        </ModalOverlay>
+      {status.hint && <S.Banner $bad>{status.hint}</S.Banner>}
+      {loading && <S.Banner>Refreshing package lists…</S.Banner>}
+
+      {(job?.running || job?.phase === "done" || job?.phase === "error") && (
+        <S.ProgressWrap>
+          <S.ProgressLabel>
+            <span>{phaseLabel(job.phase)}</span>
+            <span>{job.progress}%</span>
+          </S.ProgressLabel>
+          <S.ProgressTrack>
+            <S.ProgressFill $value={job.progress} />
+          </S.ProgressTrack>
+        </S.ProgressWrap>
       )}
-    </>
+
+      {showLog && job?.log && <S.LogPanel ref={logRef}>{job.log}</S.LogPanel>}
+      {job?.error && <S.Banner $bad>{job.error}</S.Banner>}
+
+      <S.Body>
+        {pending === 0 && !loading ? (
+          <S.Empty>All packages are up to date.</S.Empty>
+        ) : (
+          <S.Table>
+            <thead>
+              <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => toggleAll(e.target.checked)}
+                    disabled={busy || rows.length === 0}
+                  />
+                </th>
+                <th>Package</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((pkg: PendingPackage) => (
+                <tr key={pkg.name}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(pkg.name)}
+                      onChange={(e) => toggleOne(pkg.name, e.target.checked)}
+                      disabled={busy}
+                    />
+                  </td>
+                  <td className="mono">{pkg.name}</td>
+                  <td className="desc muted">{pkg.description ?? "—"}</td>
+                  <td className="status">
+                    {pkg.currentVersion
+                      ? `${pkg.currentVersion} → ${pkg.newVersion}`
+                      : `New version ${pkg.newVersion}`}
+                  </td>
+                  <td className="mono muted">{pkg.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </S.Table>
+        )}
+      </S.Body>
+    </S.Root>
   );
 }

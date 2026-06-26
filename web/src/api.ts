@@ -15,6 +15,11 @@ import type {
   SystemSnapshot,
   UpdatesRunResult,
   UpdatesStatus,
+  UpdateJob,
+  UpdatePhase,
+  UpdatesPhaseResult,
+  AppUpdateStatus,
+  AppUpdateJob,
   User,
 } from "./types";
 
@@ -277,10 +282,58 @@ export async function fetchUpdatesStatus(signal?: AbortSignal): Promise<UpdatesS
   return (await res.json()) as UpdatesStatus;
 }
 
+export async function fetchUpdatesJob(signal?: AbortSignal): Promise<UpdateJob> {
+  const res = await fetch("/api/updates/job", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as UpdateJob;
+}
+
+export async function startSystemUpdates(opts: {
+  scope: "packages" | "all";
+  packages?: string[];
+}): Promise<{ ok: true }> {
+  return postJson("/api/updates/start", opts);
+}
+
+export async function fetchAppUpdateStatus(
+  opts?: { refresh?: boolean; signal?: AbortSignal }
+): Promise<AppUpdateStatus> {
+  const qs = opts?.refresh ? "?refresh=1" : "";
+  const res = await fetch(`/api/app-update/status${qs}`, { signal: opts?.signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as AppUpdateStatus;
+}
+
+export async function fetchAppUpdateJob(signal?: AbortSignal): Promise<AppUpdateJob> {
+  const res = await fetch("/api/app-update/job", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as AppUpdateJob;
+}
+
+export async function startAppUpdate(): Promise<{ ok: true }> {
+  return postJson("/api/app-update/start", {});
+}
+
 export async function runSystemUpdates(
   scope: "packages" | "all"
 ): Promise<UpdatesRunResult> {
   return postJson<UpdatesRunResult>("/api/updates/run", { scope });
+}
+
+export async function runSystemUpdatesPhase(
+  phase: UpdatePhase,
+  scope?: "packages" | "all"
+): Promise<UpdatesPhaseResult> {
+  return postJson<UpdatesPhaseResult>("/api/updates/run", { phase, scope });
 }
 
 /** Terminates a process: `end` is graceful, `kill` forces it. */

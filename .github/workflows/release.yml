@@ -29,4 +29,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: systemdash-*-linux-x64.tar.gz
+          body_path: docs/releases/${{ github.ref_name }}.md
           generate_release_notes: true

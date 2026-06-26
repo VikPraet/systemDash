@@ -119,23 +119,25 @@ bash scripts/package-release.sh linux-x64
 # cd /tmp/sd-test && node server/dist/index.js
 ```
 
-## In-app “Update available” (next step)
+## In-app SystemDash updates
 
-| Piece | Purpose |
-|--------|---------|
-| `VERSION.json` in each release | `{ version, commit, platform, builtAt }` — shipped in tarball |
-| `GET /api/system/update` | Fetch latest GitHub Release, compare to installed `VERSION.json` (admin) |
-| UI | Sidebar: `v0.1.0` → **Update available** when a newer tag exists |
-| `POST /api/system/update` | Download asset, extract to `releases/<version>`, flip `current` symlink, `process.exit(0)` → systemd restarts |
+Admins can check GitHub Releases from **Updates** in the UI (Overview teasers and the
+sidebar version badge). The server compares installed `VERSION.json` to the latest
+release tag and can download the linux-x64 tarball, extract it under `releases/`,
+flip the `current` symlink, and restart via systemd.
 
-No build on the server — only download, extract, symlink, restart. Admin-only and
-audit-logged.
+| API | Purpose |
+|-----|---------|
+| `GET /api/app-update/status` | Compare installed vs latest GitHub Release |
+| `GET /api/app-update/job` | Progress/log while an update runs |
+| `POST /api/app-update/start` | Download, extract, symlink, restart (admin) |
 
-Configure with env vars (planned):
+Configure on the server (systemd unit or environment file):
 
-- `SYSTEMDASH_HOME` — `/opt/systemdash`
-- `GITHUB_REPO` — `owner/systemDash`
-- `GITHUB_TOKEN` — optional, for private releases
+- `SYSTEMDASH_HOME` — `/opt/systemdash` or `/home/vadmin/systemdash`
+- `GITHUB_REPO` — `owner/systemDash` (defaults to `VikPraet/systemDash`)
+- `GITHUB_TOKEN` — optional, required for private repos / higher API limits
+- `SYSTEMDASH_SERVICE` — systemd unit name (default `systemdash`)
 
 ## Source install (developers only)
 

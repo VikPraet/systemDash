@@ -6,6 +6,7 @@ import {
   Gauge as GaugeIcon,
   LineChart,
   LogOut,
+  Package,
   ScrollText,
   TerminalSquare,
   Users as UsersIcon,
@@ -38,6 +39,9 @@ import { Users } from "./components/Users";
 import { Activity } from "./components/Activity";
 import { Containers } from "./components/Containers";
 import { SystemUpdates } from "./components/SystemUpdates";
+import { UpdatesOverview } from "./components/SystemUpdates/UpdatesOverview";
+import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOverview";
+import { AppVersionLink } from "./components/SystemUpdates/AppVersionLink";
 import { Login } from "./components/Login";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
@@ -65,6 +69,7 @@ const NAV: NavItem[] = [
   { path: "/files", label: "Files", icon: FolderOpen },
   { path: "/terminal", label: "Terminal", icon: TerminalSquare, minRole: "user" },
   { path: "/users", label: "Users", icon: UsersIcon, minRole: "admin" },
+  { path: "/updates", label: "Updates", icon: Package, minRole: "admin" },
   { path: "/activity", label: "Activity", icon: ScrollText, minRole: "admin" },
 ];
 
@@ -122,6 +127,14 @@ export default function App() {
             element={
               <RequireRole min="admin">
                 <Users />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="/updates"
+            element={
+              <RequireRole min="admin">
+                <SystemUpdates />
               </RequireRole>
             }
           />
@@ -189,6 +202,7 @@ function DashboardLayout() {
 
   const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
   const canUseTerminal = hasRole(user, "user");
+  const isAdmin = hasRole(user, "admin");
   const onTerminalRoute = location.pathname === "/terminal";
   const [terminalMounted, setTerminalMounted] = useState(
     () => canUseTerminal && cache.terminal.tabs.length > 0
@@ -272,7 +286,11 @@ function DashboardLayout() {
           </S.UserChip>
           <S.FooterMeta>
             <StatusIndicator snap={snap} error={error} now={now} />
-            {snap && <S.Version>v{snap.app.version}</S.Version>}
+            {snap && isAdmin ? (
+              <AppVersionLink version={snap.app.version} />
+            ) : (
+              snap && <S.Version>v{snap.app.version}</S.Version>
+            )}
           </S.FooterMeta>
         </S.SidebarFooter>
       </S.Sidebar>
@@ -364,7 +382,12 @@ function Overview({
           />
           <Stat label="Uptime" value={formatUptime(host.uptimeSeconds)} />
         </S.Kv>
-        {showUpdates && <SystemUpdates />}
+        {showUpdates && (
+          <>
+            <AppUpdatesOverview />
+            <UpdatesOverview />
+          </>
+        )}
       </Card>
 
       <Card title="CPU">

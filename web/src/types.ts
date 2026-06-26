@@ -251,14 +251,39 @@ export interface AuditEntry {
   location: GeoLocation | null;
 }
 
+export interface PendingPackage {
+  name: string;
+  description: string | null;
+  currentVersion: string | null;
+  newVersion: string;
+  source: string;
+}
+
 export interface UpdatesStatus {
   available: boolean;
   platform: string;
   manager: "apt" | "winget" | "softwareupdate" | null;
   pendingCount: number | null;
-  packages: string[];
+  items: PendingPackage[];
   canInstall: boolean;
   hint: string | null;
+}
+
+export type UpdatePhase = "refresh" | "apply";
+
+export interface UpdateJob {
+  running: boolean;
+  phase: "idle" | "refresh" | "apply" | "done" | "error";
+  progress: number;
+  log: string;
+  error: string | null;
+}
+
+export interface UpdatesPhaseResult {
+  ok: boolean;
+  phase: UpdatePhase;
+  label: string;
+  output: string;
 }
 
 export interface UpdatesRunResult {
@@ -266,4 +291,29 @@ export interface UpdatesRunResult {
   scope: "packages" | "all";
   message: string;
   output: string;
+  steps: Array<{ label: string; output: string }>;
+}
+
+export interface AppUpdateStatus {
+  enabled: boolean;
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  canInstall: boolean;
+  repo: string | null;
+  releaseUrl: string | null;
+  releaseNotes: string | null;
+  publishedAt: string | null;
+  installRoot: string | null;
+  platform: string;
+  hint: string | null;
+  checkedAt: string | null;
+}
+
+export interface AppUpdateJob {
+  running: boolean;
+  phase: "idle" | "download" | "extract" | "finalize" | "restart" | "done" | "error";
+  progress: number;
+  log: string;
+  error: string | null;
 }
