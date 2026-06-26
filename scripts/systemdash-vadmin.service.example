@@ -1,0 +1,29 @@
+# Example systemd unit — home NUC running as vadmin (not root).
+# Install:
+#   sudo cp scripts/systemdash-vadmin.service.example /etc/systemd/system/systemdash.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now systemdash
+#
+# First run on the server:
+#   bash scripts/configure-service-user.sh vadmin
+
+[Unit]
+Description=SystemDash
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=vadmin
+Group=vadmin
+WorkingDirectory=/home/vadmin/systemdash/current
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=SYSTEMDASH_HOME=/home/vadmin/systemdash
+Environment=SYSTEMDASH_DATA_DIR=/home/vadmin/.systemdash
+Environment=GITHUB_REPO=VikPraet/systemDash
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -27,8 +27,7 @@ export function AppVersionLink({ version }: { version: string }) {
   const updateAvailable = status?.updateAvailable ?? false;
 
   return (
-    <S.Version
-      as="button"
+    <S.VersionButton
       type="button"
       $available={updateAvailable}
       onClick={() => navigate("/updates")}
@@ -40,6 +39,6 @@ export function AppVersionLink({ version }: { version: string }) {
     >
       v{version}
       {updateAvailable ? " · update" : ""}
-    </S.Version>
+    </S.VersionButton>
   );
 }

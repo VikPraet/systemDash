@@ -99,14 +99,32 @@ export const Version = styled.span<{ $available?: boolean }>`
   padding: 2px 8px;
   border-radius: ${({ theme }) => theme.radius.sm};
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1.2;
+`;
 
-  &[type="button"] {
-    cursor: pointer;
-    font: inherit;
+export const VersionButton = styled.button<{ $available?: boolean }>`
+  appearance: none;
+  margin: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: inherit;
+  line-height: 1.2;
+  color: ${({ $available, theme }) => ($available ? theme.color.good : theme.color.muted)};
+  background: ${({ theme }) => theme.color.panel2};
+  border: 1px solid
+    ${({ $available, theme }) =>
+      $available
+        ? `color-mix(in srgb, ${theme.color.good} 40%, transparent)`
+        : theme.color.border};
+  padding: 2px 8px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
 
-    &:hover {
-      color: ${({ theme }) => theme.color.text};
-    }
+  &:hover {
+    color: ${({ theme }) => theme.color.text};
   }
 `;
 

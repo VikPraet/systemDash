@@ -87,6 +87,37 @@ sudo systemctl enable --now systemdash
 Data (users, settings, history) lives in `~/.systemdash/` by default, or
 `SYSTEMDASH_DATA_DIR` — **outside** the release folder, so upgrades don't wipe it.
 
+### Run as a normal user (recommended)
+
+Do **not** run the service as root. Use your login user (e.g. `vadmin`) so the in-app
+terminal opens as that user, and grant only the privileges SystemDash needs:
+
+```bash
+# On the server (once)
+bash scripts/configure-service-user.sh vadmin
+
+sudo cp scripts/systemdash-vadmin.service.example /etc/systemd/system/systemdash.service
+# Adjust paths/User= if your install lives elsewhere
+sudo systemctl daemon-reload
+sudo systemctl enable --now systemdash
+```
+
+`configure-service-user.sh` does three things:
+
+1. Adds the user to the **`docker`** group (Containers tab)
+2. **`/etc/sudoers.d/systemdash-<user>`** — passwordless `apt-get` / `apt` (OS updates UI)
+3. Same file — passwordless **`systemctl restart systemdash`** (in-app SystemDash upgrade)
+
+Verify:
+
+```bash
+sudo -u vadmin sudo -n apt-get -qq update
+sudo -u vadmin sudo -n systemctl restart systemdash
+```
+
+If you previously ran as root with `SYSTEMDASH_DATA_DIR=/home/vadmin/.systemdash`, keep
+that env var in the unit so existing logins/settings are preserved.
+
 ## Upgrading manually
 
 ```bash
@@ -152,11 +183,12 @@ Production servers should use **releases**, not this path.
 
 ## Linux notes
 
-- **Docker tab:** requires Docker Engine and the SystemDash user in the `docker` group
-  (`sudo usermod -aG docker vadmin`, then `sudo systemctl restart systemdash`). Works with
+- **Docker tab:** requires Docker Engine and the service user in the `docker` group
+  (`bash scripts/configure-service-user.sh vadmin`, then restart the service). Works with
   Pterodactyl/Wings — same containers as `docker ps` on the host.
-- **Terminal:** bundled `node-pty` binary targets the CI runner's Linux (glibc). For
-  exotic ARM/Musl distros, add matrix builds later.
+- **OS / app updates:** service user needs the sudoers rules from `configure-service-user.sh`
+  (apt + `systemctl restart systemdash`). Running as root is not required.
+- **Terminal:** opens as the **systemd `User=`** (e.g. `vadmin@nuc-home`), not the web login name.
 - **HTTPS:** put Caddy/nginx in front when not on a trusted LAN.
 
 ## Checklist

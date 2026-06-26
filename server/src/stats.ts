@@ -1,4 +1,5 @@
 import si from "systeminformation";
+import { readAppVersion } from "./version.js";
 import { spawn } from "node:child_process";
 
 export interface SystemSnapshot {
@@ -78,7 +79,7 @@ function readCpuTemperatureC(
 }
 
 const APP_NAME = "SystemDash";
-const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
+const APP_VERSION = readAppVersion();
 
 // On Windows, systeminformation reports the rated/base clock and never the live
 // boost frequency. Task Manager derives the real clock from the perf counter

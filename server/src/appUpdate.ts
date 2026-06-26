@@ -289,11 +289,21 @@ async function downloadFile(
 
 async function restartService(): Promise<void> {
   const unit = process.env.SYSTEMDASH_SERVICE?.trim() || "systemdash";
+  const elevate =
+    process.platform !== "win32" &&
+    typeof process.getuid === "function" &&
+    process.getuid() !== 0;
+  const cmd = elevate ? "sudo" : "systemctl";
+  const args = elevate ? ["-n", "systemctl", "restart", unit] : ["restart", unit];
   try {
-    await exec("systemctl", ["restart", unit]);
+    await exec(cmd, args);
     appendLog(`Requested systemd restart (${unit})`);
   } catch {
-    appendLog("Could not restart via systemd — restart the service manually");
+    appendLog(
+      elevate
+        ? "Could not restart via sudo systemctl — add a sudoers rule or restart manually"
+        : "Could not restart via systemd — restart the service manually"
+    );
   }
 }
 
