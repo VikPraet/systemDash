@@ -150,7 +150,9 @@ Production servers should use **releases**, not this path.
 
 ## Linux notes
 
-- **Docker tab:** Docker Engine + user in `docker` group.
+- **Docker tab:** requires Docker Engine and the SystemDash user in the `docker` group
+  (`sudo usermod -aG docker vadmin`, then `sudo systemctl restart systemdash`). Works with
+  Pterodactyl/Wings — same containers as `docker ps` on the host.
 - **Terminal:** bundled `node-pty` binary targets the CI runner's Linux (glibc). For
   exotic ARM/Musl distros, add matrix builds later.
 - **HTTPS:** put Caddy/nginx in front when not on a trusted LAN.

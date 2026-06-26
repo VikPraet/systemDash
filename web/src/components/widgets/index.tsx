@@ -531,3 +531,28 @@ export function LabeledBar({
     </S.LBarRoot>
   );
 }
+
+function temperatureColor(celsius: number): string {
+  if (celsius >= 90) return "var(--bad)";
+  if (celsius >= 75) return "var(--warn)";
+  if (celsius >= 55) return "var(--accent)";
+  return "var(--good)";
+}
+
+export function TemperatureReading({
+  label = "Temperature",
+  value,
+}: {
+  label?: string;
+  value: number;
+}) {
+  const color = temperatureColor(value);
+  return (
+    <S.LBarRoot>
+      <S.LBarHead>
+        <S.LBarLabel>{label}</S.LBarLabel>
+        <S.LBarValue style={{ color, fontWeight: 600 }}>{value} °C</S.LBarValue>
+      </S.LBarHead>
+    </S.LBarRoot>
+  );
+}

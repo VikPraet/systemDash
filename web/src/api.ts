@@ -13,6 +13,8 @@ import type {
   SessionInfo,
   Settings,
   SystemSnapshot,
+  UpdatesRunResult,
+  UpdatesStatus,
   User,
 } from "./types";
 
@@ -264,6 +266,21 @@ export function removeDockerContainer(
   force = false
 ): Promise<{ ok: true }> {
   return postJson(`/api/docker/containers/${encodeURIComponent(id)}/remove`, { force });
+}
+
+export async function fetchUpdatesStatus(signal?: AbortSignal): Promise<UpdatesStatus> {
+  const res = await fetch("/api/updates/status", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as UpdatesStatus;
+}
+
+export async function runSystemUpdates(
+  scope: "packages" | "all"
+): Promise<UpdatesRunResult> {
+  return postJson<UpdatesRunResult>("/api/updates/run", { scope });
 }
 
 /** Terminates a process: `end` is graceful, `kill` forces it. */

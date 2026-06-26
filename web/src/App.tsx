@@ -29,7 +29,7 @@ import {
   formatUptime,
 } from "./api";
 import type { Role, SystemSnapshot } from "./types";
-import { Card, Gauge, Bar, LabeledBar, Stat } from "./components/widgets";
+import { Card, Gauge, Bar, LabeledBar, Stat, TemperatureReading } from "./components/widgets";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
@@ -37,6 +37,7 @@ import { History } from "./components/History";
 import { Users } from "./components/Users";
 import { Activity } from "./components/Activity";
 import { Containers } from "./components/Containers";
+import { SystemUpdates } from "./components/SystemUpdates";
 import { Login } from "./components/Login";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
@@ -172,7 +173,9 @@ function RequireRole({ min, children }: { min: Role; children: ReactElement }) {
 
 function OverviewPage() {
   const { snap, error } = useDashboard();
-  return <Overview snap={snap} error={error} />;
+  const { user } = useAuth();
+  const isAdmin = hasRole(user, "admin");
+  return <Overview snap={snap} error={error} showUpdates={isAdmin} />;
 }
 
 function DashboardLayout() {
@@ -326,9 +329,11 @@ function StatusIndicator({
 function Overview({
   snap,
   error,
+  showUpdates,
 }: {
   snap: SystemSnapshot | null;
   error: string | null;
+  showUpdates?: boolean;
 }) {
   if (!snap) {
     return (
@@ -359,6 +364,7 @@ function Overview({
           />
           <Stat label="Uptime" value={formatUptime(host.uptimeSeconds)} />
         </S.Kv>
+        {showUpdates && <SystemUpdates />}
       </Card>
 
       <Card title="CPU">
@@ -390,12 +396,7 @@ function Overview({
         </S.Kv>
         {cpu.temperatureC !== null && (
           <S.Bars>
-            <LabeledBar
-              label="Temperature"
-              value={cpu.temperatureC}
-              max={cpu.temperatureMaxC}
-              valueText={`${cpu.temperatureC} / ${cpu.temperatureMaxC} °C`}
-            />
+            <TemperatureReading value={cpu.temperatureC} />
           </S.Bars>
         )}
         {cpu.perCoreLoad.length > 0 && (
@@ -505,12 +506,7 @@ function Overview({
                       />
                     )}
                     {g.temperatureC !== null && (
-                      <LabeledBar
-                        label="Temperature"
-                        value={g.temperatureC}
-                        max={g.temperatureMaxC}
-                        valueText={`${g.temperatureC} / ${g.temperatureMaxC} °C`}
-                      />
+                      <TemperatureReading value={g.temperatureC} />
                     )}
                   </S.Bars>
                 )}

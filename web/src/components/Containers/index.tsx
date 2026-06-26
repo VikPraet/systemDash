@@ -227,20 +227,20 @@ export function Containers() {
       {!status.available && (
         <S.DockerBanner $bad>
           <strong>Docker not available.</strong> {status.error}
-          <br />
-          Install <a href="https://www.docker.com/products/docker-desktop/">Docker Desktop</a>,
-          make sure it is running, then <strong>restart</strong> SystemDash (
-          <code>yarn dev</code> / <code>yarn start</code>) if you installed Docker while it was
-          already running. Test with:{" "}
-          <code>docker run -d --name systemdash-test -p 8080:80 nginx:alpine</code>
+          {status.hint && (
+            <>
+              <br />
+              <br />
+              {status.hint}
+            </>
+          )}
         </S.DockerBanner>
       )}
 
       {status.available && containers.length === 0 && !error && (
         <S.DockerBanner>
-          No containers yet. Try a test container:{" "}
-          <code>docker run -d --name systemdash-test -p 8080:80 nginx:alpine</code> — then
-          refresh this tab.
+          No containers found. Game panels such as Pterodactyl run servers as Docker containers —
+          they show up here once SystemDash can run <code>docker ps</code> on the host.
         </S.DockerBanner>
       )}
 

@@ -28,7 +28,6 @@ export interface SystemSnapshot {
     perCoreLoad: number[];
     perCoreSpeed: number[];
     temperatureC: number | null;
-    temperatureMaxC: number;
   };
   memory: {
     totalBytes: number;
@@ -57,7 +56,6 @@ export interface SystemSnapshot {
     memoryUsedMb: number | null;
     memoryTotalMb: number | null;
     temperatureC: number | null;
-    temperatureMaxC: number;
     clockCoreMhz: number | null;
     clockMemoryMhz: number | null;
     fanPercent: number | null;
@@ -66,10 +64,18 @@ export interface SystemSnapshot {
   }>;
 }
 
-// Throttle/shutdown thresholds are not exposed by most drivers, so we use
-// conservative defaults that match typical modern silicon limits.
-const CPU_TEMP_MAX_C = 100;
-const GPU_TEMP_MAX_C = 95;
+function readCpuTemperatureC(
+  temp: Awaited<ReturnType<typeof si.cpuTemperature>>
+): number | null {
+  const candidates = [
+    temp.main,
+    temp.chipset,
+    ...(temp.cores ?? []),
+    ...(temp.socket ?? []),
+  ].filter((t): t is number => isFiniteNumber(t) && t > 0 && t < 150);
+  if (!candidates.length) return null;
+  return round(Math.max(...candidates));
+}
 
 const APP_NAME = "SystemDash";
 const APP_VERSION = process.env.npm_package_version ?? "0.1.0";
@@ -210,6 +216,8 @@ export async function getSnapshot(): Promise<SystemSnapshot> {
   observedMaxGHz = Math.max(observedMaxGHz, currentSpeedGHz, cpu.speedMax ?? 0);
   const maxSpeedGHz = round2(Math.max(observedMaxGHz, cpu.speed));
 
+  const cpuTempC = readCpuTemperatureC(temp);
+
   return {
     timestamp: Date.now(),
     app: { name: APP_NAME, version: APP_VERSION },
@@ -236,8 +244,7 @@ export async function getSnapshot(): Promise<SystemSnapshot> {
       loadPercent: round(load.currentLoad),
       perCoreLoad: load.cpus.map((c) => round(c.load)),
       perCoreSpeed: (speed.cores ?? []).map((c) => round2(c)),
-      temperatureC: isFiniteNumber(temp.main) ? round(temp.main) : null,
-      temperatureMaxC: isFiniteNumber(temp.max) && temp.max > 0 ? temp.max : CPU_TEMP_MAX_C,
+      temperatureC: cpuTempC,
     },
     memory: {
       totalBytes: mem.total,
@@ -268,7 +275,6 @@ export async function getSnapshot(): Promise<SystemSnapshot> {
       memoryUsedMb: isFiniteNumber(g.memoryUsed) ? g.memoryUsed : null,
       memoryTotalMb: isFiniteNumber(g.memoryTotal) ? g.memoryTotal : null,
       temperatureC: isFiniteNumber(g.temperatureGpu) ? g.temperatureGpu : null,
-      temperatureMaxC: GPU_TEMP_MAX_C,
       clockCoreMhz: isFiniteNumber(g.clockCore) ? g.clockCore : null,
       clockMemoryMhz: isFiniteNumber(g.clockMemory) ? g.clockMemory : null,
       fanPercent: isFiniteNumber(g.fanSpeed) ? round(g.fanSpeed) : null,

@@ -52,7 +52,7 @@ yarn install
 yarn dev
 ```
 
-- Web UI (with hot reload): http://localhost:5173
+- Web UI (with hot reload): http://localhost:5273
 - API server: http://localhost:3001 (the web dev server proxies `/api` to it)
 
 ## Production / single-host

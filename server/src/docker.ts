@@ -38,6 +38,7 @@ export interface DockerStatus {
   available: boolean;
   version: string | null;
   error: string | null;
+  hint: string | null;
 }
 
 export interface DockerContainer {
@@ -109,7 +110,9 @@ function execDocker(
             reject(
               new DockerError(
                 403,
-                "permission denied accessing Docker — run elevated or add your user to the docker group"
+                process.platform === "linux"
+                  ? "permission denied accessing Docker (is the SystemDash user in the docker group?)"
+                  : "permission denied accessing Docker — run elevated or use Docker Desktop"
               )
             );
             return;
@@ -131,15 +134,44 @@ export function assertContainerId(id: string): string {
   return v;
 }
 
+function dockerHint(message: string): string | null {
+  const lower = message.toLowerCase();
+  if (process.platform === "linux") {
+    if (lower.includes("permission denied")) {
+      return (
+        "Fix: sudo usermod -aG docker $(whoami) — then log out/in or restart the SystemDash " +
+        "service (sudo systemctl restart systemdash). Pterodactyl/Wings containers use the same daemon."
+      );
+    }
+    if (lower.includes("not installed") || lower.includes("not on path")) {
+      return "Install Docker Engine, then: sudo systemctl enable --now docker";
+    }
+    if (lower.includes("daemon") || lower.includes("cannot connect")) {
+      return "Start Docker: sudo systemctl start docker";
+    }
+    return "On the server, run docker ps as the same user that runs SystemDash to verify access.";
+  }
+  if (lower.includes("permission denied")) {
+    return "Run SystemDash as Administrator, or ensure Docker Desktop is running for your user.";
+  }
+  if (lower.includes("not installed") || lower.includes("not on path")) {
+    return "Install Docker Desktop and restart SystemDash after installation.";
+  }
+  if (lower.includes("daemon") || lower.includes("cannot connect")) {
+    return "Start Docker Desktop and wait until the engine is ready.";
+  }
+  return null;
+}
+
 /** Whether the Docker CLI can talk to a running daemon. */
 export async function getDockerStatus(): Promise<DockerStatus> {
   try {
     const version = (await runDocker(["version", "--format", "{{.Server.Version}}"])).trim();
-    return { available: true, version: version || null, error: null };
+    return { available: true, version: version || null, error: null, hint: null };
   } catch (e) {
     const msg =
       e instanceof DockerError ? e.message : "Docker is not available on this host";
-    return { available: false, version: null, error: msg };
+    return { available: false, version: null, error: msg, hint: dockerHint(msg) };
   }
 }
 

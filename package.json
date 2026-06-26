@@ -1,6 +1,6 @@
 {
   "name": "systemdash",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Self-hosted, cross-platform system dashboard (CPU, GPU, memory, storage, OS info).",
   "workspaces": [
@@ -11,10 +11,18 @@
     "dev": "concurrently -n server,web -c blue,magenta \"yarn dev:server\" \"yarn dev:web\"",
     "dev:server": "yarn workspace @systemdash/server dev",
     "dev:web": "yarn workspace @systemdash/web dev",
+    "dev:remote": "yarn workspace @systemdash/web dev:remote",
     "build": "yarn workspace @systemdash/web build && yarn workspace @systemdash/server build",
     "start": "yarn workspace @systemdash/server start"
   },
   "packageManager": "yarn@1.22.22",
+  "resolutions": {
+    "@codemirror/commands": "6.10.2",
+    "@codemirror/language": "6.12.3",
+    "@codemirror/state": "6.6.0",
+    "@codemirror/view": "6.42.0",
+    "@lezer/highlight": "1.2.3"
+  },
   "devDependencies": {
     "concurrently": "^9.1.0"
   }

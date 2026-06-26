@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "../docs/screenshots");
-const BASE = process.env.SCREENSHOT_BASE ?? "http://localhost:5173";
+const BASE = process.env.SCREENSHOT_BASE ?? "http://localhost:5273";
 const USER = process.env.SCREENSHOT_USER ?? "test_admin";
 const PASS = process.env.SCREENSHOT_PASS ?? "12345678";
 

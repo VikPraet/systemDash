@@ -25,7 +25,6 @@ export interface SystemSnapshot {
     perCoreLoad: number[];
     perCoreSpeed: number[];
     temperatureC: number | null;
-    temperatureMaxC: number;
   };
   memory: {
     totalBytes: number;
@@ -54,7 +53,6 @@ export interface SystemSnapshot {
     memoryUsedMb: number | null;
     memoryTotalMb: number | null;
     temperatureC: number | null;
-    temperatureMaxC: number;
     clockCoreMhz: number | null;
     clockMemoryMhz: number | null;
     fanPercent: number | null;
@@ -91,6 +89,7 @@ export interface DockerStatus {
   available: boolean;
   version: string | null;
   error: string | null;
+  hint: string | null;
 }
 
 export interface DockerContainer {
@@ -250,4 +249,21 @@ export interface AuditEntry {
   status: number | null;
   ip: string | null;
   location: GeoLocation | null;
+}
+
+export interface UpdatesStatus {
+  available: boolean;
+  platform: string;
+  manager: "apt" | "winget" | "softwareupdate" | null;
+  pendingCount: number | null;
+  packages: string[];
+  canInstall: boolean;
+  hint: string | null;
+}
+
+export interface UpdatesRunResult {
+  ok: boolean;
+  scope: "packages" | "all";
+  message: string;
+  output: string;
 }
