@@ -80,3 +80,10 @@ ln -sfn "$TARGET" "$CURRENT"
 echo "==> Installed SystemDash $VERSION → $CURRENT"
 echo "    Start: cd $CURRENT && node server/dist/index.js"
 echo "    Or configure systemd (see docs/deploy-linux.md)"
+if [[ -x "$CURRENT/scripts/configure-service-user.sh" ]]; then
+  echo ""
+  echo "    First-time / switch to a normal user:"
+  echo "      cd $CURRENT && bash scripts/configure-service-user.sh vadmin"
+  echo "      sudo cp $CURRENT/scripts/systemdash-vadmin.service.example /etc/systemd/system/systemdash.service"
+  echo "      sudo systemctl daemon-reload && sudo systemctl restart systemdash"
+fi

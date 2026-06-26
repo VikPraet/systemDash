@@ -23,11 +23,17 @@ yarn install --production --frozen-lockfile 2>/dev/null || yarn install --produc
 
 echo "==> Staging release layout"
 rm -rf "$STAGE"
-mkdir -p "$STAGE/server/dist" "$STAGE/web/dist"
+mkdir -p "$STAGE/server/dist" "$STAGE/web/dist" "$STAGE/scripts"
 
 cp -a server/dist/. "$STAGE/server/dist/"
 cp -a web/dist/. "$STAGE/web/dist/"
 cp -a node_modules "$STAGE/node_modules/"
+
+# Server admin helpers (not needed to run the app, but shipped for post-install setup).
+cp scripts/configure-service-user.sh "$STAGE/scripts/"
+cp scripts/systemdash-vadmin.service.example "$STAGE/scripts/"
+cp scripts/install-release.sh "$STAGE/scripts/"
+chmod +x "$STAGE/scripts/"*.sh
 
 cat >"$STAGE/package.json" <<EOF
 {

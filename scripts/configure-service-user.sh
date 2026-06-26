@@ -25,6 +25,12 @@ fi
 
 echo "==> Configuring $USER_NAME for SystemDash"
 
+SD_HOME="${SYSTEMDASH_HOME:-/home/${USER_NAME}/systemdash}"
+if [[ -d "$SD_HOME" ]]; then
+  run chown -R "$USER_NAME:$USER_NAME" "$SD_HOME"
+  echo "    chown $USER_NAME:$SD_HOME"
+fi
+
 if getent group docker &>/dev/null; then
   run usermod -aG docker "$USER_NAME"
   echo "    Added $USER_NAME to group docker"
@@ -65,6 +71,7 @@ cat <<EOF
 
 ==> Next: set systemd to run as ${USER_NAME}
 
+  cd ${SD_HOME}/current
   sudo cp scripts/systemdash-vadmin.service.example /etc/systemd/system/systemdash.service
   # Edit paths if needed, then:
   sudo systemctl daemon-reload
