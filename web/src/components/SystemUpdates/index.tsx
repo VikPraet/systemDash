@@ -178,54 +178,58 @@ export function SystemUpdates() {
       <AppUpdatePanel />
       <S.SectionHead>OS packages</S.SectionHead>
       <S.Toolbar>
-        <S.Search
-          type="text"
-          placeholder="Find packages…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          disabled={busy}
-        />
-        <S.Summary>
-          <span>
-            <strong>{pending}</strong> updates
-          </span>
-          <span>
-            <strong>{selected.size}</strong> selected
-          </span>
-        </S.Summary>
-        <Tooltip label="Refresh package lists from apt (can take a minute)">
-          <GhostBtn type="button" onClick={() => void reload(true, true)} disabled={loading || busy}>
-            <RefreshCw size={14} />
-            Refresh
+        <S.ToolbarTop>
+          <S.Search
+            type="text"
+            placeholder="Find packages…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            disabled={busy}
+          />
+          <S.Summary>
+            <span>
+              <strong>{pending}</strong> updates
+            </span>
+            <span>
+              <strong>{selected.size}</strong> selected
+            </span>
+          </S.Summary>
+        </S.ToolbarTop>
+        <S.ToolbarActions>
+          <Tooltip label="Refresh package lists from apt (can take a minute)">
+            <GhostBtn type="button" onClick={() => void reload(true, true)} disabled={loading || busy}>
+              <RefreshCw size={14} />
+              Refresh
+            </GhostBtn>
+          </Tooltip>
+          <GhostBtn type="button" onClick={() => void reload(false, true)} disabled={loading || busy}>
+            Load descriptions
           </GhostBtn>
-        </Tooltip>
-        <GhostBtn type="button" onClick={() => void reload(false, true)} disabled={loading || busy}>
-          Load descriptions
-        </GhostBtn>
-        <GhostBtn
-          type="button"
-          disabled={!status.canInstall || busy || pending === 0}
-          onClick={() => void runUpdate("packages", true)}
-        >
-          <Download size={14} />
-          Update selected
-        </GhostBtn>
-        <DangerBtn
-          type="button"
-          disabled={!status.canInstall || busy || pending === 0}
-          onClick={() => void runUpdate("packages", false)}
-        >
-          Update all packages
-        </DangerBtn>
-        {status.manager === "apt" && (
+          <GhostBtn
+            type="button"
+            disabled={!status.canInstall || busy || pending === 0}
+            onClick={() => void runUpdate("packages", true)}
+          >
+            <Download size={14} />
+            Update selected
+          </GhostBtn>
           <DangerBtn
             type="button"
             disabled={!status.canInstall || busy || pending === 0}
-            onClick={() => void runUpdate("all", false)}
+            onClick={() => void runUpdate("packages", false)}
           >
-            Full upgrade (incl. OS)
+            Update all packages
           </DangerBtn>
-        )}
+          {status.manager === "apt" && (
+            <DangerBtn
+              type="button"
+              disabled={!status.canInstall || busy || pending === 0}
+              onClick={() => void runUpdate("all", false)}
+            >
+              Full upgrade (incl. OS)
+            </DangerBtn>
+          )}
+        </S.ToolbarActions>
       </S.Toolbar>
 
       {status.hint && <S.Banner $bad>{status.hint}</S.Banner>}

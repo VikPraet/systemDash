@@ -1,4 +1,5 @@
 import styled from "styled-components";
+import { mobile } from "../../theme/media";
 
 /* ---- Card ---------------------------------------------------------------- */
 export const CardRoot = styled.section`
@@ -6,6 +7,10 @@ export const CardRoot = styled.section`
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
   padding: 18px;
+
+  @media ${mobile} {
+    padding: 14px;
+  }
 `;
 
 export const CardTitle = styled.h2`
@@ -258,6 +263,11 @@ export const ChartCardHead = styled.div`
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+  }
 `;
 
 export const ChartCardTitles = styled.div`
@@ -275,6 +285,11 @@ export const ChartCardSubtitle = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 360px;
+
+  @media ${mobile} {
+    max-width: none;
+    white-space: normal;
+  }
 `;
 
 export const ChartCardRight = styled.div`
@@ -282,6 +297,12 @@ export const ChartCardRight = styled.div`
   align-items: center;
   gap: 14px;
   margin-left: auto;
+
+  @media ${mobile} {
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 `;
 
 export const ChartLegend = styled.div`

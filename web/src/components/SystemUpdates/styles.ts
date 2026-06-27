@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { procTableBase } from "../ui/styles";
+import { mobile } from "../../theme/media";
 
 export const Root = styled.div`
   background: ${({ theme }) => theme.color.panel};
@@ -20,6 +21,62 @@ export const Toolbar = styled.div`
   border-bottom: 1px solid ${({ theme }) => theme.color.border};
   flex-wrap: wrap;
   flex-shrink: 0;
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+`;
+
+/* On desktop these wrappers are layout-transparent so the toolbar matches the
+   original single flex row (search, summary, buttons). Mobile uses them to stack. */
+export const ToolbarTop = styled.div`
+  @media not ${mobile} {
+    display: contents;
+  }
+
+  @media ${mobile} {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+  }
+`;
+
+export const ToolbarActions = styled.div`
+  @media not ${mobile} {
+    display: contents;
+  }
+
+  @media ${mobile} {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+
+    & > * {
+      display: flex;
+      min-width: 0;
+    }
+
+    button {
+      width: 100%;
+      justify-content: center;
+      text-align: center;
+      padding: 10px 8px;
+      font-size: 10px;
+      letter-spacing: 0.6px;
+      line-height: 1.2;
+      white-space: normal;
+    }
+
+    & > *:last-child:nth-child(odd):not(:only-child) {
+      grid-column: 1 / -1;
+    }
+  }
 `;
 
 export const Search = styled.input`
@@ -33,6 +90,11 @@ export const Search = styled.input`
   color: ${({ theme }) => theme.color.text};
   font-size: 14px;
   outline: none;
+
+  @media ${mobile} {
+    min-width: 0;
+    width: 100%;
+  }
 
   &:focus {
     border-color: ${({ theme }) => theme.color.accent};
@@ -53,6 +115,12 @@ export const Summary = styled.div`
   strong {
     color: ${({ theme }) => theme.color.text};
     font-weight: 600;
+  }
+
+  @media ${mobile} {
+    justify-content: space-between;
+    width: 100%;
+    font-size: 12px;
   }
 `;
 
@@ -77,11 +145,16 @@ export const Body = styled.div`
   flex: 1;
   min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 `;
 
 export const Table = styled.table`
   ${procTableBase}
   width: 100%;
+
+  @media ${mobile} {
+    min-width: 520px;
+  }
 
   th {
     position: sticky;
@@ -261,6 +334,12 @@ export const AppPanelHead = styled.div`
   gap: 12px;
   padding: 14px 16px 10px;
   flex-wrap: wrap;
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 12px 8px;
+  }
 `;
 
 export const AppPanelTitle = styled.h2`
@@ -276,6 +355,16 @@ export const AppPanelActions = styled.div`
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+
+  @media ${mobile} {
+    width: 100%;
+
+    button {
+      flex: 1;
+      justify-content: center;
+    }
+  }
 `;
 
 export const AppPanelMeta = styled.div`

@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { procTableBase } from "../ui/styles";
+import { mobile } from "../../theme/media";
 
 export const FilesRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
@@ -112,6 +113,12 @@ export const FilesSearch = styled.input`
   color: ${({ theme }) => theme.color.text};
   font-size: 14px;
   outline: none;
+
+  @media ${mobile} {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
+  }
 
   &:focus {
     border-color: ${({ theme }) => theme.color.accent};
@@ -289,6 +296,11 @@ export const FilesBody = styled.div`
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
+
+  @media ${mobile} {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 `;
 
 export const FilesMessage = styled.div<{ $bad?: boolean }>`
@@ -299,6 +311,10 @@ export const FilesMessage = styled.div<{ $bad?: boolean }>`
 
 export const FilesTable = styled.table`
   ${procTableBase}
+
+  @media ${mobile} {
+    min-width: 560px;
+  }
 
   thead th {
     background: ${({ theme }) => theme.color.panel};
@@ -401,6 +417,12 @@ export const Drives = styled.div`
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 14px;
   padding: 18px;
+
+  @media ${mobile} {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 10px;
+  }
 `;
 
 export const DriveCard = styled.button`

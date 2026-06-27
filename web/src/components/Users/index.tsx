@@ -286,14 +286,14 @@ function UserRow({
         {user.username}
         {isSelf && <S.SelfBadge>you</S.SelfBadge>}
       </S.UserName>
-      <span>
+      <S.UsersRole>
         <RoleSelect
           value={user.role}
           onChange={onRole}
           title={ROLE_OPTIONS.find((r) => r.value === user.role)?.hint}
         />
-      </span>
-      <span>
+      </S.UsersRole>
+      <S.UsersStatus>
         <Tooltip
           label={isSelf ? "You cannot deactivate yourself" : "Toggle active"}
         >
@@ -305,8 +305,8 @@ function UserRow({
             {user.active ? "active" : "disabled"}
           </S.StatusPill>
         </Tooltip>
-      </span>
-      <span className="muted">{formatDate(user.createdAt)}</span>
+      </S.UsersStatus>
+      <S.UsersCreated className="muted">{formatDate(user.createdAt)}</S.UsersCreated>
       <S.UserActions>
         <Tooltip label="Reset password">
           <S.ActionBtn onClick={onResetPassword}>

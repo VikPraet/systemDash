@@ -1,5 +1,6 @@
 import styled, { css } from "styled-components";
 import { CardRoot } from "../widgets/styles";
+import { mobile } from "../../theme/media";
 
 /* ----------------------------------------------------------------------------
    History view: page shell, range/segment controls, chart show/hide toggles,
@@ -22,10 +23,21 @@ export const HistoryToolbar = styled.div`
   align-items: center;
   gap: 14px;
   flex-wrap: wrap;
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
 `;
 
 export const HistoryMeta = styled.span`
   font-size: 12px;
+
+  @media ${mobile} {
+    font-size: 11px;
+    line-height: 1.4;
+  }
 `;
 
 // Range picker. Base radius/padding plus the editorial overrides that squared
@@ -50,6 +62,7 @@ export const Seg = styled.div`
     border-radius: ${({ theme }) => theme.radius.sm};
     cursor: pointer;
     transition: all 0.15s ease;
+    white-space: nowrap;
   }
 
   button:hover {
@@ -59,6 +72,21 @@ export const Seg = styled.div`
   button.active {
     background: ${({ theme }) => theme.color.accent};
     color: #fff;
+  }
+
+  @media ${mobile} {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: 100%;
+
+    button {
+      padding: 8px 4px;
+      font-size: 9px;
+      letter-spacing: 0.4px;
+      text-align: center;
+      white-space: normal;
+      line-height: 1.2;
+    }
   }
 `;
 

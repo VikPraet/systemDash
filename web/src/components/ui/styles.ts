@@ -1,4 +1,5 @@
 import styled, { css } from "styled-components";
+import { mobile } from "../../theme/media";
 
 /* ----------------------------------------------------------------------------
    Shared modal primitives + editorial ghost/danger buttons.
@@ -21,6 +22,13 @@ export const ModalOverlay = styled.div`
   background: rgba(5, 8, 13, 0.6);
   backdrop-filter: blur(3px);
   animation: modal-fade 0.12s ease;
+
+  @media ${mobile} {
+    padding: 12px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    align-items: flex-end;
+  }
 `;
 
 /* ---- Modal family A: plain panel card (Files / Processes / Editor) -------- */

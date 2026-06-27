@@ -1,4 +1,5 @@
 import styled, { css } from "styled-components";
+import { mobile } from "../../theme/media";
 
 /* ----------------------------------------------------------------------------
    Activity tab: active sessions + audit log.
@@ -25,6 +26,7 @@ export const ActivityHead = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 
   h2 {
     margin: 0;
@@ -32,6 +34,12 @@ export const ActivityHead = styled.div`
     font-size: 26px;
     font-weight: 600;
     letter-spacing: -0.4px;
+  }
+
+  @media ${mobile} {
+    h2 {
+      font-size: 22px;
+    }
   }
 `;
 
@@ -107,14 +115,22 @@ export const SessionsRow = styled.div<{ $current?: boolean; $head?: boolean }>`
       letter-spacing: 0.4px;
     `}
 
-  @media (max-width: 720px) {
-    grid-template-columns: 1fr;
-    gap: 4px;
+  @media ${mobile} {
     ${({ $head }) =>
-      $head &&
-      css`
-        display: none;
-      `}
+      $head
+        ? css`
+            display: none;
+          `
+        : css`
+            grid-template-columns: 1fr auto;
+            grid-template-areas:
+              "user actions"
+              "device device"
+              "net net"
+              "signed last";
+            gap: 8px 10px;
+            padding: 12px 14px;
+          `}
   }
 `;
 
@@ -123,11 +139,21 @@ export const SessUser = styled.span`
   align-items: center;
   gap: 8px;
   font-weight: 600;
+  flex-wrap: wrap;
+
+  @media ${mobile} {
+    grid-area: user;
+  }
 `;
 
 export const SessActions = styled.span`
   display: flex;
   justify-content: flex-end;
+
+  @media ${mobile} {
+    grid-area: actions;
+    align-self: start;
+  }
 `;
 
 export const SessDevice = styled.span`
@@ -140,6 +166,10 @@ export const SessDevice = styled.span`
   > svg {
     flex: none;
     color: ${({ theme }) => theme.color.text};
+  }
+
+  @media ${mobile} {
+    grid-area: device;
   }
 `;
 
@@ -171,6 +201,47 @@ export const SessNet = styled.span`
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+
+  @media ${mobile} {
+    grid-area: net;
+  }
+`;
+
+export const SessTime = styled.span`
+  @media ${mobile} {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+
+    &::before {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: ${({ theme }) => theme.color.muted};
+    }
+  }
+`;
+
+export const SessSignedIn = styled(SessTime)`
+  @media ${mobile} {
+    grid-area: signed;
+
+    &::before {
+      content: "Signed in";
+    }
+  }
+`;
+
+export const SessLastSeen = styled(SessTime)`
+  @media ${mobile} {
+    grid-area: last;
+
+    &::before {
+      content: "Last seen";
+    }
+  }
 `;
 
 // "you" pill (final cascade: editorial squared corners).

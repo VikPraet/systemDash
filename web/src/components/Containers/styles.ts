@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { procTableBase } from "../ui/styles";
+import { mobile } from "../../theme/media";
 
 export const DockerRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
@@ -33,6 +34,12 @@ export const DockerSearch = styled.input`
   color: ${({ theme }) => theme.color.text};
   font-size: 14px;
   outline: none;
+
+  @media ${mobile} {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
+  }
 
   &:focus {
     border-color: ${({ theme }) => theme.color.accent};
@@ -88,11 +95,16 @@ export const DockerBody = styled.div`
   flex: 1;
   min-height: 0;
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 `;
 
 export const DockerTable = styled.table`
   ${procTableBase}
   width: 100%;
+
+  @media ${mobile} {
+    min-width: 720px;
+  }
 
   .row-running td:first-child {
     box-shadow: inset 3px 0 0 ${({ theme }) => theme.color.good};

@@ -1,4 +1,5 @@
 import styled, { css } from "styled-components";
+import { mobile } from "../../theme/media";
 
 export const UsersTab = styled.div`
   display: flex;
@@ -17,6 +18,12 @@ export const UsersHead = styled.div`
     font-weight: 600;
     letter-spacing: -0.4px;
   }
+
+  @media ${mobile} {
+    h2 {
+      font-size: 22px;
+    }
+  }
 `;
 
 export const CreateForm = styled.form`
@@ -27,6 +34,12 @@ export const CreateForm = styled.form`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px;
+  }
 `;
 
 // Editorial ghost/underline input (final cascade over the base `.user-create input`).
@@ -83,6 +96,11 @@ export const DropdownWrap = styled.div`
   min-width: 130px;
   flex: 0 0 auto;
   width: 150px;
+
+  @media ${mobile} {
+    width: 100%;
+    min-width: 0;
+  }
 `;
 
 export const UsersTable = styled.div`
@@ -105,6 +123,17 @@ export const UsersRow = styled.div`
   &:first-child {
     border-top: none;
   }
+
+  @media ${mobile} {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "name actions"
+      "role role"
+      "status created";
+    gap: 8px 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
 `;
 
 export const UsersRowHead = styled(UsersRow)`
@@ -113,6 +142,10 @@ export const UsersRowHead = styled(UsersRow)`
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
+
+  @media ${mobile} {
+    display: none;
+  }
 `;
 
 export const UserName = styled.span`
@@ -120,6 +153,31 @@ export const UserName = styled.span`
   align-items: center;
   gap: 8px;
   font-weight: 600;
+
+  @media ${mobile} {
+    grid-area: name;
+    flex-wrap: wrap;
+  }
+`;
+
+export const UsersRole = styled.span`
+  @media ${mobile} {
+    grid-area: role;
+  }
+`;
+
+export const UsersStatus = styled.span`
+  @media ${mobile} {
+    grid-area: status;
+  }
+`;
+
+export const UsersCreated = styled.span`
+  @media ${mobile} {
+    grid-area: created;
+    text-align: right;
+    font-size: 11px;
+  }
 `;
 
 export const SelfBadge = styled.span`
@@ -164,6 +222,11 @@ export const StatusPill = styled.button<{ $state?: "on" | "off" }>`
 export const UserActions = styled.span`
   display: inline-flex;
   gap: 8px;
+
+  @media ${mobile} {
+    grid-area: actions;
+    align-self: start;
+  }
 `;
 
 export const ActionBtn = styled.button<{ $danger?: boolean }>`

@@ -6,10 +6,12 @@ import {
   Gauge as GaugeIcon,
   LineChart,
   LogOut,
+  Menu,
   Package,
   ScrollText,
   TerminalSquare,
   Users as UsersIcon,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -207,6 +209,20 @@ function DashboardLayout() {
   const [terminalMounted, setTerminalMounted] = useState(
     () => canUseTerminal && cache.terminal.tabs.length > 0
   );
+  const [navOpen, setNavOpen] = useState(false);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [navOpen]);
 
   useEffect(() => {
     if (onTerminalRoute && canUseTerminal) setTerminalMounted(true);
@@ -256,46 +272,79 @@ function DashboardLayout() {
   return (
     <S.AppShell>
       <S.Sidebar>
-        <S.Brand>
-          <BrandDot />
-          <h1>SystemDash</h1>
-        </S.Brand>
-        <S.Tabs>
-          {visibleNav.map(({ path, label, icon: Icon }) => (
-            <NavLink
-              key={path}
-              to={path}
-              className={({ isActive }) => (isActive ? "active" : "")}
-            >
-              <Icon className="nav-icon" size={18} strokeWidth={1.8} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </S.Tabs>
-        <S.SidebarFooter>
-          <S.UserChip>
-            <S.UserChipInfo>
-              <S.UserChipName>{user?.username}</S.UserChipName>
-              <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
-            </S.UserChipInfo>
+        <S.SidebarHeader>
+          <S.MenuBtn
+            type="button"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            {navOpen ? <X size={18} /> : <Menu size={18} />}
+          </S.MenuBtn>
+          <S.Brand>
+            <BrandDot />
+            <h1>SystemDash</h1>
+          </S.Brand>
+          <S.MobileTopActions>
+            <StatusIndicator snap={snap} error={error} now={now} compact />
             <Tooltip label="Sign out">
               <S.LogoutBtn onClick={onLogout}>
                 <LogOut size={16} strokeWidth={1.8} />
               </S.LogoutBtn>
             </Tooltip>
-          </S.UserChip>
-          <S.FooterMeta>
-            <StatusIndicator snap={snap} error={error} now={now} />
-            {snap && isAdmin ? (
-              <AppVersionLink version={snap.app.version} />
-            ) : (
-              snap && <S.Version>v{snap.app.version}</S.Version>
-            )}
-          </S.FooterMeta>
-        </S.SidebarFooter>
+          </S.MobileTopActions>
+        </S.SidebarHeader>
+
+        <S.NavPanel $open={navOpen}>
+          <S.Tabs>
+            {visibleNav.map(({ path, label, icon: Icon }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) => (isActive ? "active" : "")}
+                onClick={() => setNavOpen(false)}
+              >
+                <Icon className="nav-icon" size={18} strokeWidth={1.8} />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </S.Tabs>
+          <S.SidebarFooter>
+            <S.UserChip>
+              <S.UserChipInfo>
+                <S.UserChipName>{user?.username}</S.UserChipName>
+                <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
+              </S.UserChipInfo>
+              <S.SidebarFooterDesktop>
+                <Tooltip label="Sign out">
+                  <S.LogoutBtn onClick={onLogout}>
+                    <LogOut size={16} strokeWidth={1.8} />
+                  </S.LogoutBtn>
+                </Tooltip>
+              </S.SidebarFooterDesktop>
+            </S.UserChip>
+            <S.FooterMeta>
+              <S.SidebarFooterDesktop>
+                <StatusIndicator snap={snap} error={error} now={now} />
+              </S.SidebarFooterDesktop>
+              {snap && isAdmin ? (
+                <AppVersionLink version={snap.app.version} />
+              ) : (
+                snap && <S.Version>v{snap.app.version}</S.Version>
+              )}
+            </S.FooterMeta>
+          </S.SidebarFooter>
+        </S.NavPanel>
       </S.Sidebar>
 
       <S.Content>
+        {navOpen && (
+          <S.NavBackdrop
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setNavOpen(false)}
+          />
+        )}
         <S.ContentLayer $active={!onTerminalRoute}>
           <Outlet context={{ snap, error, now } satisfies DashboardContext} />
         </S.ContentLayer>
@@ -313,10 +362,12 @@ function StatusIndicator({
   snap,
   error,
   now,
+  compact,
 }: {
   snap: SystemSnapshot | null;
   error: string | null;
   now: number;
+  compact?: boolean;
 }) {
   const state = error ? "bad" : snap ? "good" : "idle";
   const label = error ? "disconnected" : snap ? "live" : "connecting…";
@@ -336,7 +387,7 @@ function StatusIndicator({
 
   return (
     <Tooltip label={title} detail={detail ?? undefined}>
-      <S.Status>
+      <S.Status $compact={compact}>
         <S.Dot $state={state} />
         {label}
       </S.Status>

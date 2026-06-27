@@ -1,4 +1,5 @@
 import styled from "styled-components";
+import { mobile } from "../../theme/media";
 
 export const TerminalRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
@@ -8,9 +9,16 @@ export const TerminalRoot = styled.div`
   max-height: 100%;
   min-height: 0;
   height: calc(100vh - 80px);
+  height: calc(100dvh - 80px);
   min-height: 420px;
   display: flex;
   flex-direction: column;
+
+  @media ${mobile} {
+    height: calc(100dvh - var(--mobile-header-height, 52px) - 24px);
+    min-height: 280px;
+    border-radius: ${({ theme }) => theme.radius.sm};
+  }
 `;
 
 export const TerminalBar = styled.div`
@@ -154,6 +162,16 @@ export const TerminalPaneArea = styled.div<{ $split: "none" | "horizontal" | "ve
         : `"main"`};
   gap: ${({ $split }) => ($split === "none" ? 0 : "1px")};
   background: ${({ $split, theme }) => ($split === "none" ? "transparent" : theme.color.border)};
+
+  @media ${mobile} {
+    grid-template-columns: 1fr;
+    grid-template-rows: ${({ $split }) =>
+      $split === "none" ? "1fr" : "1fr 1fr"};
+    grid-template-areas: ${({ $split }) =>
+      $split === "horizontal" || $split === "vertical"
+        ? `"primary" "secondary"`
+        : `"main"`};
+  }
 `;
 
 export const TerminalPane = styled.div<{ $visible: boolean }>`

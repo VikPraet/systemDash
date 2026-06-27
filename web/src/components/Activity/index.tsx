@@ -417,12 +417,12 @@ export function Activity() {
                   <span className="muted mono">{s.ip || "—"}</span>
                   <LocationLine location={s.location} />
                 </S.SessNet>
-                <span className="muted" title={formatDate(s.createdAt)}>
+                <S.SessSignedIn className="muted" title={formatDate(s.createdAt)}>
                   {formatRelative(s.createdAt, now)}
-                </span>
-                <span className="muted" title={formatDate(s.lastSeen)}>
+                </S.SessSignedIn>
+                <S.SessLastSeen className="muted" title={formatDate(s.lastSeen)}>
                   {formatRelative(s.lastSeen, now)}
-                </span>
+                </S.SessLastSeen>
                 <S.SessActions>
                   <Tooltip
                     label={s.current ? "Revoke (signs you out)" : "Revoke session"}

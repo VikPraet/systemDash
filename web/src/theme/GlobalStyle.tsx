@@ -65,6 +65,10 @@ export const GlobalStyle = createGlobalStyle`
     margin: 0;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     /* Subtle blue ambient glow, echoing the login background. */
     background: radial-gradient(

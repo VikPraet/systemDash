@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { procTableBase } from "../ui/styles";
+import { mobile } from "../../theme/media";
 
 export const ProcRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
@@ -33,6 +34,12 @@ export const ProcSearch = styled.input`
   color: ${({ theme }) => theme.color.text};
   font-size: 14px;
   outline: none;
+
+  @media ${mobile} {
+    min-width: 0;
+    width: 100%;
+    flex-basis: 100%;
+  }
 
   &:focus {
     border-color: ${({ theme }) => theme.color.accent};
@@ -105,10 +112,19 @@ export const ProcTableWrap = styled.div`
   flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
+
+  @media ${mobile} {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 `;
 
 export const ProcTable = styled.table`
   ${procTableBase}
+
+  @media ${mobile} {
+    min-width: 640px;
+  }
 
   .proc-group td {
     position: sticky;

@@ -1,13 +1,17 @@
 import styled from "styled-components";
+import { mobile } from "./theme/media";
 
 /* ---- App shell ----------------------------------------------------------- */
 export const AppShell = styled.div`
   --sidebar-width: 220px;
+  --mobile-header-height: 52px;
   height: 100vh;
+  height: 100dvh;
   display: flex;
 
-  @media (max-width: 720px) {
+  @media ${mobile} {
     flex-direction: column;
+    min-height: 100dvh;
     height: auto;
   }
 `;
@@ -16,6 +20,7 @@ export const Sidebar = styled.aside`
   flex-shrink: 0;
   width: var(--sidebar-width);
   height: 100vh;
+  height: 100dvh;
   position: sticky;
   top: 0;
   display: flex;
@@ -29,18 +34,123 @@ export const Sidebar = styled.aside`
   );
   border-right: 1px solid ${({ theme }) => theme.color.border};
 
-  @media (max-width: 720px) {
+  @media ${mobile} {
     width: 100%;
     height: auto;
+    min-height: var(--mobile-header-height);
     position: sticky;
     top: 0;
-    z-index: 10;
-    flex-direction: row;
-    align-items: center;
-    gap: 16px;
-    padding: 12px 16px;
+    z-index: 40;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
     border-right: none;
     border-bottom: 1px solid ${({ theme }) => theme.color.border};
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+`;
+
+export const SidebarHeader = styled.div`
+  @media not ${mobile} {
+    display: contents;
+  }
+
+  @media ${mobile} {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: var(--mobile-header-height);
+    padding: 8px 12px 8px 10px;
+    position: relative;
+    z-index: 65;
+    background: ${({ theme }) => theme.color.panel2};
+  }
+`;
+
+export const MenuBtn = styled.button`
+  display: none;
+
+  @media ${mobile} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    margin: 0;
+    padding: 0;
+    appearance: none;
+    background: transparent;
+    border: 1px solid ${({ theme }) => theme.color.border};
+    border-radius: ${({ theme }) => theme.radius.sm};
+    color: ${({ theme }) => theme.color.text};
+    cursor: pointer;
+
+    &:hover {
+      border-color: ${({ theme }) => theme.color.accent};
+      color: ${({ theme }) => theme.color.accent};
+    }
+  }
+`;
+
+export const MobileTopActions = styled.div`
+  display: none;
+
+  @media ${mobile} {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+`;
+
+export const NavPanel = styled.div<{ $open?: boolean }>`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 24px;
+
+  @media ${mobile} {
+    position: fixed;
+    top: calc(var(--mobile-header-height) + env(safe-area-inset-top, 0px));
+    left: 0;
+    bottom: 0;
+    width: min(288px, 88vw);
+    z-index: 60;
+    flex: none;
+    gap: 16px;
+    padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    background: linear-gradient(
+      180deg,
+      ${({ theme }) => theme.color.panel2},
+      ${({ theme }) => theme.color.panel} 180px
+    );
+    border-right: 1px solid ${({ theme }) => theme.color.border};
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.45);
+    transform: translateX(${({ $open }) => ($open ? "0" : "-105%")});
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+`;
+
+export const NavBackdrop = styled.button`
+  display: none;
+
+  @media ${mobile} {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    margin: 0;
+    padding: 0;
+    appearance: none;
+    border: none;
+    background: rgba(5, 8, 13, 0.5);
+    cursor: pointer;
+    animation: modal-fade 0.15s ease;
   }
 `;
 
@@ -48,12 +158,18 @@ export const Content = styled.main`
   flex: 1;
   min-width: 0;
   height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   padding: 20px;
+  -webkit-overflow-scrolling: touch;
 
-  @media (max-width: 720px) {
+  @media ${mobile} {
+    flex: 1;
+    min-height: 0;
     height: auto;
-    overflow-y: visible;
+    position: relative;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 `;
 
@@ -69,6 +185,13 @@ export const Brand = styled.div`
   align-items: center;
   gap: 11px;
   padding: 4px 8px 0;
+  min-width: 0;
+
+  @media ${mobile} {
+    padding: 0;
+    flex: 1;
+    min-width: 0;
+  }
 
   h1 {
     margin: 0;
@@ -192,8 +315,11 @@ export const Tabs = styled.nav`
     color: ${({ theme }) => theme.color.accent};
   }
 
-  @media (max-width: 720px) {
-    flex-direction: row;
+  @media ${mobile} {
+    a {
+      padding: 12px 14px;
+      font-size: 13px;
+    }
 
     a::before {
       display: none;
@@ -210,14 +336,16 @@ export const SidebarFooter = styled.div`
   padding: 12px 10px 4px;
   border-top: 1px solid ${({ theme }) => theme.color.border};
 
-  @media (max-width: 720px) {
-    margin-top: 0;
-    margin-left: auto;
-    padding: 0;
-    border-top: none;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+  @media ${mobile} {
+    margin-top: auto;
+    padding: 12px 4px 4px;
+    border-top: 1px solid ${({ theme }) => theme.color.border};
+  }
+`;
+
+export const SidebarFooterDesktop = styled.div`
+  @media ${mobile} {
+    display: none;
   }
 `;
 
@@ -279,11 +407,11 @@ export const LogoutBtn = styled.button`
 `;
 
 /* ---- Connection status indicator ---------------------------------------- */
-export const Status = styled.div`
+export const Status = styled.div<{ $compact?: boolean }>`
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: ${({ $compact }) => ($compact ? 0 : "13px")};
   color: ${({ theme }) => theme.color.muted};
   cursor: default;
 `;
@@ -308,8 +436,9 @@ export const Grid = styled.div`
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 
-  @media (max-width: 720px) {
+  @media ${mobile} {
     grid-template-columns: 1fr;
+    gap: 12px;
 
     & > * {
       grid-column: span 1 !important;
@@ -321,6 +450,12 @@ export const CardSplit = styled.div`
   display: flex;
   align-items: center;
   gap: 20px;
+
+  @media ${mobile} {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
 `;
 
 export const Kv = styled.div<{ $tight?: boolean }>`
@@ -328,6 +463,11 @@ export const Kv = styled.div<{ $tight?: boolean }>`
   grid-template-columns: ${({ $tight }) => ($tight ? "1fr" : "repeat(2, 1fr)")};
   gap: ${({ $tight }) => ($tight ? "8px" : "10px 24px")};
   ${({ $tight }) => $tight && "flex: 1;"}
+
+  @media ${mobile} {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 `;
 
 export const Readouts = styled.div`
