@@ -44,6 +44,7 @@ import { SystemUpdates } from "./components/SystemUpdates";
 import { UpdatesOverview } from "./components/SystemUpdates/UpdatesOverview";
 import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOverview";
 import { AppVersionLink } from "./components/SystemUpdates/AppVersionLink";
+import { PowerControl } from "./components/PowerControl";
 import { Login } from "./components/Login";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
@@ -437,6 +438,7 @@ function Overview({
           <>
             <AppUpdatesOverview />
             <UpdatesOverview />
+            <PowerControl />
           </>
         )}
       </Card>

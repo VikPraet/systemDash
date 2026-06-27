@@ -21,6 +21,9 @@ import type {
   AppUpdateStatus,
   AppUpdateJob,
   User,
+  PowerCapabilities,
+  PowerAction,
+  PowerRunResult,
 } from "./types";
 
 // When any /api call (other than the auth endpoints themselves) comes back 401,
@@ -327,6 +330,32 @@ export async function fetchAppUpdateJob(signal?: AbortSignal): Promise<AppUpdate
 
 export async function startAppUpdate(): Promise<{ ok: true }> {
   return postJson("/api/app-update/start", {});
+}
+
+export async function fetchPowerCapabilities(
+  signal?: AbortSignal
+): Promise<PowerCapabilities> {
+  const res = await fetch("/api/power/capabilities", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as PowerCapabilities;
+}
+
+export async function runPowerAction(opts: {
+  action: PowerAction;
+  confirm: string;
+  delaySeconds?: number;
+}): Promise<PowerRunResult> {
+  const res = await fetch("/api/power/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(opts),
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string } & Partial<PowerRunResult>;
+  if (!res.ok) throw new Error(body.error ?? `Request failed: ${res.status}`);
+  return body as PowerRunResult;
 }
 
 export async function runSystemUpdates(

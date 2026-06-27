@@ -317,3 +317,21 @@ export interface AppUpdateJob {
   log: string;
   error: string | null;
 }
+
+export type PowerAction = "reboot" | "shutdown" | "poweroff";
+
+export interface PowerCapabilities {
+  available: boolean;
+  platform: string;
+  actions: PowerAction[];
+  needsElevation: boolean;
+  defaultDelaySeconds: number;
+  hint: string | null;
+}
+
+export interface PowerRunResult {
+  ok: true;
+  action: PowerAction;
+  delaySeconds: number;
+  message: string;
+}
