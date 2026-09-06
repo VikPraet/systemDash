@@ -9,3 +9,4 @@ dist/
 systemdash-*.tar.gz
 .systemdash-install.json
 .tmp-auth-test/
+*.tsbuildinfo
