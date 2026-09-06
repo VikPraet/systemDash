@@ -41,6 +41,7 @@ import { updatesRouter } from "./routes/updates.js";
 import { appUpdateRouter } from "./routes/appUpdate.js";
 import { powerRouter } from "./routes/power.js";
 import { projectsRouter } from "./routes/projects.js";
+import { accessRouter } from "./routes/access.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -71,6 +72,7 @@ app.use("/api/docker", dockerRouter);
 app.use("/api/updates", updatesRouter);
 app.use("/api/app-update", appUpdateRouter);
 app.use("/api/projects", projectsRouter);
+app.use("/api/access", accessRouter);
 
 // Host power control (reboot / shutdown). Admin-only; explicit audit before the
 // generic middleware. Must respond before the OS command runs.
@@ -126,6 +128,12 @@ app.use("/api", (req, res, next) => {
     // field-level diff. Still fall through for failures/denials (>=400) so
     // blocked attempts aren't lost.
     if (req.path.startsWith("/api/settings") && res.statusCode < 400) {
+      return;
+    }
+    if (
+      (req.path === "/access" || req.path.startsWith("/api/access")) &&
+      res.statusCode < 400
+    ) {
       return;
     }
     const action =

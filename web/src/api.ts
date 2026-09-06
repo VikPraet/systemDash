@@ -24,6 +24,8 @@ import type {
   PowerCapabilities,
   PowerAction,
   PowerRunResult,
+  PublicAccessStatus,
+  IngressDiscovery,
   ActionJob,
   GitAccountPublic,
   GitAccountDetails,
@@ -34,6 +36,8 @@ import type {
   ProjectAction,
   ProjectDetail,
   ProjectsOverview,
+  CloudflareAccountPublic,
+  SitesStatusResponse,
   RunKind,
   StepInput,
 } from "./types";
@@ -401,6 +405,76 @@ export async function fetchPowerCapabilities(
   return (await res.json()) as PowerCapabilities;
 }
 
+function accessFromIngress(
+  ingress: IngressDiscovery | undefined,
+  port: number
+): PublicAccessStatus {
+  const empty: IngressDiscovery = {
+    routes: [],
+    sources: [],
+    running: false,
+    remotelyManaged: false,
+    note: null,
+    tunnelId: null,
+    dnsTarget: null,
+  };
+  const value = ingress ?? empty;
+  const sources = value.sources ?? [];
+  const mode: PublicAccessStatus["mode"] =
+    sources.length > 0
+      ? "local-config"
+      : value.remotelyManaged
+        ? "dashboard"
+        : value.running
+          ? "running-unread"
+          : "missing";
+  const self = (value.routes ?? []).find((r) => r.port === port) ?? null;
+  return {
+    port,
+    origin: `http://127.0.0.1:${port}`,
+    self,
+    rememberedHostname: null,
+    conflict: null,
+    canWrite: sources.length > 0,
+    mode,
+    ingress: value,
+  };
+}
+
+export async function fetchPublicAccess(
+  opts?: { refresh?: boolean; signal?: AbortSignal }
+): Promise<PublicAccessStatus> {
+  const q = opts?.refresh ? "?refresh=1" : "";
+  const res = await fetch(`/api/access${q}`, { signal: opts?.signal });
+  if (res.ok) return (await res.json()) as PublicAccessStatus;
+  if (res.status !== 404) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  const overview = await fetchProjectsOverview(opts?.signal);
+  return accessFromIngress(overview.ingress, 3001);
+}
+
+export async function setPublicAccessHostname(
+  hostname: string
+): Promise<PublicAccessStatus> {
+  try {
+    return await postJson("/api/access", { hostname });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (!/\b404\b|not found|cannot post \/api\/access/i.test(msg)) throw e;
+  }
+  const current = await fetchPublicAccess();
+  const result = await addCloudflaredIngressApi({ hostname, port: current.port });
+  const next = accessFromIngress(result.ingress, current.port);
+  const notice = result.already
+    ? `${hostname} already points at this dashboard`
+    : result.updated
+      ? `updated ${hostname} → ${current.origin}`
+      : `added ${hostname} → ${current.origin}`;
+  return { ...next, result, notice };
+}
+
 export async function runPowerAction(opts: {
   action: PowerAction;
   confirm: string;
@@ -591,6 +665,36 @@ export function addCloudflaredIngressApi(input: {
   port: number;
 }): Promise<AddIngressResult> {
   return postJson("/api/projects/ingress", input);
+}
+
+export async function fetchSitesStatus(opts?: {
+  refresh?: boolean;
+  signal?: AbortSignal;
+}): Promise<SitesStatusResponse> {
+  const q = opts?.refresh ? "?refresh=1" : "";
+  const res = await fetch(`/api/projects/status${q}`, { signal: opts?.signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as SitesStatusResponse;
+}
+
+export function connectCloudflareApi(token: string): Promise<{
+  cloudflare: CloudflareAccountPublic;
+}> {
+  return postJson("/api/projects/cloudflare", { token });
+}
+
+export async function disconnectCloudflareApi(): Promise<{
+  cloudflare: CloudflareAccountPublic;
+}> {
+  const res = await fetch("/api/projects/cloudflare", { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as { cloudflare: CloudflareAccountPublic };
 }
 
 export function deleteProjectApi(id: number): Promise<void> {

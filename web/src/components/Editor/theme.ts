@@ -3,57 +3,59 @@ import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 
 /** CodeMirror chrome — uses the same CSS tokens as `GlobalStyle` `:root`. */
-export const editorTheme = EditorView.theme(
-  {
-    "&": {
-      backgroundColor: "var(--panel-2)",
-      color: "var(--text)",
-      height: "100%",
-    },
-    "&.cm-focused": {
-      outline: "none",
-    },
-    ".cm-scroller": {
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
-      fontSize: "13px",
-      lineHeight: "1.55",
-      overflow: "auto",
-    },
-    ".cm-gutters": {
-      backgroundColor: "var(--panel)",
-      color: "var(--muted)",
-      borderRight: "1px solid var(--border)",
-    },
-    ".cm-activeLineGutter": {
-      backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
-      color: "var(--text)",
-    },
-    ".cm-activeLine": {
-      backgroundColor: "color-mix(in srgb, var(--accent) 7%, transparent)",
-    },
-    ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "var(--accent)",
-    },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
-      {
-        backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent) !important",
+export function createEditorTheme(dark: boolean) {
+  return EditorView.theme(
+    {
+      "&": {
+        backgroundColor: "var(--panel-2)",
+        color: "var(--text)",
+        height: "100%",
       },
-    ".cm-matchingBracket, .cm-nonmatchingBracket": {
-      backgroundColor: "color-mix(in srgb, var(--accent) 16%, transparent)",
-      outline: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+      "&.cm-focused": {
+        outline: "none",
+      },
+      ".cm-scroller": {
+        fontFamily:
+          'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+        fontSize: "13px",
+        lineHeight: "1.55",
+        overflow: "auto",
+      },
+      ".cm-gutters": {
+        backgroundColor: "var(--panel)",
+        color: "var(--muted)",
+        borderRight: "1px solid var(--border)",
+      },
+      ".cm-activeLineGutter": {
+        backgroundColor: "color-mix(in srgb, var(--accent) 12%, transparent)",
+        color: "var(--text)",
+      },
+      ".cm-activeLine": {
+        backgroundColor: "color-mix(in srgb, var(--accent) 7%, transparent)",
+      },
+      ".cm-cursor, .cm-dropCursor": {
+        borderLeftColor: "var(--accent)",
+      },
+      "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection":
+        {
+          backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent) !important",
+        },
+      ".cm-matchingBracket, .cm-nonmatchingBracket": {
+        backgroundColor: "color-mix(in srgb, var(--accent) 16%, transparent)",
+        outline: "1px solid color-mix(in srgb, var(--accent) 35%, transparent)",
+      },
+      ".cm-foldGutter span": {
+        color: "var(--muted)",
+      },
+      ".cm-foldPlaceholder": {
+        backgroundColor: "var(--panel)",
+        border: "1px solid var(--border)",
+        color: "var(--muted)",
+      },
     },
-    ".cm-foldGutter span": {
-      color: "var(--muted)",
-    },
-    ".cm-foldPlaceholder": {
-      backgroundColor: "var(--panel)",
-      border: "1px solid var(--border)",
-      color: "var(--muted)",
-    },
-  },
-  { dark: true }
-);
+    { dark }
+  );
+}
 
 /** Syntax colours derived from the app accent / status palette. */
 const highlight = HighlightStyle.define([

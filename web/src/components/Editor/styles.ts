@@ -4,7 +4,7 @@ import { ModalOverlay } from "../ui/styles";
 export const EditorOverlay = styled.div`
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: ${({ theme }) => theme.color.overlay};
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -25,7 +25,7 @@ export const EditorPanel = styled.div`
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius};
   overflow: hidden;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 18px 50px ${({ theme }) => theme.color.shadow};
 `;
 
 export const EditorHead = styled.div`

@@ -37,9 +37,9 @@ export function Login() {
   return (
     <AuthLayout>
       <A.AuthForm onSubmit={onSubmit}>
-        <A.AuthEyebrow>Secure access</A.AuthEyebrow>
+        <A.AuthEyebrow>Host console</A.AuthEyebrow>
         <A.AuthTitle>Sign in</A.AuthTitle>
-        <A.AuthSub>Enter your credentials to access the dashboard.</A.AuthSub>
+        <A.AuthSub>Credentials for this host.</A.AuthSub>
 
         <A.AuthField>
           <span>Username</span>

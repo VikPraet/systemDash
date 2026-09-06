@@ -9,6 +9,8 @@ import type {
   ProjectSummary,
   GitAccountPublic,
   IngressDiscovery,
+  CloudflareAccountPublic,
+  ProjectSiteStatus,
   ProjectsCapabilities,
   Settings,
   SystemSnapshot,
@@ -66,6 +68,8 @@ interface ProjectsCache {
   accounts: GitAccountPublic[];
   capabilities: ProjectsCapabilities | null;
   ingress: IngressDiscovery | null;
+  cloudflare: CloudflareAccountPublic | null;
+  sites: ProjectSiteStatus[];
   selectedId: number | null;
 }
 
@@ -119,6 +123,8 @@ export const cache: AppCache = {
     accounts: [],
     capabilities: null,
     ingress: null,
+    cloudflare: null,
+    sites: [],
     selectedId: null,
   },
 };

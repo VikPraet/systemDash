@@ -14,7 +14,8 @@ import {
 import { languageForFile } from "./language";
 import { isMarkdownFile, type MarkdownView } from "./markdown";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { editorHighlight, editorTheme } from "./theme";
+import { createEditorTheme, editorHighlight } from "./theme";
+import { useAppearance } from "../../theme/AppearanceContext";
 import * as S from "./styles";
 
 export type FileEditorMode = "view" | "edit";
@@ -36,6 +37,7 @@ export function FileEditor({
   onClose: () => void;
   onSaved?: () => void;
 }) {
+  const { appearance } = useAppearance();
   const [content, setContent] = useState("");
   const [original, setOriginal] = useState("");
   const [loading, setLoading] = useState(true);
@@ -160,6 +162,11 @@ export function FileEditor({
   saveRef.current = save;
   closeRef.current = requestClose;
 
+  const editorTheme = useMemo(
+    () => createEditorTheme(appearance === "dark"),
+    [appearance]
+  );
+
   const extensions = useMemo(() => {
     const keys = editing
       ? [
@@ -197,7 +204,7 @@ export function FileEditor({
       EditorView.contentAttributes.of({ tabindex: "0" }),
       keymap.of(keys),
     ];
-  }, [editing, language.extension]);
+  }, [editing, editorTheme, language.extension]);
 
   const discardMessage =
     discardAction === "view"

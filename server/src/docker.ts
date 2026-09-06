@@ -60,21 +60,31 @@ interface PsRow {
   Ports: string;
 }
 
-function runDocker(args: string[], maxBuffer = 8 * 1024 * 1024): Promise<string> {
-  return execDocker(dockerBin, args, maxBuffer, true);
+function runDocker(
+  args: string[],
+  maxBuffer = 8 * 1024 * 1024,
+  opts?: { cwd?: string; timeout?: number }
+): Promise<string> {
+  return execDocker(dockerBin, args, maxBuffer, true, opts);
 }
 
 function execDocker(
   bin: string,
   args: string[],
   maxBuffer: number,
-  mayRetry: boolean
+  mayRetry: boolean,
+  opts?: { cwd?: string; timeout?: number }
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       bin,
       args,
-      { maxBuffer, windowsHide: true, timeout: 60_000 },
+      {
+        maxBuffer,
+        windowsHide: true,
+        timeout: opts?.timeout ?? 60_000,
+        cwd: opts?.cwd,
+      },
       (err, stdout, stderr) => {
         if (err) {
           const msg = (stderr || err.message || "").trim();
@@ -83,7 +93,7 @@ function execDocker(
             const next = resolveDockerBin();
             if (next !== bin) {
               dockerBin = next;
-              execDocker(next, args, maxBuffer, false).then(resolve, reject);
+              execDocker(next, args, maxBuffer, false, opts).then(resolve, reject);
               return;
             }
           }
@@ -242,6 +252,49 @@ export function dockerComposeAvailable(): boolean {
     composeAvail = false;
   }
   return composeAvail;
+}
+
+export async function composeServices(
+  cwd: string,
+  composeFile: string
+): Promise<Array<{ name: string; state: string; running: boolean }>> {
+  const out = await runDocker(
+    ["compose", "-f", composeFile, "ps", "-a", "--format", "json"],
+    2 * 1024 * 1024,
+    { cwd, timeout: 12_000 }
+  );
+  const rows: Array<{ name: string; state: string; running: boolean }> = [];
+  const chunks = out.trim().startsWith("[")
+    ? (() => {
+        try {
+          const parsed = JSON.parse(out) as unknown;
+          return Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          return [];
+        }
+      })()
+    : out.split(/\r?\n/).flatMap((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return [];
+        try {
+          return [JSON.parse(trimmed) as unknown];
+        } catch {
+          return [];
+        }
+      });
+  for (const raw of chunks) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as { Name?: string; Names?: string; Service?: string; State?: string; Status?: string };
+    const name = (row.Name || row.Names || row.Service || "").replace(/^\//, "").split(",")[0]?.trim();
+    const state = (row.State || row.Status || "").toLowerCase();
+    if (!name) continue;
+    rows.push({
+      name,
+      state: row.State || row.Status || "unknown",
+      running: state === "running" || state.startsWith("running") || state.includes("up"),
+    });
+  }
+  return rows;
 }
 
 export async function findContainer(idOrName: string): Promise<DockerContainer | null> {

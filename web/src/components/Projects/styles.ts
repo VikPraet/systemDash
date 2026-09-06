@@ -201,6 +201,7 @@ export const Card = styled.button`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   color: inherit;
   cursor: pointer;
   transition: border-color 0.15s ease;
@@ -213,6 +214,117 @@ export const Card = styled.button`
 export const CardTitle = styled.div`
   font-size: 16px;
   font-weight: 600;
+`;
+
+export const CardTop = styled.div`
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+`;
+
+export const HealthDot = styled.span<{ $state?: "up" | "degraded" | "down" | "unknown" }>`
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: ${({ $state, theme }) =>
+    $state === "up"
+      ? theme.color.good
+      : $state === "degraded"
+        ? theme.color.warn
+        : $state === "down"
+          ? theme.color.bad
+          : theme.color.muted};
+`;
+
+export const HealthPill = styled.span<{ $state?: "up" | "degraded" | "down" | "unknown" }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 2px 8px 2px 6px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  color: ${({ $state, theme }) =>
+    $state === "up"
+      ? theme.color.good
+      : $state === "degraded"
+        ? theme.color.warn
+        : $state === "down"
+          ? theme.color.bad
+          : theme.color.muted};
+  background: ${({ $state, theme }) =>
+    $state === "up"
+      ? `color-mix(in srgb, ${theme.color.good} 12%, transparent)`
+      : $state === "degraded"
+        ? `color-mix(in srgb, ${theme.color.warn} 12%, transparent)`
+        : $state === "down"
+          ? `color-mix(in srgb, ${theme.color.bad} 12%, transparent)`
+          : "transparent"};
+  flex-shrink: 0;
+`;
+
+export const VisitLine = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.text};
+`;
+
+export const HealthPanel = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 8px 16px 16px;
+`;
+
+export const HealthCell = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.color.panel2};
+  min-width: 0;
+
+  .label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: ${({ theme }) => theme.color.muted};
+  }
+
+  .value {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: ${({ theme }) => theme.color.text};
+    min-width: 0;
+  }
+
+  .meta {
+    font-size: 12px;
+    color: ${({ theme }) => theme.color.muted};
+    line-height: 1.4;
+    word-break: break-word;
+  }
+`;
+
+export const SectionHead = styled.div`
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 16px;
 `;
 
 export const CardMeta = styled.div`
@@ -376,7 +488,7 @@ export const SwitchKnob = styled.span<{ $on?: boolean }>`
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: ${({ theme }) => theme.color.knob};
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: transform 0.15s ease;
   ${({ $on }) => $on && "transform: translateX(16px);"}
@@ -554,7 +666,7 @@ export const Field = styled.label`
     padding: 11px 2px;
     background: transparent;
     border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom: 1px solid ${({ theme }) => theme.color.hairline};
     border-radius: 0;
     color: ${({ theme }) => theme.color.text};
     font-size: 15px;
@@ -572,7 +684,7 @@ export const Field = styled.label`
 
   input::placeholder,
   textarea::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 
   input:focus,
@@ -613,7 +725,7 @@ export const WideModal = styled.div`
   );
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 70px ${({ theme }) => theme.color.shadow};
 
   > * {
     flex-shrink: 0;
@@ -636,7 +748,7 @@ export const RepoSearch = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 

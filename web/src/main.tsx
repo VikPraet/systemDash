@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { ThemeProvider } from "styled-components";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
+import { AppearanceProvider } from "./theme/AppearanceContext";
 import { GlobalStyle } from "./theme/GlobalStyle";
 import { theme } from "./theme/theme";
 import { cache } from "./cache";
@@ -17,12 +18,14 @@ if (!cache.terminal.tabs.length) {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
-      <GlobalStyle />
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
+      <AppearanceProvider>
+        <GlobalStyle />
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </AppearanceProvider>
     </ThemeProvider>
   </React.StrictMode>
 );

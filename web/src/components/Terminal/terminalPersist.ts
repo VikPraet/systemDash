@@ -73,15 +73,84 @@ export function getDefaultTerminalLayout(): TerminalLayoutState & {
   };
 }
 
+/**
+ * `clear` / RIS / CSI 2J (erase display) / CSI 3J (erase scrollback).
+ * Returns the text after the last wipe, or null if none was found.
+ */
+function sliceAfterLastFullClear(text: string): string | null {
+  const re = /\x1b\[([0-9;]*)J|\x1bc/g;
+  let lastEnd = -1;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    if (match[0] === "\x1bc") {
+      lastEnd = match.index + match[0].length;
+      continue;
+    }
+    const params = match[1] === "" ? ["0"] : match[1].split(";");
+    if (params.some((p) => p === "2" || p === "3")) {
+      lastEnd = match.index + match[0].length;
+    }
+  }
+  return lastEnd === -1 ? null : text.slice(lastEnd);
+}
+
+function capScrollback(text: string): string {
+  if (text.length <= MAX_SCROLLBACK_CHARS) return text;
+  return text.slice(text.length - MAX_SCROLLBACK_CHARS);
+}
+
 export function appendTerminalScrollback(tabId: string, chunk: string): void {
   if (!chunk) return;
   const prev = cache.terminal.scrollback[tabId] ?? "";
   let next = prev + chunk;
-  if (next.length > MAX_SCROLLBACK_CHARS) {
-    next = next.slice(next.length - MAX_SCROLLBACK_CHARS);
-  }
-  cache.terminal.scrollback[tabId] = next;
+  const afterClear = sliceAfterLastFullClear(next);
+  if (afterClear !== null) next = afterClear;
+  cache.terminal.scrollback[tabId] = capScrollback(next);
   scheduleTerminalPersist();
+}
+
+export function replaceTerminalScrollback(tabId: string, text: string): void {
+  // Keep an empty string so a cleared tab stays cleared across reload,
+  // instead of looking like a brand-new tab that should show the banner.
+  cache.terminal.scrollback[tabId] = capScrollback(text);
+  scheduleTerminalPersist();
+}
+
+const CONNECT_BANNER =
+  /Connected as \S+@[^\r\n]+?\. Working dir: [^\r\n]+/;
+
+/** True when a WebSocket payload is the server's one-shot connect greeting. */
+export function isTerminalConnectBanner(data: string): boolean {
+  return /^[\r\n]*Connected as \S+@[^\r\n]+?\. Working dir: [^\r\n]+[\r\n]*$/.test(data);
+}
+
+function trimIncompleteTerminalLine(text: string): string {
+  if (!text || text.endsWith("\n")) return text;
+  const lastNl = text.lastIndexOf("\n");
+  if (lastNl === -1) return "";
+  return text.slice(0, lastNl + 1);
+}
+
+/**
+ * Cleans sessionStorage scrollback after a reload. Reloads start a new PTY, so
+ * we drop glued "prompt + Connected as…" lines, honor `clear`, and strip the
+ * leftover live prompt instead of painting them into the new session.
+ */
+export function sanitizeRestoredScrollback(text: string): string {
+  const sliced = sliceAfterLastFullClear(text);
+  const body = sliced !== null ? sliced : text;
+  if (!body) return "";
+  const lineRe =
+    /[^\r\n]*Connected as \S+@[^\r\n]+?\. Working dir: [^\r\n]+(?:\r\n|\n|\r)?/g;
+  let keptBanner = "";
+  const rest = body.replace(lineRe, (line) => {
+    if (!keptBanner) {
+      const match = line.match(CONNECT_BANNER);
+      if (match) keptBanner = `${match[0]}\r\n`;
+    }
+    return "";
+  });
+  return keptBanner + trimIncompleteTerminalLine(rest);
 }
 
 export function clearTerminalScrollback(tabId: string): void {

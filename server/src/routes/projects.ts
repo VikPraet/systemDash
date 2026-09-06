@@ -51,6 +51,13 @@ import {
   startActionRun,
 } from "../actionRunner.js";
 import { addCloudflaredIngress, discoverCloudflaredIngress } from "../cloudflared.js";
+import {
+  cloudflareHint,
+  connectCloudflareAccount,
+  deleteCloudflareAccount,
+  getCloudflareAccountPublic,
+} from "../cloudflareAnalytics.js";
+import { invalidateSiteStatus, listSiteStatus } from "../siteStatus.js";
 
 export const projectsRouter = Router();
 
@@ -233,7 +240,70 @@ projectsRouter.get("/", async (_req, res) => {
     accounts: listAccounts(),
     capabilities: projectsCapabilities(),
     ingress: await discoverCloudflaredIngress(),
+    cloudflare: getCloudflareAccountPublic(),
   });
+});
+
+projectsRouter.get("/status", async (req, res) => {
+  try {
+    const force = req.query.refresh === "1";
+    const projects = listProjects();
+    res.json({
+      sites: await listSiteStatus(projects, { force }),
+      cloudflare: getCloudflareAccountPublic(),
+      hint: cloudflareHint(),
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.post("/cloudflare", mutate, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { token?: unknown };
+    if (typeof body.token !== "string") {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+    const account = await connectCloudflareAccount(body.token);
+    invalidateSiteStatus();
+    recordAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: "project.cloudflare.connect",
+      detail: account.email ? `cloudflare:${account.email}` : "cloudflare",
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ cloudflare: account });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.delete("/cloudflare", mutate, (req, res) => {
+  try {
+    const prev = getCloudflareAccountPublic();
+    if (prev.source === "env") {
+      res.status(400).json({
+        error: "Cloudflare is connected via CLOUDFLARE_API_TOKEN — unset the env var to disconnect",
+      });
+      return;
+    }
+    deleteCloudflareAccount();
+    invalidateSiteStatus();
+    recordAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: "project.cloudflare.disconnect",
+      detail: prev.email ?? "cloudflare",
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true, cloudflare: getCloudflareAccountPublic() });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 projectsRouter.post("/ingress", mutate, async (req, res) => {
@@ -242,13 +312,16 @@ projectsRouter.post("/ingress", mutate, async (req, res) => {
     const hostname = typeof body.hostname === "string" ? body.hostname : "";
     const port = typeof body.port === "number" ? body.port : Number(body.port);
     const result = await addCloudflaredIngress({ hostname, port });
+    const detail = result.updated
+      ? `updated ${hostname} → 127.0.0.1:${port} (${result.file ?? ""})`
+      : result.already
+        ? `${hostname} already in cloudflared`
+        : `added ${hostname} → 127.0.0.1:${port} (${result.file ?? ""})`;
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
       action: "project.cloudflared.ingress",
-      detail: result.already
-        ? `${hostname} already in cloudflared`
-        : `added ${hostname} → 127.0.0.1:${port} (${result.file ?? ""})`,
+      detail,
       status: 200,
       ip: clientIp(req),
     });
@@ -295,6 +368,7 @@ projectsRouter.post("/", mutate, async (req, res) => {
       accountId,
       ...profile,
     });
+    invalidateSiteStatus();
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
@@ -381,6 +455,7 @@ projectsRouter.patch("/:id", mutate, (req, res) => {
           : parseId(String(body.accountId));
     }
     const project = updateProject(id, patch);
+    invalidateSiteStatus();
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
@@ -400,6 +475,7 @@ projectsRouter.delete("/:id", mutate, (req, res) => {
     const id = parseId(req.params.id);
     const project = requireProject(id);
     deleteProject(id);
+    invalidateSiteStatus();
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,

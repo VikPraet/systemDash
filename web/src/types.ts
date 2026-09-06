@@ -351,6 +351,25 @@ export interface PowerRunResult {
   message: string;
 }
 
+export type PublicAccessMode =
+  | "local-config"
+  | "dashboard"
+  | "running-unread"
+  | "missing";
+
+export interface PublicAccessStatus {
+  port: number;
+  origin: string;
+  self: IngressRoute | null;
+  rememberedHostname: string | null;
+  conflict: IngressRoute | null;
+  canWrite: boolean;
+  mode: PublicAccessMode;
+  ingress: IngressDiscovery;
+  result?: AddIngressResult | null;
+  notice?: string | null;
+}
+
 export type GitProvider = "github" | "gitlab";
 
 export type ActionStepType =
@@ -494,11 +513,14 @@ export interface IngressDiscovery {
   running: boolean;
   remotelyManaged: boolean;
   note: string | null;
+  tunnelId?: string | null;
+  dnsTarget?: string | null;
 }
 
 export interface AddIngressResult {
   added: boolean;
   already: boolean;
+  updated?: boolean;
   file: string | null;
   reloaded: string | null;
   dns: string | null;
@@ -510,6 +532,55 @@ export interface ProjectsOverview {
   accounts: GitAccountPublic[];
   capabilities: ProjectsCapabilities;
   ingress?: IngressDiscovery;
+  cloudflare?: CloudflareAccountPublic;
+}
+
+export type SiteProbeState = "up" | "degraded" | "down" | "skipped";
+export type SiteOverallState = "up" | "degraded" | "down" | "unknown";
+export type SiteRuntimeState = "running" | "stopped" | "missing" | "unknown" | "skipped";
+
+export interface CloudflareAccountPublic {
+  connected: boolean;
+  email: string | null;
+  tokenLast4: string | null;
+  source: "stored" | "env" | null;
+}
+
+export interface SiteProbe {
+  target: string;
+  state: SiteProbeState;
+  statusCode: number | null;
+  ms: number | null;
+  error: string | null;
+}
+
+export interface SiteRuntimeStatus {
+  kind: RunKind;
+  state: SiteRuntimeState;
+  detail: string | null;
+}
+
+export interface SiteTraffic {
+  requests24h: number | null;
+  visits24h: number | null;
+  bytes24h: number | null;
+  error: string | null;
+}
+
+export interface ProjectSiteStatus {
+  projectId: number;
+  overall: SiteOverallState;
+  public: SiteProbe | null;
+  origin: SiteProbe | null;
+  runtime: SiteRuntimeStatus;
+  traffic: SiteTraffic | null;
+  checkedAt: number;
+}
+
+export interface SitesStatusResponse {
+  sites: ProjectSiteStatus[];
+  cloudflare: CloudflareAccountPublic;
+  hint: string | null;
 }
 
 export interface GitCheckResult {

@@ -71,7 +71,7 @@ export const Seg = styled.div`
 
   button.active {
     background: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 
   @media ${mobile} {
@@ -210,7 +210,7 @@ export const ChartViewSeg = styled.div`
 
   button.active {
     background: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 
   button:not(.active):hover {
@@ -343,7 +343,7 @@ export const SwitchKnob = styled.span`
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: ${({ theme }) => theme.color.knob};
   transition: transform 0.15s ease;
 `;
 

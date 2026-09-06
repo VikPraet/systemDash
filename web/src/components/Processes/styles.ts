@@ -6,6 +6,7 @@ export const ProcRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
   max-height: 100%;
   min-height: 0;
@@ -47,7 +48,7 @@ export const ProcSearch = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 
@@ -96,7 +97,7 @@ export const Segmented = styled.div`
 
   button.active .seg-count {
     background: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 `;
 

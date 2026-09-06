@@ -6,6 +6,7 @@ export const FilesRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
   max-height: 100%;
   min-height: 0;
@@ -77,7 +78,7 @@ export const FilesRoots = styled.div`
     align-items: center;
     gap: 7px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    border: 1px solid ${({ theme }) => theme.color.hairline};
     color: ${({ theme }) => theme.color.text};
     padding: 7px 12px;
     border-radius: ${({ theme }) => theme.radius.sm};
@@ -93,7 +94,7 @@ export const FilesRoots = styled.div`
   button:hover {
     background: ${({ theme }) => theme.color.accent};
     border-color: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 
   button.active {
@@ -126,7 +127,7 @@ export const FilesSearch = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 
@@ -136,7 +137,7 @@ export const FilesSettingsBtn = styled.button`
   align-items: center;
   gap: 7px;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid ${({ theme }) => theme.color.hairline};
   color: ${({ theme }) => theme.color.text};
   padding: 7px 12px;
   border-radius: ${({ theme }) => theme.radius.sm};
@@ -152,7 +153,7 @@ export const FilesSettingsBtn = styled.button`
   &:hover {
     background: ${({ theme }) => theme.color.accent};
     border-color: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 `;
 
@@ -235,7 +236,7 @@ export const FilesActions = styled.div`
     align-items: center;
     gap: 6px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.22);
+    border: 1px solid ${({ theme }) => theme.color.hairline};
     color: ${({ theme }) => theme.color.text};
     padding: 7px 12px;
     border-radius: ${({ theme }) => theme.radius.sm};
@@ -251,7 +252,7 @@ export const FilesActions = styled.div`
   > button:hover:not(:disabled) {
     background: ${({ theme }) => theme.color.accent};
     border-color: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 
   > button:disabled {
@@ -530,7 +531,7 @@ export const SwitchKnob = styled.span<{ $on?: boolean }>`
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: #fff;
+  background: ${({ theme }) => theme.color.knob};
   transition: transform 0.15s ease;
   ${({ $on }) => $on && "transform: translateX(16px);"}
 `;

@@ -6,6 +6,7 @@ export const CardRoot = styled.section`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   padding: 18px;
 
   @media ${mobile} {
@@ -211,7 +212,7 @@ export const ChartRoot = styled.div`
     border-radius: 8px;
     padding: 7px 9px;
     font-size: 12px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 6px 20px ${({ theme }) => theme.color.shadow};
     z-index: 2;
     min-width: 120px;
   }

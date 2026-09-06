@@ -1,10 +1,10 @@
 // Central design tokens for the app.
 //
 // Values intentionally resolve to CSS custom properties (defined in
-// `GlobalStyle`'s `:root`) rather than raw hex. This keeps a single source of
-// truth, lets the few remaining inline `style={{ ... var(--x) ... }}` usages and
-// `color-mix()` expressions keep working, and still gives styled-components an
-// idiomatic, typed `theme` to consume:
+// `GlobalStyle`'s `:root` / `[data-theme]`) rather than raw hex. This keeps a
+// single source of truth, lets the few remaining inline
+// `style={{ ... var(--x) ... }}` usages and `color-mix()` expressions keep
+// working, and still gives styled-components an idiomatic, typed `theme`:
 //
 //   styled.div`
 //     color: ${({ theme }) => theme.color.accent};
@@ -23,7 +23,20 @@ export const theme = {
     warn: "var(--warn)",
     bad: "var(--bad)",
     hairline: "var(--hairline)",
+    placeholder: "var(--placeholder)",
+    overlay: "var(--overlay)",
+    shadow: "var(--shadow)",
+    onAccent: "var(--on-accent)",
+    knob: "var(--knob)",
+    hover: "var(--hover)",
+    coreIdle: "var(--core-idle)",
+    selection: "var(--selection)",
+    accentRing: "var(--accent-ring)",
+    sidebar: "var(--sidebar)",
+    authPanel: "var(--auth-panel)",
+    authGlow: "var(--auth-glow)",
   },
+  elev: "var(--elev)",
   radius: {
     base: "var(--radius)",
     sm: "var(--radius-sm)",

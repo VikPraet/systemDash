@@ -29,8 +29,8 @@ export const Sidebar = styled.aside`
   padding: 22px 14px 16px;
   background: linear-gradient(
     180deg,
-    ${({ theme }) => theme.color.panel2},
-    ${({ theme }) => theme.color.panel} 220px
+    ${({ theme }) => theme.color.sidebar},
+    ${({ theme }) => theme.color.panel} 240px
   );
   border-right: 1px solid ${({ theme }) => theme.color.border};
 
@@ -63,7 +63,7 @@ export const SidebarHeader = styled.div`
     padding: 8px 12px 8px 10px;
     position: relative;
     z-index: 65;
-    background: ${({ theme }) => theme.color.panel2};
+    background: ${({ theme }) => theme.color.sidebar};
   }
 `;
 
@@ -124,11 +124,11 @@ export const NavPanel = styled.div<{ $open?: boolean }>`
     padding: 16px 14px calc(env(safe-area-inset-bottom, 0px) + 16px);
     background: linear-gradient(
       180deg,
-      ${({ theme }) => theme.color.panel2},
+      ${({ theme }) => theme.color.sidebar},
       ${({ theme }) => theme.color.panel} 180px
     );
     border-right: 1px solid ${({ theme }) => theme.color.border};
-    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.45);
+    box-shadow: 12px 0 40px ${({ theme }) => theme.color.shadow};
     transform: translateX(${({ $open }) => ($open ? "0" : "-105%")});
     transition: transform 0.22s ease;
     overflow-y: auto;
@@ -148,7 +148,7 @@ export const NavBackdrop = styled.button`
     padding: 0;
     appearance: none;
     border: none;
-    background: rgba(5, 8, 13, 0.5);
+    background: ${({ theme }) => theme.color.overlay};
     cursor: pointer;
     animation: modal-fade 0.15s ease;
   }
@@ -212,7 +212,7 @@ export const RecoveryNudge = styled.div`
 
   button:hover {
     background: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 `;
 
@@ -399,32 +399,43 @@ export const FooterMeta = styled.div`
 
 export const UserChip = styled.div`
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 8px;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 10px;
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
+  box-shadow: ${({ theme }) => theme.elev};
+`;
+
+export const UserChipRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 `;
 
 export const UserChipActions = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
   flex-shrink: 0;
-`;
 
-export const UserChipInfo = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
+  button {
+    width: 26px;
+    height: 26px;
+  }
 `;
 
 export const UserChipName = styled.span`
   font-size: 13px;
   font-weight: 600;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -442,10 +453,12 @@ export const LogoutBtn = styled.button`
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.muted};
   cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 
   &:hover {
     color: ${({ theme }) => theme.color.text};
     border-color: ${({ theme }) => theme.color.accent};
+    background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 10%, transparent);
   }
 `;
 
@@ -574,7 +587,7 @@ export const Cores = styled.div`
 export const Core = styled.div`
   flex: 1;
   height: 100%;
-  background: rgba(255, 255, 255, 0.04);
+  background: ${({ theme }) => theme.color.coreIdle};
   border-radius: 0;
   display: flex;
   align-items: flex-end;

@@ -10,7 +10,14 @@ import {
   setTerminalSession,
   type TerminalSession,
 } from "./terminalSession";
-import { appendTerminalScrollback, clearTerminalScrollback } from "./terminalPersist";
+import {
+  appendTerminalScrollback,
+  clearTerminalScrollback,
+  isTerminalConnectBanner,
+  replaceTerminalScrollback,
+  sanitizeRestoredScrollback,
+} from "./terminalPersist";
+import { xtermThemeFromCss } from "../../theme/appearance";
 import * as S from "./styles";
 
 function writeSession(session: TerminalSession, data: string, tabId: string): void {
@@ -29,12 +36,7 @@ function createSession(tabId: string): TerminalSession {
     fontFamily:
       'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
     fontSize: 13,
-    theme: {
-      background: "#141d2c",
-      foreground: "#e6edf6",
-      cursor: "#4f8cff",
-      selectionBackground: "rgba(79, 140, 255, 0.28)",
-    },
+    theme: xtermThemeFromCss(),
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
@@ -44,10 +46,31 @@ function createSession(tabId: string): TerminalSession {
     fit,
     fitTerminal: () => {},
     ensureConnected: () => {},
+    flushOutput: () => {},
     host: null,
     visible: true,
     restored: false,
     dispose: () => {},
+  };
+
+  let outputReady = false;
+  const pendingOutput: string[] = [];
+  let consumedResumeBanner = false;
+  let sentResumeHello = false;
+
+  const pushOutput = (data: string) => {
+    if (!outputReady) {
+      pendingOutput.push(data);
+      return;
+    }
+    writeSession(session, data, tabId);
+  };
+
+  session.flushOutput = () => {
+    if (outputReady) return;
+    outputReady = true;
+    for (const chunk of pendingOutput) writeSession(session, chunk, tabId);
+    pendingOutput.length = 0;
   };
 
   const sendResize = () => {
@@ -84,22 +107,43 @@ function createSession(tabId: string): TerminalSession {
 
   const connect = () => {
     if (cancelled) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/api/terminal`);
 
-    ws.onopen = () => session.fitTerminal();
+    ws.onopen = () => {
+      const resume = session.restored && !sentResumeHello;
+      sentResumeHello = true;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "hello", resume }));
+      }
+      session.fitTerminal();
+    };
     ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") writeSession(session, ev.data, tabId);
+      if (typeof ev.data !== "string") return;
+      if (!consumedResumeBanner && session.restored && isTerminalConnectBanner(ev.data)) {
+        consumedResumeBanner = true;
+        return;
+      }
+      consumedResumeBanner = true;
+      pushOutput(ev.data);
     };
     ws.onclose = () => {
       ws = null;
       if (cancelled) return;
       if (!session.visible) return;
-      writeSession(session, "\r\n\x1b[90m[disconnected]\x1b[0m\r\n", tabId);
+      pushOutput("\r\n\x1b[90m[disconnected]\x1b[0m\r\n");
       connectTimer = window.setTimeout(connect, 2000);
     };
     ws.onerror = () => {
-      writeSession(session, "\r\n\x1b[31m[connection error]\x1b[0m\r\n", tabId);
+      pushOutput("\r\n\x1b[31m[connection error]\x1b[0m\r\n");
     };
   };
 
@@ -153,7 +197,17 @@ export function TerminalPane({
     session.visible = visibleRef.current;
     session.host = host;
 
-    const initialScrollback = isNew ? cache.terminal.scrollback[tabId] : undefined;
+    const hasStoredScrollback =
+      isNew && Object.prototype.hasOwnProperty.call(cache.terminal.scrollback, tabId);
+    const rawScrollback = hasStoredScrollback ? cache.terminal.scrollback[tabId] : undefined;
+    const initialScrollback =
+      rawScrollback !== undefined ? sanitizeRestoredScrollback(rawScrollback) : undefined;
+    if (hasStoredScrollback) {
+      session.restored = true;
+      if (initialScrollback !== rawScrollback) {
+        replaceTerminalScrollback(tabId, initialScrollback ?? "");
+      }
+    }
     attachTerminalSession(session, host, initialScrollback);
 
     const fitTimers = [50, 150, 400].map((ms) =>

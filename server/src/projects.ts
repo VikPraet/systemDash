@@ -144,6 +144,13 @@ export function projectsDb(): DatabaseSync {
       host       TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS cloudflare_account (
+      id           INTEGER PRIMARY KEY CHECK (id = 1),
+      token        TEXT NOT NULL,
+      email        TEXT,
+      token_last4  TEXT NOT NULL,
+      created_at   INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS projects (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT NOT NULL,

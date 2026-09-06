@@ -17,7 +17,7 @@ export const TooltipBox = styled.div<{ $below?: boolean }>`
   background: ${({ theme }) => theme.color.panel2};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px ${({ theme }) => theme.color.shadow};
   pointer-events: none;
 `;
 

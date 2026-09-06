@@ -15,11 +15,13 @@ import {
 import {
   checkProjectRemoteApi,
   connectGitAccountApi,
+  connectCloudflareApi,
   createProjectActionApi,
   createProjectApi,
   addCloudflaredIngressApi,
   deleteProjectActionApi,
   deleteProjectApi,
+  disconnectCloudflareApi,
   disconnectGitAccountApi,
   fetchGitAccountDetails,
   fetchGitBranches,
@@ -27,6 +29,7 @@ import {
   fetchProject,
   fetchProjectJob,
   fetchProjectsOverview,
+  fetchSitesStatus,
   formatDate,
   formatRelative,
   runProjectActionApi,
@@ -38,6 +41,7 @@ import { hasRole, useAuth } from "../../auth/AuthContext";
 import type {
   ActionJob,
   ActionStepType,
+  CloudflareAccountPublic,
   GitAccountDetails,
   GitAccountPublic,
   GitCheckResult,
@@ -47,9 +51,11 @@ import type {
   IngressRoute,
   ProjectAction,
   ProjectDetail,
+  ProjectSiteStatus,
   ProjectSummary,
   ProjectsCapabilities,
   RunKind,
+  SiteOverallState,
   StepInput,
 } from "../../types";
 import { Dropdown } from "../Dropdown";
@@ -67,6 +73,7 @@ import {
   RevokeDetails,
 } from "../ui/styles";
 import { FolderPicker } from "./FolderPicker";
+import { TunnelDnsHint } from "../TunnelDns";
 import * as S from "./styles";
 
 const JOB_POLL_MS = 800;
@@ -114,6 +121,55 @@ function runStatus(
   return undefined;
 }
 
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatCompact(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
+}
+
+function probeDot(state: string | null | undefined): "up" | "degraded" | "down" | "unknown" {
+  if (state === "up" || state === "degraded" || state === "down") return state;
+  return "unknown";
+}
+
+function healthLabel(state: SiteOverallState): string {
+  if (state === "up") return "Up";
+  if (state === "degraded") return "Degraded";
+  if (state === "down") return "Down";
+  return "Unknown";
+}
+
+function probeSummary(probe: ProjectSiteStatus["public"]): string {
+  if (!probe) return "not checked";
+  if (probe.state === "up") {
+    return `${probe.statusCode ?? "ok"}${probe.ms != null ? ` · ${probe.ms}ms` : ""}`;
+  }
+  return probe.error || probe.state;
+}
+
+function healthDetail(status: ProjectSiteStatus): string {
+  const bits = [
+    status.public ? `Public ${probeSummary(status.public)}` : null,
+    status.origin ? `Origin ${probeSummary(status.origin)}` : null,
+    status.runtime.state !== "skipped"
+      ? `${status.runtime.kind} ${status.runtime.state}${
+          status.runtime.detail ? ` (${status.runtime.detail})` : ""
+        }`
+      : null,
+  ].filter(Boolean);
+  return bits.join(" · ") || "No URL, port, or runtime to check yet.";
+}
+
+const STATUS_POLL_MS = 30_000;
+
 export function Projects() {
   const { user } = useAuth();
   const canManage = hasRole(user, "user");
@@ -125,6 +181,10 @@ export function Projects() {
   const [ingress, setIngress] = useState<IngressDiscovery | null>(
     () => cache.projects.ingress
   );
+  const [cloudflare, setCloudflare] = useState<CloudflareAccountPublic | null>(
+    () => cache.projects.cloudflare
+  );
+  const [sites, setSites] = useState<ProjectSiteStatus[]>(() => cache.projects.sites);
   const [selectedId, setSelectedId] = useState<number | null>(() => cache.projects.selectedId);
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [job, setJob] = useState<ActionJob | null>(null);
@@ -132,6 +192,7 @@ export function Projects() {
   const [loading, setLoading] = useState(projects.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [cfOpen, setCfOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState<GitAccountPublic | null>(null);
   const [actionEdit, setActionEdit] = useState<ProjectAction | "new" | null>(null);
@@ -144,6 +205,8 @@ export function Projects() {
       accounts?: GitAccountPublic[];
       capabilities?: ProjectsCapabilities | null;
       ingress?: IngressDiscovery | null;
+      cloudflare?: CloudflareAccountPublic | null;
+      sites?: ProjectSiteStatus[];
       selectedId?: number | null;
     }) => {
       if (next.projects) {
@@ -162,6 +225,14 @@ export function Projects() {
         cache.projects.ingress = next.ingress;
         setIngress(next.ingress);
       }
+      if (next.cloudflare !== undefined) {
+        cache.projects.cloudflare = next.cloudflare;
+        setCloudflare(next.cloudflare);
+      }
+      if (next.sites) {
+        cache.projects.sites = next.sites;
+        setSites(next.sites);
+      }
       if (next.selectedId !== undefined) {
         cache.projects.selectedId = next.selectedId;
         setSelectedId(next.selectedId);
@@ -178,6 +249,7 @@ export function Projects() {
         accounts: data.accounts,
         capabilities: data.capabilities,
         ingress: data.ingress ?? null,
+        cloudflare: data.cloudflare ?? null,
       });
       setError(null);
     } catch (e) {
@@ -187,9 +259,30 @@ export function Projects() {
     }
   }, [persist]);
 
+  const loadSites = useCallback(
+    async (refresh = false) => {
+      try {
+        const data = await fetchSitesStatus({ refresh });
+        persist({
+          sites: data.sites,
+          cloudflare: data.cloudflare,
+        });
+      } catch (e) {
+        if (refresh) setError((e as Error).message);
+      }
+    },
+    [persist]
+  );
+
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    void loadSites();
+    const id = window.setInterval(() => void loadSites(), STATUS_POLL_MS);
+    return () => clearInterval(id);
+  }, [loadSites, projects.length]);
 
   const loadDetail = useCallback(
     async (id: number) => {
@@ -306,8 +399,27 @@ export function Projects() {
     }
   }
 
+  async function onDisconnectCloudflare(): Promise<void> {
+    setBusy(true);
+    try {
+      const next = await disconnectCloudflareApi();
+      persist({ cloudflare: next.cloudflare });
+      await loadSites(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selected = detail ?? projects.find((p) => p.id === selectedId) ?? null;
   const running = job?.running ?? false;
+  const sitesById = useMemo(() => {
+    const map = new Map<number, ProjectSiteStatus>();
+    for (const s of sites) map.set(s.projectId, s);
+    return map;
+  }, [sites]);
+  const selectedStatus = selected ? sitesById.get(selected.id) ?? null : null;
 
   return (
     <S.Root>
@@ -325,6 +437,11 @@ export function Projects() {
                 <S.Btn type="button" onClick={() => setConnectOpen(true)}>
                   Connect Git
                 </S.Btn>
+                {!cloudflare?.connected && (
+                  <S.Btn type="button" onClick={() => setCfOpen(true)}>
+                    Connect Cloudflare
+                  </S.Btn>
+                )}
                 <S.Btn type="button" onClick={() => setAddOpen(true)}>
                   <Plus size={14} />
                   Add project
@@ -333,7 +450,7 @@ export function Projects() {
             )}
           </S.Head>
 
-          {accounts.length > 0 && (
+          {(accounts.length > 0 || cloudflare?.connected) && (
             <S.Accounts>
               {accounts.map((a) => (
                 <S.AccountWrap key={a.id}>
@@ -355,6 +472,27 @@ export function Projects() {
                   )}
                 </S.AccountWrap>
               ))}
+              {cloudflare?.connected && (
+                <S.AccountWrap>
+                  <S.AccountChip type="button" onClick={() => canManage && setCfOpen(true)}>
+                    <strong>cloudflare</strong>
+                    <span>
+                      {cloudflare.email ?? (cloudflare.source === "env" ? "env" : "API token")}
+                      {cloudflare.tokenLast4 ? ` · …${cloudflare.tokenLast4}` : ""}
+                    </span>
+                  </S.AccountChip>
+                  {canManage && cloudflare.source !== "env" && (
+                    <S.ChipBtn
+                      type="button"
+                      title="Disconnect"
+                      onClick={() => void onDisconnectCloudflare()}
+                      disabled={busy}
+                    >
+                      <Unplug size={13} />
+                    </S.ChipBtn>
+                  )}
+                </S.AccountWrap>
+              )}
             </S.Accounts>
           )}
 
@@ -380,34 +518,62 @@ export function Projects() {
             </S.Empty>
           ) : (
             <S.Grid>
-              {projects.map((p) => (
-                <S.Card key={p.id} type="button" onClick={() => persist({ selectedId: p.id })}>
-                  <S.CardTitle>{p.name}</S.CardTitle>
-                  <S.CardMeta>
-                    {p.localPath}
-                    <S.BranchLine>
-                      <GitBranch size={12} />
-                      {p.branch}
-                    </S.BranchLine>
-                    {p.siteUrl && (
-                      <S.SiteLink
-                        href={p.siteUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink size={12} />
-                        {p.siteUrl.replace(/^https?:\/\//, "")}
-                      </S.SiteLink>
-                    )}
-                    {p.lastRun && (
-                      <S.RunPill $status={runStatus(p.lastRun, job)}>
-                        {p.lastRun.actionName} {p.lastRun.status}
-                      </S.RunPill>
-                    )}
-                  </S.CardMeta>
-                </S.Card>
-              ))}
+              {projects.map((p) => {
+                const status = sitesById.get(p.id);
+                const ms = status?.public?.ms ?? status?.origin?.ms;
+                const visits = status?.traffic?.visits24h;
+                return (
+                  <S.Card key={p.id} type="button" onClick={() => persist({ selectedId: p.id })}>
+                    <S.CardTop>
+                      <S.CardTitle>{p.name}</S.CardTitle>
+                      {status ? (
+                        <S.HealthPill
+                          $state={status.overall}
+                          title={healthDetail(status)}
+                        >
+                            <S.HealthDot $state={status.overall} />
+                            {healthLabel(status.overall)}
+                            {ms != null ? ` · ${ms}ms` : ""}
+                          </S.HealthPill>
+                      ) : (
+                        (p.siteUrl || p.port || p.runKind !== "none") && (
+                          <S.HealthPill $state="unknown">Checking…</S.HealthPill>
+                        )
+                      )}
+                    </S.CardTop>
+                    <S.CardMeta>
+                      {p.localPath}
+                      <S.BranchLine>
+                        <GitBranch size={12} />
+                        {p.branch}
+                      </S.BranchLine>
+                      {p.siteUrl && (
+                        <S.SiteLink
+                          href={p.siteUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink size={12} />
+                          {p.siteUrl.replace(/^https?:\/\//, "")}
+                        </S.SiteLink>
+                      )}
+                      {visits != null && (
+                        <S.VisitLine>
+                          {formatCompact(visits)} visit{visits === 1 ? "" : "s"} / 24h
+                          {status?.traffic?.requests24h != null &&
+                            ` · ${formatCompact(status.traffic.requests24h)} requests`}
+                        </S.VisitLine>
+                      )}
+                      {p.lastRun && (
+                        <S.RunPill $status={runStatus(p.lastRun, job)}>
+                          {p.lastRun.actionName} {p.lastRun.status}
+                        </S.RunPill>
+                      )}
+                    </S.CardMeta>
+                  </S.Card>
+                );
+              })}
             </S.Grid>
           )}
         </>
@@ -497,10 +663,116 @@ export function Projects() {
                   onSaved={async () => {
                     if (selectedId != null) await loadDetail(selectedId);
                     await reload();
+                    await loadSites(true);
                   }}
                 />
               </>
             )}
+
+            <S.SectionHead>
+              <S.SectionLabel>Health</S.SectionLabel>
+              <S.Btn
+                type="button"
+                onClick={() => void loadSites(true)}
+                disabled={busy}
+              >
+                <RefreshCw size={14} />
+                Recheck
+              </S.Btn>
+            </S.SectionHead>
+            <S.HealthPanel>
+              <S.HealthCell>
+                <span className="label">Public</span>
+                <span className="value">
+                  <S.HealthDot $state={probeDot(selectedStatus?.public?.state)} />
+                  {selectedStatus?.public
+                    ? healthLabel(
+                        selectedStatus.public.state === "skipped"
+                          ? "unknown"
+                          : selectedStatus.public.state
+                      )
+                    : selected?.siteUrl
+                      ? "Checking…"
+                      : "No URL"}
+                </span>
+                <span className="meta">
+                  {selectedStatus?.public
+                    ? probeSummary(selectedStatus.public)
+                    : selected?.siteUrl || "Set a public URL to probe the live site."}
+                </span>
+              </S.HealthCell>
+              <S.HealthCell>
+                <span className="label">Origin</span>
+                <span className="value">
+                  <S.HealthDot $state={probeDot(selectedStatus?.origin?.state)} />
+                  {selectedStatus?.origin
+                    ? healthLabel(
+                        selectedStatus.origin.state === "skipped"
+                          ? "unknown"
+                          : selectedStatus.origin.state
+                      )
+                    : selected?.port
+                      ? "Checking…"
+                      : "No port"}
+                </span>
+                <span className="meta">
+                  {selectedStatus?.origin
+                    ? probeSummary(selectedStatus.origin)
+                    : selected?.port
+                      ? `127.0.0.1:${selected.port}`
+                      : "Set a port to check the local process."}
+                </span>
+              </S.HealthCell>
+              <S.HealthCell>
+                <span className="label">Runtime</span>
+                <span className="value">
+                  <S.HealthDot
+                    $state={
+                      selectedStatus?.runtime.state === "running"
+                        ? "up"
+                        : selectedStatus?.runtime.state === "stopped" ||
+                            selectedStatus?.runtime.state === "missing"
+                          ? "down"
+                          : "unknown"
+                    }
+                  />
+                  {selectedStatus
+                    ? selectedStatus.runtime.state === "skipped"
+                      ? selectedStatus.runtime.kind
+                      : selectedStatus.runtime.state
+                    : "—"}
+                </span>
+                <span className="meta">
+                  {selectedStatus?.runtime.detail ||
+                    (selected?.runKind === "none"
+                      ? "No runtime configured."
+                      : selected?.runKind ?? "")}
+                </span>
+              </S.HealthCell>
+              <S.HealthCell>
+                <span className="label">Visits · 24h</span>
+                <span className="value">
+                  {selectedStatus?.traffic?.visits24h != null
+                    ? formatCompact(selectedStatus.traffic.visits24h)
+                    : cloudflare?.connected
+                      ? "—"
+                      : "Not connected"}
+                </span>
+                <span className="meta">
+                  {selectedStatus?.traffic?.visits24h != null
+                    ? `${formatCompact(selectedStatus.traffic.requests24h ?? 0)} requests${
+                        selectedStatus.traffic.bytes24h
+                          ? ` · ${formatBytes(selectedStatus.traffic.bytes24h)}`
+                          : ""
+                      }`
+                    : selectedStatus?.traffic?.error
+                      ? selectedStatus.traffic.error
+                      : cloudflare?.connected
+                        ? "No analytics for this hostname yet."
+                        : "Connect Cloudflare (Zone Analytics) to see visits."}
+                </span>
+              </S.HealthCell>
+            </S.HealthPanel>
 
             <S.SectionLabel>Actions</S.SectionLabel>
             {detail && detail.actions.length === 0 && (
@@ -603,6 +875,17 @@ export function Projects() {
           }}
         />
       )}
+      {cfOpen && (
+        <ConnectCloudflareModal
+          connected={cloudflare}
+          onClose={() => setCfOpen(false)}
+          onSaved={async () => {
+            setCfOpen(false);
+            await reload();
+            await loadSites(true);
+          }}
+        />
+      )}
       {accountOpen && (
         <GitAccountModal
           account={accountOpen}
@@ -627,6 +910,7 @@ export function Projects() {
           onCreated={async (id) => {
             setAddOpen(false);
             await reload();
+            await loadSites(true);
             persist({ selectedId: id });
           }}
         />
@@ -745,18 +1029,25 @@ function hostnameFromSiteUrl(raw: string): string | null {
   }
 }
 
-function pendingCloudflaredAdd(
+function pendingCloudflaredChange(
   ingress: IngressDiscovery | null,
   siteUrl: string,
   port: string
-): { hostname: string; port: number } | null {
+): {
+  hostname: string;
+  port: number;
+  kind: "add" | "update";
+  previousPort: number | null;
+} | null {
   const hostname = hostnameFromSiteUrl(siteUrl);
   const n = Number(port.trim());
   if (!hostname || !Number.isInteger(n) || n < 1 || n > 65535) return null;
   if (!ingress) return null;
-  if (ingress.routes.some((r) => r.hostname.toLowerCase() === hostname)) return null;
   if (ingress.remotelyManaged && ingress.sources.length === 0) return null;
-  return { hostname, port: n };
+  const existing = ingress.routes.find((r) => r.hostname.toLowerCase() === hostname);
+  if (!existing) return { hostname, port: n, kind: "add", previousPort: null };
+  if (existing.port === n) return null;
+  return { hostname, port: n, kind: "update", previousPort: existing.port };
 }
 
 function serviceHint(service: string): string {
@@ -838,6 +1129,7 @@ function RunProfileFields({
   ingress,
   addCloudflared,
   onAddCloudflared,
+  dnsMessage,
 }: {
   draft: RunProfileDraft;
   onChange: (patch: Partial<RunProfileDraft>) => void;
@@ -846,16 +1138,24 @@ function RunProfileFields({
   ingress: IngressDiscovery | null;
   addCloudflared?: boolean;
   onAddCloudflared?: (next: boolean) => void;
+  dnsMessage?: string | null;
 }) {
-  const pendingIngress = pendingCloudflaredAdd(ingress, draft.siteUrl, draft.port);
+  const pendingIngress = pendingCloudflaredChange(ingress, draft.siteUrl, draft.port);
   const hostForUrl = hostnameFromSiteUrl(draft.siteUrl);
+  const existingForHost = hostForUrl
+    ? ingress?.routes.find((r) => r.hostname.toLowerCase() === hostForUrl)
+    : undefined;
   const needPortForIngress = !!(
     onAddCloudflared &&
     hostForUrl &&
     !pendingIngress &&
-    !ingress?.routes.some((r) => r.hostname.toLowerCase() === hostForUrl) &&
-    !draft.port.trim()
+    !draft.port.trim() &&
+    !(ingress?.remotelyManaged && ingress.sources.length === 0)
   );
+  const liveMatch =
+    existingForHost &&
+    draft.port.trim() !== "" &&
+    existingForHost.port === Number(draft.port);
   return (
     <>
       <S.Field>
@@ -867,13 +1167,13 @@ function RunProfileFields({
         />
         {ingress && ingress.routes.length > 0 ? (
           <S.FieldHint>
-            From cloudflared on this host. Click a hostname to fill, or type a
-            new one and add it to the config on save.
+            Click a hostname to fill URL and port, or type a new one. Save writes
+            it to the local cloudflared config — no file editing.
           </S.FieldHint>
         ) : (
           <S.FieldHint>
             {ingress?.note ??
-              "The public address for this project. Type https://… or pick from cloudflared when a local config is readable on this host."}
+              "Public https:// URL. With a port, Save can add it to the local cloudflared tunnel."}
           </S.FieldHint>
         )}
       </S.Field>
@@ -887,7 +1187,12 @@ function RunProfileFields({
                 key={r.url}
                 type="button"
                 $active={draft.siteUrl.replace(/\/+$/, "") === r.url}
-                onClick={() => onChange({ siteUrl: r.url })}
+                onClick={() =>
+                  onChange({
+                    siteUrl: r.url,
+                    ...(r.port != null ? { port: String(r.port) } : {}),
+                  })
+                }
               >
                 {r.hostname}
                 <span>
@@ -938,14 +1243,32 @@ function RunProfileFields({
           <S.Switch $on={!!addCloudflared}>
             <S.SwitchKnob $on={!!addCloudflared} />
           </S.Switch>
-          Add {pendingIngress.hostname} to cloudflared → 127.0.0.1:{pendingIngress.port}
+          {pendingIngress.kind === "update"
+            ? `Update cloudflared: ${pendingIngress.hostname} → 127.0.0.1:${pendingIngress.port}${
+                pendingIngress.previousPort != null
+                  ? ` (now ${pendingIngress.previousPort})`
+                  : ""
+              }`
+            : `Add ${pendingIngress.hostname} to cloudflared → 127.0.0.1:${pendingIngress.port}`}
         </S.CheckRow>
+      )}
+      {liveMatch && existingForHost && (
+        <S.FieldHint>
+          Already in cloudflared → {serviceHint(existingForHost.service)}
+        </S.FieldHint>
       )}
       {needPortForIngress && (
         <S.FieldHint>
-          Set a port to add this hostname to the local cloudflared config.
+          {existingForHost
+            ? `Set a port to update cloudflared for ${hostForUrl} (now ${serviceHint(existingForHost.service)}).`
+            : "Set a port to add this hostname to the local cloudflared config."}
         </S.FieldHint>
       )}
+      <TunnelDnsHint
+        target={ingress?.dnsTarget}
+        hostname={hostForUrl}
+        dnsMessage={dnsMessage}
+      />
       {draft.runKind !== "none" && (
         <S.CheckRow>
           <input
@@ -1050,6 +1373,7 @@ function SiteEditor({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addCloudflared, setAddCloudflared] = useState(true);
+  const [dnsMessage, setDnsMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(draftFromProject(project));
@@ -1086,9 +1410,10 @@ function SiteEditor({
         void (async () => {
           try {
             await updateProjectApi(project.id, profilePayload(draft));
-            const pending = pendingCloudflaredAdd(ingress, draft.siteUrl, draft.port);
+            const pending = pendingCloudflaredChange(ingress, draft.siteUrl, draft.port);
             if (addCloudflared && pending) {
-              await addCloudflaredIngressApi(pending);
+              const result = await addCloudflaredIngressApi(pending);
+              setDnsMessage(result.dns);
             }
             await onSaved();
           } catch (err) {
@@ -1107,6 +1432,7 @@ function SiteEditor({
         ingress={ingress}
         addCloudflared={addCloudflared}
         onAddCloudflared={setAddCloudflared}
+        dnsMessage={dnsMessage}
         onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
       />
       {error && <AuthError $inline>{error}</AuthError>}
@@ -1397,6 +1723,78 @@ function ConnectGitModal({
   );
 }
 
+function ConnectCloudflareModal({
+  connected,
+  onClose,
+  onSaved,
+}: {
+  connected: CloudflareAccountPublic | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent): Promise<void> {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await connectCloudflareApi(token);
+      await onSaved();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalOverlay onClick={onClose}>
+      <ModalCard onClick={(e) => e.stopPropagation()}>
+        <ModalHead>
+          <h3>{connected?.connected ? "Cloudflare" : "Connect Cloudflare"}</h3>
+          <ModalClose type="button" onClick={onClose} aria-label="Close">
+            <X size={14} />
+          </ModalClose>
+        </ModalHead>
+        <ModalSub>
+          Paste an API token with Zone · Zone · Read and Zone · Analytics · Read.
+          SystemDash uses it to show visits and requests for the last 24 hours on each
+          public hostname. Create one at dash.cloudflare.com/profile/api-tokens.
+          {connected?.source === "env" &&
+            " This host already has CLOUDFLARE_API_TOKEN set — connecting here stores a token instead."}
+        </ModalSub>
+        <form onSubmit={(e) => void submit(e)}>
+          <S.FormStack>
+            <S.Field>
+              API token
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="Cloudflare API token"
+                autoComplete="off"
+                autoFocus
+              />
+            </S.Field>
+            {error && <AuthError>{error}</AuthError>}
+            <ModalActions>
+              <ModalBtn type="button" onClick={onClose}>
+                Cancel
+              </ModalBtn>
+              <ModalBtn type="submit" $variant="primary" disabled={busy || !token.trim()}>
+                {busy ? "Connecting…" : connected?.connected ? "Replace token" : "Connect"}
+              </ModalBtn>
+            </ModalActions>
+          </S.FormStack>
+        </form>
+      </ModalCard>
+    </ModalOverlay>
+  );
+}
+
 function AddProjectModal({
   accounts,
   capabilities,
@@ -1533,7 +1931,7 @@ function AddProjectModal({
         branch,
         ...profilePayload(runDraft),
       });
-      const pending = pendingCloudflaredAdd(ingress, runDraft.siteUrl, runDraft.port);
+      const pending = pendingCloudflaredChange(ingress, runDraft.siteUrl, runDraft.port);
       if (addCloudflared && pending) {
         await addCloudflaredIngressApi(pending);
       }

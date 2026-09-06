@@ -48,6 +48,7 @@ export const ActivityCard = styled.section<{ $log?: boolean }>`
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
   background: ${({ theme }) => theme.color.panel};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
 
   ${({ $log }) =>
@@ -282,7 +283,7 @@ export const AuditFilters = styled.div`
   gap: 10px;
   padding: 11px 14px;
   border-bottom: 1px solid ${({ theme }) => theme.color.border};
-  background: rgba(255, 255, 255, 0.012);
+  background: ${({ theme }) => theme.color.hover};
 `;
 
 export const AuditChips = styled.div`
@@ -303,7 +304,7 @@ export const AuditChipCount = styled.span`
   font-weight: 700;
   padding: 1px 6px;
   border-radius: ${({ theme }) => theme.radius.sm};
-  background: rgba(255, 255, 255, 0.06);
+  background: ${({ theme }) => theme.color.hover};
   color: ${({ theme }) => theme.color.muted};
 `;
 
@@ -337,7 +338,7 @@ export const AuditChip = styled.button<{ $active?: boolean; $danger?: boolean }>
       color: ${({ theme }) => theme.color.text};
 
       ${AuditChipCount} {
-        background: rgba(255, 255, 255, 0.12);
+        background: color-mix(in srgb, ${({ theme }) => theme.color.text} 12%, transparent);
         color: ${({ theme }) => theme.color.text};
       }
     `}
@@ -432,7 +433,7 @@ export const AuditCat = styled.span`
   padding: 1px 6px;
   border-radius: 5px;
   color: ${({ theme }) => theme.color.muted};
-  background: rgba(255, 255, 255, 0.05);
+  background: ${({ theme }) => theme.color.hover};
   border: 1px solid ${({ theme }) => theme.color.border};
   flex-shrink: 0;
 `;
@@ -562,7 +563,7 @@ export const AuditRow = styled.div<{ $outcome: Outcome }>`
   }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.025);
+    background: ${({ theme }) => theme.color.hover};
   }
 
   /* Denied/failed attempts keep their tint (even on hover, matching the old

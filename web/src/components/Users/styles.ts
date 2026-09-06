@@ -34,6 +34,7 @@ export const CreateForm = styled.form`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
 
   @media ${mobile} {
     flex-direction: column;
@@ -61,7 +62,7 @@ export const CreateInput = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 
@@ -72,7 +73,7 @@ export const CreateButton = styled.button`
   gap: 7px;
   padding: 9px 14px;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid ${({ theme }) => theme.color.hairline};
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.text};
   font-size: 11px;
@@ -86,7 +87,7 @@ export const CreateButton = styled.button`
   &:hover:not(:disabled) {
     background: ${({ theme }) => theme.color.accent};
     border-color: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 `;
 
@@ -108,6 +109,7 @@ export const UsersTable = styled.div`
   flex-direction: column;
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
 `;
 
@@ -269,7 +271,7 @@ export const AuthField = styled.label`
     padding: 11px 2px;
     background: transparent;
     border: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    border-bottom: 1px solid ${({ theme }) => theme.color.hairline};
     border-radius: 0;
     color: ${({ theme }) => theme.color.text};
     font-size: 15px;
@@ -281,7 +283,7 @@ export const AuthField = styled.label`
   }
 
   input::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 
   input:focus {

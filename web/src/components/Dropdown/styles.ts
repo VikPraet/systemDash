@@ -8,7 +8,7 @@ export const DropdownRoot = styled.div`
 
 const triggerActive = css`
   border-color: ${({ theme }) => theme.color.accent};
-  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
+  box-shadow: 0 0 0 3px ${({ theme }) => theme.color.accentRing};
 `;
 
 export const DropdownTrigger = styled.button<{
@@ -40,7 +40,7 @@ export const DropdownTrigger = styled.button<{
           padding: 11px 2px;
           background: transparent;
           border: none;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+          border-bottom: 1px solid ${({ theme }) => theme.color.hairline};
           border-radius: 0;
           font-size: 15px;
           font-weight: 400;
@@ -80,8 +80,8 @@ export const DropdownValue = styled.span<{ $placeholder?: boolean }>`
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
-  color: ${({ $placeholder }) =>
-    $placeholder ? "rgba(230, 237, 246, 0.35)" : "inherit"};
+  color: ${({ $placeholder, theme }) =>
+    $placeholder ? theme.color.placeholder : "inherit"};
 `;
 
 // Portalled to <body>, so this must be a standalone styled component.
@@ -98,7 +98,7 @@ export const DropdownMenu = styled.ul`
   background: ${({ theme }) => theme.color.panel2};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 50px ${({ theme }) => theme.color.shadow};
   animation: dropdown-in 0.12s ease;
   scrollbar-width: thin;
 

@@ -29,7 +29,12 @@ interface ResizeMessage {
   rows: number;
 }
 
-type ClientMessage = InputMessage | ResizeMessage;
+interface HelloMessage {
+  type: "hello";
+  resume?: boolean;
+}
+
+type ClientMessage = InputMessage | ResizeMessage | HelloMessage;
 
 interface SessionContext {
   user: User;
@@ -117,11 +122,31 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
     if (ws.readyState === ws.OPEN) ws.close();
   });
 
+  let bannerSent = false;
+  const sendBanner = () => {
+    if (bannerSent) return;
+    bannerSent = true;
+    send(
+      `Connected as ${osUser.username}@${os.hostname()}. Working dir: ${cwd}\r\n`
+    );
+  };
+  // Old clients never send hello; still greet them after a beat.
+  let helloReceived = false;
+  const bannerFallback = setTimeout(() => {
+    if (!helloReceived) sendBanner();
+  }, 250);
+
   ws.on("message", (raw) => {
     let msg: ClientMessage;
     try {
       msg = JSON.parse(raw.toString()) as ClientMessage;
     } catch {
+      return;
+    }
+    if (msg.type === "hello") {
+      helloReceived = true;
+      clearTimeout(bannerFallback);
+      if (!msg.resume) sendBanner();
       return;
     }
     if (msg.type === "input" && typeof msg.data === "string") {
@@ -156,6 +181,7 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
   });
 
   ws.on("close", () => {
+    clearTimeout(bannerFallback);
     recordAudit({
       userId: ctx.user.id,
       username: ctx.user.username,
@@ -169,10 +195,6 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
       // already gone
     }
   });
-
-  send(
-    `Connected as ${osUser.username}@${os.hostname()}. Working dir: ${cwd}\r\n`
-  );
 }
 
 /** Validates the session cookie on an upgrade request; returns the user or null. */

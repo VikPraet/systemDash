@@ -5,6 +5,7 @@ export const TerminalRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
   max-height: 100%;
   min-height: 0;

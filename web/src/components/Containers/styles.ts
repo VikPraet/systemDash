@@ -6,6 +6,7 @@ export const DockerRoot = styled.div`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: ${({ theme }) => theme.elev};
   overflow: hidden;
   max-height: 100%;
   min-height: 0;
@@ -47,7 +48,7 @@ export const DockerSearch = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 
@@ -190,7 +191,7 @@ export const LogsModalCard = styled.div`
   );
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 70px ${({ theme }) => theme.color.shadow};
 `;
 
 export const LogsBody = styled.div`

@@ -19,7 +19,7 @@ export const ModalOverlay = styled.div`
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(5, 8, 13, 0.6);
+  background: ${({ theme }) => theme.color.overlay};
   backdrop-filter: blur(3px);
   animation: modal-fade 0.12s ease;
 
@@ -39,7 +39,7 @@ export const Modal = styled.div`
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: 14px;
   padding: 22px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 18px 50px ${({ theme }) => theme.color.shadow};
   animation: modal-pop 0.14s ease;
 `;
 
@@ -76,7 +76,7 @@ export const ModalInput = styled.input`
   }
 
   &::placeholder {
-    color: rgba(230, 237, 246, 0.35);
+    color: ${({ theme }) => theme.color.placeholder};
   }
 `;
 
@@ -121,12 +121,12 @@ export type ModalBtnVariant = "default" | "primary" | "danger" | "danger-ghost";
 
 const modalBtnVariant = {
   default: css`
-    border-color: rgba(255, 255, 255, 0.22);
+    border-color: ${({ theme }) => theme.color.hairline};
     color: ${({ theme }) => theme.color.text};
     &:hover:not(:disabled) {
       background: ${({ theme }) => theme.color.accent};
       border-color: ${({ theme }) => theme.color.accent};
-      color: #fff;
+      color: ${({ theme }) => theme.color.onAccent};
     }
   `,
   primary: css`
@@ -135,7 +135,7 @@ const modalBtnVariant = {
     &:hover:not(:disabled) {
       background: ${({ theme }) => theme.color.accent};
       border-color: ${({ theme }) => theme.color.accent};
-      color: #fff;
+      color: ${({ theme }) => theme.color.onAccent};
     }
   `,
   danger: css`
@@ -144,7 +144,7 @@ const modalBtnVariant = {
     &:hover:not(:disabled) {
       background: ${({ theme }) => theme.color.bad};
       border-color: ${({ theme }) => theme.color.bad};
-      color: #fff;
+      color: ${({ theme }) => theme.color.onAccent};
     }
   `,
   "danger-ghost": css`
@@ -153,7 +153,7 @@ const modalBtnVariant = {
     &:hover:not(:disabled) {
       background: ${({ theme }) => theme.color.bad};
       border-color: ${({ theme }) => theme.color.bad};
-      color: #fff;
+      color: ${({ theme }) => theme.color.onAccent};
     }
   `,
 } as const;
@@ -161,7 +161,7 @@ const modalBtnVariant = {
 export const ModalBtn = styled.button<{ $variant?: ModalBtnVariant }>`
   padding: 8px 16px;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  border: 1px solid ${({ theme }) => theme.color.hairline};
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.text};
   font-size: 11px;
@@ -195,7 +195,7 @@ export const ModalCard = styled.div`
   );
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 70px ${({ theme }) => theme.color.shadow};
 `;
 
 export const ModalHead = styled.div`
@@ -242,8 +242,7 @@ export const GhostBtn = styled.button<{ $danger?: boolean }>`
   padding: ${({ $danger }) => ($danger ? "7px" : "8px 12px")};
   background: transparent;
   border: 1px solid
-    ${({ $danger, theme }) =>
-      $danger ? theme.color.bad : "rgba(255, 255, 255, 0.22)"};
+    ${({ $danger, theme }) => ($danger ? theme.color.bad : theme.color.hairline)};
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ $danger, theme }) => ($danger ? theme.color.bad : theme.color.text)};
   font-size: 11px;
@@ -259,7 +258,31 @@ export const GhostBtn = styled.button<{ $danger?: boolean }>`
       $danger ? theme.color.bad : theme.color.accent};
     border-color: ${({ $danger, theme }) =>
       $danger ? theme.color.bad : theme.color.accent};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
+  }
+`;
+
+export const IconBtn = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.color.muted};
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+
+  &:hover {
+    color: ${({ theme }) => theme.color.text};
+    border-color: ${({ theme }) => theme.color.accent};
+    background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 10%, transparent);
   }
 `;
 
@@ -283,7 +306,7 @@ export const DangerBtn = styled.button`
   &:hover:not(:disabled) {
     background: ${({ theme }) => theme.color.bad};
     border-color: ${({ theme }) => theme.color.bad};
-    color: #fff;
+    color: ${({ theme }) => theme.color.onAccent};
   }
 
   &:disabled {
@@ -427,7 +450,7 @@ export const RevokeWarn = styled.div`
   background: rgba(214, 162, 63, 0.12);
   border: 1px solid ${({ theme }) => theme.color.warn};
   border-radius: ${({ theme }) => theme.radius.sm};
-  color: #eccb88;
+  color: ${({ theme }) => theme.color.warn};
   font-size: 12.5px;
 `;
 
@@ -451,10 +474,13 @@ export type RoleName = "admin" | "user" | "viewer" | string;
 
 export const RoleBadge = styled.span<{ $role?: RoleName }>`
   align-self: flex-start;
+  flex-shrink: 0;
   font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  padding: 1px 7px;
+  letter-spacing: 0.6px;
+  padding: 2px 7px;
+  line-height: 1.3;
   border-radius: ${({ theme }) => theme.radius.sm};
   border: 1px solid ${({ theme }) => theme.color.border};
   color: ${({ theme }) => theme.color.muted};
@@ -462,15 +488,15 @@ export const RoleBadge = styled.span<{ $role?: RoleName }>`
   ${({ $role, theme }) =>
     $role === "admin"
       ? css`
-          color: #eccb88;
-          border-color: ${theme.color.warn};
-          background: rgba(214, 162, 63, 0.12);
+          color: ${theme.color.warn};
+          border-color: color-mix(in srgb, ${theme.color.warn} 55%, ${theme.color.border});
+          background: color-mix(in srgb, ${theme.color.warn} 14%, transparent);
         `
       : $role === "user"
       ? css`
-          color: #bfdbfe;
-          border-color: ${theme.color.accent};
-          background: rgba(79, 140, 255, 0.12);
+          color: ${theme.color.accent};
+          border-color: color-mix(in srgb, ${theme.color.accent} 55%, ${theme.color.border});
+          background: color-mix(in srgb, ${theme.color.accent} 12%, transparent);
         `
       : css`
           color: ${theme.color.muted};
@@ -485,26 +511,24 @@ export const AuthSubmit = styled.button<{ $compact?: boolean }>`
   gap: 10px;
   margin-top: ${({ $compact }) => ($compact ? "0" : "10px")};
   padding: ${({ $compact }) => ($compact ? "9px 16px" : "14px 18px")};
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 2px;
-  color: ${({ theme }) => theme.color.text};
+  background: ${({ theme }) => theme.color.accent};
+  border: 1px solid ${({ theme }) => theme.color.accent};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.color.onAccent};
   font-size: ${({ $compact }) => ($compact ? "13px" : "12px")};
   font-weight: 600;
   letter-spacing: 2px;
   text-transform: uppercase;
   cursor: pointer;
-  transition: background-color 0.18s ease, border-color 0.18s ease,
-    color 0.18s ease;
+  transition: filter 0.18s ease, opacity 0.18s ease;
 
   &:hover:not(:disabled) {
-    background: ${({ theme }) => theme.color.accent};
-    border-color: ${({ theme }) => theme.color.accent};
-    color: #fff;
+    filter: brightness(1.1);
   }
 
   &:disabled {
     opacity: 0.5;
     cursor: default;
+    filter: none;
   }
 `;

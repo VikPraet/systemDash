@@ -21,6 +21,10 @@ export interface IngressDiscovery {
   running: boolean;
   remotelyManaged: boolean;
   note: string | null;
+  /** Named-tunnel UUID, when readable from config or a connector token. */
+  tunnelId: string | null;
+  /** CNAME target to paste in Cloudflare DNS: `{uuid}.cfargotunnel.com`. */
+  dnsTarget: string | null;
 }
 
 let cache: { at: number; value: IngressDiscovery } | null = null;
@@ -74,6 +78,18 @@ async function discover(): Promise<IngressDiscovery> {
 
   routes.sort((a, b) => a.hostname.localeCompare(b.hostname));
 
+  let tunnelId: string | null = docker?.tunnelId ?? null;
+  if (!tunnelId) {
+    for (const file of files) {
+      const text = readConfigFile(file);
+      if (text == null) continue;
+      tunnelId = tunnelIdFromConfig(text, file);
+      if (tunnelId) break;
+    }
+  }
+
+  const dnsTarget = tunnelId ? `${tunnelId}.cfargotunnel.com` : null;
+
   let note: string | null = null;
   if (routes.length === 0) {
     if (remotelyManaged) {
@@ -87,22 +103,29 @@ async function discover(): Promise<IngressDiscovery> {
     }
   }
 
-  return { routes, sources, running, remotelyManaged, note };
+  return { routes, sources, running, remotelyManaged, note, tunnelId, dnsTarget };
 }
 
 async function enrichFromDocker(files: Set<string>): Promise<{
   running: boolean;
   remotelyManaged: boolean;
+  tunnelId: string | null;
 }> {
   let running = false;
   let remotelyManaged = false;
+  let tunnelId: string | null = null;
   const containers = await listContainers();
   for (const c of containers) {
     if (!/cloudflared/i.test(c.name) && !/cloudflared/i.test(c.image)) continue;
     running = true;
     try {
       const info = await inspectContainer(c.id);
-      if (info.env.some((e) => /^TUNNEL_TOKEN=./.test(e))) remotelyManaged = true;
+      const tokenEnv = info.env.find((e) => /^TUNNEL_TOKEN=./.test(e));
+      if (tokenEnv) {
+        remotelyManaged = true;
+        tunnelId =
+          tunnelIdFromToken(tokenEnv.slice("TUNNEL_TOKEN=".length)) ?? tunnelId;
+      }
       const cfgArg = configArgFromArgs(info.args);
       if (cfgArg) files.add(cfgArg);
       for (const mount of info.mounts) {
@@ -115,7 +138,7 @@ async function enrichFromDocker(files: Set<string>): Promise<{
       // inspect can fail if Docker is flaky; keep going
     }
   }
-  return { running, remotelyManaged };
+  return { running, remotelyManaged, tunnelId };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -441,6 +464,110 @@ function insertJsonIngress(text: string, hostname: string, service: string): str
   return `${JSON.stringify(data, null, 2)}\n`;
 }
 
+export function updateYamlIngress(text: string, hostname: string, service: string): string {
+  const want = hostname.toLowerCase();
+  const nl = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = text.split(/\r?\n/);
+  let inIngress = false;
+  let ingressIndent = 0;
+  let itemStart = -1;
+  let itemHostname: string | null = null;
+  let itemHostnameIdx = -1;
+  let itemServiceIdx = -1;
+  let itemIndent = 2;
+
+  const apply = (): boolean => {
+    if (itemStart < 0) return false;
+    if (itemHostname?.toLowerCase() !== want) return false;
+    if (itemServiceIdx >= 0) {
+      const raw = lines[itemServiceIdx];
+      const indent = raw.match(/^[\t ]*/)?.[0] ?? "";
+      const hadDash = /^\s*-\s/.test(raw);
+      lines[itemServiceIdx] = hadDash ? `${indent}- service: ${service}` : `${indent}service: ${service}`;
+      return true;
+    }
+    const pad = `${" ".repeat(itemIndent)}  `;
+    const at = itemHostnameIdx >= 0 ? itemHostnameIdx + 1 : itemStart + 1;
+    lines.splice(at, 0, `${pad}service: ${service}`);
+    return true;
+  };
+
+  const startItem = (i: number, content: string, indent: number) => {
+    itemStart = i;
+    itemHostname = null;
+    itemHostnameIdx = -1;
+    itemServiceIdx = -1;
+    itemIndent = indent;
+    const rest = content.replace(/^-\s*/, "");
+    assignItemField(rest, i);
+  };
+
+  const assignItemField = (content: string, i: number) => {
+    const kv = content.match(/^(hostname|service)\s*:\s*(.*)$/);
+    if (!kv) return;
+    const value = unquote(kv[2] ?? "");
+    if (kv[1] === "hostname") {
+      itemHostname = value;
+      itemHostnameIdx = i;
+    } else if (kv[1] === "service") {
+      itemServiceIdx = i;
+    }
+  };
+
+  for (let i = 0; i <= lines.length; i++) {
+    const atEnd = i === lines.length;
+    const line = atEnd ? "" : lines[i].replace(/\t/g, "  ");
+    const indent = line.match(/^ */)?.[0].length ?? 0;
+    const content = line.trim();
+
+    if (atEnd) {
+      if (apply()) return lines.join(nl);
+      break;
+    }
+
+    if (!content || content.startsWith("#")) continue;
+
+    if (!inIngress) {
+      if (/^ingress\s*:/.test(content)) {
+        inIngress = true;
+        ingressIndent = indent;
+      }
+      continue;
+    }
+
+    if (indent <= ingressIndent && !content.startsWith("-") && !/^ingress\s*:/.test(content)) {
+      if (apply()) return lines.join(nl);
+      break;
+    }
+
+    if (content.startsWith("-")) {
+      if (apply()) return lines.join(nl);
+      startItem(i, content, indent);
+      continue;
+    }
+
+    if (itemStart >= 0) assignItemField(content, i);
+  }
+
+  throw new ProjectsError(400, `hostname ${hostname} not found in cloudflared config`);
+}
+
+function updateJsonIngress(text: string, hostname: string, service: string): string {
+  const data = JSON.parse(text) as { ingress?: Array<Record<string, unknown>> };
+  if (!Array.isArray(data.ingress)) {
+    throw new ProjectsError(400, "cloudflared config has no ingress list to edit");
+  }
+  const want = hostname.toLowerCase();
+  const idx = data.ingress.findIndex(
+    (item) => String(item.hostname ?? "").toLowerCase() === want
+  );
+  if (idx < 0) {
+    throw new ProjectsError(400, `hostname ${hostname} not found in cloudflared config`);
+  }
+  data.ingress[idx] = { ...data.ingress[idx], hostname, service };
+  return `${JSON.stringify(data, null, 2)}\n`;
+}
+
 function writeConfigFile(file: string, text: string): void {
   try {
     fs.accessSync(file, fs.constants.W_OK);
@@ -478,11 +605,91 @@ function writeConfigFile(file: string, text: string): void {
   }
 }
 
+const TUNNEL_UUID_RE =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 function tunnelNameFromConfig(text: string): string | null {
   const m = text.match(/^\s*tunnel\s*:\s*(.+)$/m);
   if (!m) return null;
   const name = unquote(m[1] ?? "");
   return name || null;
+}
+
+function firstUuid(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const m = raw.match(TUNNEL_UUID_RE);
+  return m ? m[0].toLowerCase() : null;
+}
+
+function tunnelIdFromCredentialsFile(file: string): string | null {
+  const fromName = firstUuid(path.basename(file));
+  const text = readConfigFile(file);
+  if (!text) return fromName;
+  try {
+    const data = JSON.parse(text) as { TunnelID?: unknown; tunnelID?: unknown };
+    return (
+      firstUuid(typeof data.TunnelID === "string" ? data.TunnelID : null) ??
+      firstUuid(typeof data.tunnelID === "string" ? data.tunnelID : null) ??
+      fromName
+    );
+  } catch {
+    return fromName;
+  }
+}
+
+function tunnelIdFromConfig(text: string, configFile: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const data = JSON.parse(trimmed) as {
+        tunnel?: unknown;
+        "credentials-file"?: unknown;
+        credentials_file?: unknown;
+      };
+      const fromTunnel = firstUuid(typeof data.tunnel === "string" ? data.tunnel : null);
+      if (fromTunnel) return fromTunnel;
+      const cred =
+        (typeof data["credentials-file"] === "string" && data["credentials-file"]) ||
+        (typeof data.credentials_file === "string" && data.credentials_file) ||
+        null;
+      if (cred) return tunnelIdFromCredentialsFile(cred);
+    } catch {
+      // fall through to yaml-style regex
+    }
+  }
+  const fromTunnel = firstUuid(tunnelNameFromConfig(text));
+  if (fromTunnel) return fromTunnel;
+  const cred = text.match(/^\s*credentials-file\s*:\s*(.+)$/m);
+  if (cred) {
+    const file = unquote(cred[1] ?? "");
+    if (file) {
+      const resolved = path.isAbsolute(file)
+        ? file
+        : path.resolve(path.dirname(configFile), file);
+      return tunnelIdFromCredentialsFile(resolved);
+    }
+  }
+  return firstUuid(configFile);
+}
+
+function tunnelIdFromToken(token: string): string | null {
+  const raw = token.trim();
+  if (!raw) return null;
+  const parts = raw.split(".");
+  const payloads = parts.length >= 2 ? [parts[1], raw] : [raw];
+  for (const part of payloads) {
+    try {
+      const json = Buffer.from(part, "base64url").toString("utf8");
+      const data = JSON.parse(json) as { t?: unknown; tunnel?: unknown };
+      const id =
+        firstUuid(typeof data.t === "string" ? data.t : null) ??
+        firstUuid(typeof data.tunnel === "string" ? data.tunnel : null);
+      if (id) return id;
+    } catch {
+      // try next encoding
+    }
+  }
+  return firstUuid(raw);
 }
 
 function tryDnsRoute(tunnel: string, hostname: string): string | null {
@@ -545,10 +752,28 @@ async function reloadCloudflared(): Promise<string | null> {
 export interface AddIngressResult {
   added: boolean;
   already: boolean;
+  updated: boolean;
   file: string | null;
   reloaded: string | null;
   dns: string | null;
   ingress: IngressDiscovery;
+}
+
+function patchIngressText(
+  original: string,
+  hostname: string,
+  service: string,
+  mode: "insert" | "update"
+): string {
+  const json = original.trimStart().startsWith("{");
+  if (mode === "insert") {
+    return json
+      ? insertJsonIngress(original, hostname, service)
+      : insertYamlIngress(original, hostname, service);
+  }
+  return json
+    ? updateJsonIngress(original, hostname, service)
+    : updateYamlIngress(original, hostname, service);
 }
 
 export async function addCloudflaredIngress(opts: {
@@ -564,11 +789,13 @@ export async function addCloudflaredIngress(opts: {
 
   invalidateCloudflaredCache();
   const current = await discoverCloudflaredIngress();
-  if (current.routes.some((r) => r.hostname.toLowerCase() === hostname)) {
+  const existing = current.routes.find((r) => r.hostname.toLowerCase() === hostname);
+  if (existing && existing.port === port) {
     return {
       added: false,
       already: true,
-      file: current.routes.find((r) => r.hostname.toLowerCase() === hostname)?.source ?? null,
+      updated: false,
+      file: existing.source,
       reloaded: null,
       dns: null,
       ingress: current,
@@ -581,16 +808,7 @@ export async function addCloudflaredIngress(opts: {
     );
   }
 
-  let file = current.sources[0] ?? null;
-  if (!file) {
-    for (const candidate of candidateFiles()) {
-      const text = readConfigFile(candidate);
-      if (text && /^\s*ingress\s*:/m.test(text)) {
-        file = candidate;
-        break;
-      }
-    }
-  }
+  const file = existing?.source ?? writableIngressFile(current.sources);
   if (!file) {
     throw new ProjectsError(
       400,
@@ -602,17 +820,36 @@ export async function addCloudflaredIngress(opts: {
   if (original == null) {
     throw new ProjectsError(400, `could not read ${file}`);
   }
-  const next = original.trimStart().startsWith("{")
-    ? insertJsonIngress(original, hostname, service)
-    : insertYamlIngress(original, hostname, service);
+  const next = patchIngressText(original, hostname, service, existing ? "update" : "insert");
   writeConfigFile(file, next);
 
   const reloaded = await reloadCloudflared();
-  const tunnel = tunnelNameFromConfig(original);
-  const dns = tunnel ? tryDnsRoute(tunnel, hostname) : "DNS not updated — add a CNAME in Cloudflare";
+  const dns = existing
+    ? null
+    : (() => {
+        const tunnel = tunnelNameFromConfig(original);
+        return tunnel ? tryDnsRoute(tunnel, hostname) : "DNS not updated — add a CNAME in Cloudflare";
+      })();
 
   invalidateCloudflaredCache();
   const ingress = await discoverCloudflaredIngress();
-  return { added: true, already: false, file, reloaded, dns, ingress };
+  return {
+    added: !existing,
+    already: false,
+    updated: !!existing,
+    file,
+    reloaded,
+    dns,
+    ingress,
+  };
+}
+
+function writableIngressFile(sources: string[]): string | null {
+  if (sources[0]) return sources[0];
+  for (const candidate of candidateFiles()) {
+    const text = readConfigFile(candidate);
+    if (text && /^\s*ingress\s*:/m.test(text)) return candidate;
+  }
+  return null;
 }
 

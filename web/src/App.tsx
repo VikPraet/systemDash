@@ -48,6 +48,7 @@ import { UpdatesOverview } from "./components/SystemUpdates/UpdatesOverview";
 import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOverview";
 import { AppVersionLink } from "./components/SystemUpdates/AppVersionLink";
 import { PowerControl } from "./components/PowerControl";
+import { PublicAccess } from "./components/PublicAccess";
 import { Login } from "./components/Login";
 import { Recover } from "./components/Recover";
 import { RecoveryModal } from "./components/RecoveryModal";
@@ -56,6 +57,7 @@ import { useAuth, hasRole } from "./auth/AuthContext";
 import { cache } from "./cache";
 import { BrandDot, Loading, RoleBadge } from "./components/ui/styles";
 import { Tooltip } from "./components/ui/Tooltip";
+import { ThemeToggle } from "./components/ui/ThemeToggle";
 import { AuthScreen } from "./components/AuthLayout/styles";
 import * as S from "./App.styles";
 
@@ -312,6 +314,7 @@ function DashboardLayout() {
           </S.Brand>
           <S.MobileTopActions>
             <StatusIndicator snap={snap} error={error} now={now} compact />
+            <ThemeToggle />
             {canSetRecovery && (
               <Tooltip label="Recovery question">
                 <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
@@ -343,26 +346,27 @@ function DashboardLayout() {
           </S.Tabs>
           <S.SidebarFooter>
             <S.UserChip>
-              <S.UserChipInfo>
-                <S.UserChipName>{user?.username}</S.UserChipName>
+              <S.UserChipName>{user?.username}</S.UserChipName>
+              <S.UserChipRow>
                 <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
-              </S.UserChipInfo>
-              <S.SidebarFooterDesktop>
-                <S.UserChipActions>
-                  {canSetRecovery && (
-                    <Tooltip label="Recovery question">
-                      <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
-                        <KeyRound size={16} strokeWidth={1.8} />
+                <S.SidebarFooterDesktop>
+                  <S.UserChipActions>
+                    <ThemeToggle />
+                    {canSetRecovery && (
+                      <Tooltip label="Recovery question">
+                        <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
+                          <KeyRound size={16} strokeWidth={1.8} />
+                        </S.LogoutBtn>
+                      </Tooltip>
+                    )}
+                    <Tooltip label="Sign out">
+                      <S.LogoutBtn onClick={onLogout}>
+                        <LogOut size={16} strokeWidth={1.8} />
                       </S.LogoutBtn>
                     </Tooltip>
-                  )}
-                  <Tooltip label="Sign out">
-                    <S.LogoutBtn onClick={onLogout}>
-                      <LogOut size={16} strokeWidth={1.8} />
-                    </S.LogoutBtn>
-                  </Tooltip>
-                </S.UserChipActions>
-              </S.SidebarFooterDesktop>
+                  </S.UserChipActions>
+                </S.SidebarFooterDesktop>
+              </S.UserChipRow>
             </S.UserChip>
             <S.FooterMeta>
               <S.SidebarFooterDesktop>
@@ -490,6 +494,7 @@ function Overview({
           <>
             <AppUpdatesOverview />
             <UpdatesOverview />
+            <PublicAccess />
             <PowerControl />
           </>
         )}
