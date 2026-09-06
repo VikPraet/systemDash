@@ -1,6 +1,6 @@
 {
   "name": "systemdash",
-  "version": "0.2.1-beta",
+  "version": "0.2.2-beta",
   "private": true,
   "description": "Self-hosted, cross-platform system dashboard (CPU, GPU, memory, storage, OS info).",
   "workspaces": [

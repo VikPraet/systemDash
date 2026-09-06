@@ -15,7 +15,7 @@ function statusCopy(data: PublicAccessStatus): {
   label: string;
   state: "good" | "warn" | "bad" | undefined;
 } {
-  if (data.self) return { label: "On the web", state: "good" };
+  if (data.self) return { label: "Online", state: "good" };
   if (data.rememberedHostname && data.mode === "dashboard") {
     return { label: "Hostname saved — add it in Cloudflare", state: "warn" };
   }
@@ -33,9 +33,6 @@ function statusCopy(data: PublicAccessStatus): {
 }
 
 function hintFor(data: PublicAccessStatus): string {
-  if (data.self) {
-    return "This dashboard is on the same tunnel as your other sites. Open the link above.";
-  }
   if (data.canWrite) {
     return "Type a hostname on a domain you already use with this tunnel, then expose. SystemDash writes the tunnel route. DNS is the CNAME box below if it isn’t live yet.";
   }
@@ -48,6 +45,12 @@ function hintFor(data: PublicAccessStatus): string {
   );
 }
 
+function dnsNeedsPaste(data: PublicAccessStatus): boolean {
+  const dns = data.result?.dns;
+  if (!dns) return false;
+  return !/^DNS CNAME created/i.test(dns);
+}
+
 export function PublicAccess() {
   const [data, setData] = useState<PublicAccessStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,6 +59,7 @@ export function PublicAccess() {
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const reload = useCallback(async (refresh = false) => {
     setLoading(true);
@@ -97,6 +101,7 @@ export function PublicAccess() {
       setData(next);
       setNotice(next.notice ?? null);
       if (next.self?.hostname) setHostname(next.self.hostname);
+      if (next.self && !dnsNeedsPaste(next)) setExpanded(false);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -130,9 +135,38 @@ export function PublicAccess() {
     );
   }
 
+  const live = !!data.self;
   const status = statusCopy(data);
-  const publicUrl = data.self?.url ??
+  const publicUrl =
+    data.self?.url ??
     (data.rememberedHostname ? `https://${data.rememberedHostname}` : null);
+  const compact = live && !expanded;
+
+  if (compact && publicUrl) {
+    return (
+      <S.Root>
+        <S.LiveRow>
+          <div>
+            <h3>Public access</h3>
+            <S.LiveMeta>
+              <S.StatusLabel $state="good">
+                <Globe size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />
+                Online
+              </S.StatusLabel>
+              <S.PublicLink href={publicUrl} target="_blank" rel="noreferrer">
+                {publicUrl.replace(/^https:\/\//, "")}
+                <ExternalLink size={12} />
+              </S.PublicLink>
+            </S.LiveMeta>
+          </div>
+          <S.TextBtn type="button" onClick={() => setExpanded(true)}>
+            Change
+          </S.TextBtn>
+        </S.LiveRow>
+      </S.Root>
+    );
+  }
+
   const sources = data.ingress.sources;
   const retarget =
     data.ingress.routes.find(
@@ -146,17 +180,25 @@ export function PublicAccess() {
   const alreadyLive =
     !!data.self &&
     data.self.hostname.toLowerCase() === hostname.trim().toLowerCase();
+  const showDns = !live || dnsNeedsPaste(data);
 
   return (
     <S.Root>
       <S.Head>
         <h3>Public access</h3>
-        <Tooltip label="Re-read local cloudflared config">
-          <GhostBtn type="button" onClick={() => void reload(true)} disabled={loading || busy}>
-            <RefreshCw size={14} />
-            Refresh
-          </GhostBtn>
-        </Tooltip>
+        <S.LiveMeta>
+          {live && (
+            <S.TextBtn type="button" onClick={() => setExpanded(false)}>
+              Done
+            </S.TextBtn>
+          )}
+          <Tooltip label="Re-read local cloudflared config">
+            <GhostBtn type="button" onClick={() => void reload(true)} disabled={loading || busy}>
+              <RefreshCw size={14} />
+              Refresh
+            </GhostBtn>
+          </Tooltip>
+        </S.LiveMeta>
       </S.Head>
 
       <S.StatusRow>
@@ -192,7 +234,7 @@ export function PublicAccess() {
         </S.Warn>
       )}
 
-      {data.canWrite && (
+      {data.canWrite && !live && (
         <S.Warn>
           This is the host control panel (files, terminal, power). Prefer a
           hostname behind Cloudflare Access, not a guessable public URL.
@@ -202,11 +244,13 @@ export function PublicAccess() {
       {notice && <S.Notice>{notice}</S.Notice>}
       {error && <AuthError $inline>{error}</AuthError>}
 
-      <TunnelDnsHint
-        target={data.ingress.dnsTarget}
-        hostname={hostname.trim() || data.self?.hostname || data.rememberedHostname}
-        dnsMessage={data.result?.dns}
-      />
+      {showDns && (
+        <TunnelDnsHint
+          target={data.ingress.dnsTarget}
+          hostname={hostname.trim() || data.self?.hostname || data.rememberedHostname}
+          dnsMessage={data.result?.dns}
+        />
+      )}
 
       <S.Form onSubmit={onSubmit}>
         <S.Field>

@@ -24,6 +24,44 @@ export const Head = styled.div`
   }
 `;
 
+export const LiveRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  h3 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: ${({ theme }) => theme.color.muted};
+  }
+`;
+
+export const LiveMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+`;
+
+export const TextBtn = styled.button`
+  margin-left: auto;
+  padding: 0;
+  background: none;
+  border: none;
+  color: ${({ theme }) => theme.color.muted};
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: ${({ theme }) => theme.color.accent};
+  }
+`;
+
 export const Hint = styled.p`
   margin: 0 0 12px;
   font-size: 12px;
