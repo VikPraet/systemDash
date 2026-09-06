@@ -132,7 +132,7 @@ export function AppUpdatePanel() {
         </span>
         {latest && (
           <span>
-            Latest <strong>v{latest}</strong>
+            {status?.prerelease ? "Beta" : "Latest"} <strong>v{latest}</strong>
           </span>
         )}
         {status?.releaseUrl && (
@@ -149,7 +149,8 @@ export function AppUpdatePanel() {
       {status?.hint && <S.Banner $bad={!status.updateAvailable}>{status.hint}</S.Banner>}
       {status?.updateAvailable && !status.hint && (
         <S.Banner>
-          SystemDash v{latest} is available — click Update to install without using the terminal.
+          SystemDash {status.prerelease ? "beta" : ""} v{latest} is available — click
+          Update to install without using the terminal.
         </S.Banner>
       )}
       {!status?.updateAvailable && status?.enabled && !status.hint && !loading && (

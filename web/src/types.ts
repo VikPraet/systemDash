@@ -315,6 +315,7 @@ export interface AppUpdateStatus {
   platform: string;
   hint: string | null;
   checkedAt: string | null;
+  prerelease: boolean;
 }
 
 export interface AppUpdateJob {
@@ -341,4 +342,183 @@ export interface PowerRunResult {
   action: PowerAction;
   delaySeconds: number;
   message: string;
+}
+
+export type GitProvider = "github" | "gitlab";
+
+export type ActionStepType =
+  | "git_pull"
+  | "command"
+  | "docker_restart"
+  | "docker_ensure"
+  | "compose_up"
+  | "systemd_restart"
+  | "systemd_enable"
+  | "systemd_apply"
+  | "publish";
+
+export type RunKind = "none" | "docker" | "compose" | "systemd" | "static";
+
+export interface GitAccountPublic {
+  id: number;
+  provider: GitProvider;
+  login: string;
+  host: string;
+  tokenLast4: string;
+  createdAt: number;
+}
+
+export interface GitAccountDetails {
+  account: GitAccountPublic;
+  tokenKind: string;
+  scopes: string[];
+  expiresAt: string | null;
+  profile: {
+    login: string;
+    name: string | null;
+    htmlUrl: string | null;
+    avatarUrl: string | null;
+    email: string | null;
+    company: string | null;
+    location: string | null;
+    bio: string | null;
+    publicRepos: number | null;
+    privateRepos: number | null;
+    accountCreatedAt: string | null;
+  } | null;
+  rateLimit: { limit: number; remaining: number; resetAt: number | null } | null;
+  error: string | null;
+  cachedAt: number | null;
+  projects: Array<{ id: number; name: string; localPath: string }>;
+}
+
+export interface GitRepoInfo {
+  name: string;
+  fullName: string;
+  url: string;
+  defaultBranch: string;
+  private: boolean;
+}
+
+export interface ActionStep {
+  id: number;
+  sortOrder: number;
+  type: ActionStepType;
+  command: string | null;
+  container: string | null;
+  unit: string | null;
+  source: string | null;
+  dest: string | null;
+}
+
+export interface StepInput {
+  type: ActionStepType;
+  command?: string | null;
+  container?: string | null;
+  unit?: string | null;
+  source?: string | null;
+  dest?: string | null;
+}
+
+export interface ProjectAction {
+  id: number;
+  projectId: number;
+  name: string;
+  sortOrder: number;
+  createdAt: number;
+  steps: ActionStep[];
+}
+
+export interface ActionRun {
+  id: number;
+  projectId: number;
+  actionId: number | null;
+  actionName: string;
+  status: "running" | "ok" | "error";
+  log: string;
+  error: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
+export interface ProjectSummary {
+  id: number;
+  name: string;
+  localPath: string;
+  remoteUrl: string;
+  branch: string;
+  accountId: number | null;
+  createdAt: number;
+  siteUrl: string | null;
+  runKind: RunKind;
+  port: number | null;
+  boot: boolean;
+  container: string | null;
+  composeFile: string | null;
+  unit: string | null;
+  publishFrom: string | null;
+  publishTo: string | null;
+  startCommand: string | null;
+  lastRun: ActionRun | null;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  actions: ProjectAction[];
+}
+
+export interface ProjectsCapabilities {
+  platform: string;
+  git: boolean;
+  systemd: boolean;
+  compose: boolean;
+}
+
+export interface IngressRoute {
+  hostname: string;
+  url: string;
+  service: string;
+  port: number | null;
+  source: string;
+}
+
+export interface IngressDiscovery {
+  routes: IngressRoute[];
+  sources: string[];
+  running: boolean;
+  remotelyManaged: boolean;
+  note: string | null;
+}
+
+export interface ProjectsOverview {
+  projects: ProjectSummary[];
+  accounts: GitAccountPublic[];
+  capabilities: ProjectsCapabilities;
+  ingress?: IngressDiscovery;
+}
+
+export interface GitCheckResult {
+  ok: boolean;
+  cloned: boolean;
+  branch: string;
+  headSha: string | null;
+  remoteSha: string | null;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  message: string | null;
+}
+
+export interface ActionJob {
+  running: boolean;
+  projectId: number;
+  actionId: number | null;
+  actionName: string;
+  phase: "idle" | "running" | "done" | "error";
+  stepIndex: number;
+  stepCount: number;
+  stepLabel: string;
+  progress: number;
+  log: string;
+  error: string | null;
+  runId: number | null;
 }

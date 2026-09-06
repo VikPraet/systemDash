@@ -38,6 +38,7 @@ export interface AppUpdateStatus {
   platform: string;
   hint: string | null;
   checkedAt: string | null;
+  prerelease: boolean;
 }
 
 export interface AppUpdateJob {
@@ -60,6 +61,8 @@ interface GithubRelease {
   html_url: string;
   published_at: string;
   body: string | null;
+  draft?: boolean;
+  prerelease?: boolean;
   assets: Array<{
     name: string;
     browser_download_url: string;
@@ -90,25 +93,43 @@ function appendLog(line: string): void {
   appUpdateJob.log = tail(appUpdateJob.log ? `${appUpdateJob.log}\n${line}` : line);
 }
 
-function parseVersionParts(version: string): number[] {
-  return version
-    .replace(/^v/i, "")
-    .split(/[.+_-]/)
-    .map((part) => {
-      const n = Number.parseInt(part, 10);
-      return Number.isFinite(n) ? n : 0;
-    });
+const PRE_RANK: Record<string, number> = {
+  dev: 0,
+  alpha: 1,
+  beta: 2,
+  rc: 3,
+  preview: 2,
+};
+
+function parseSemver(version: string): {
+  core: number[];
+  pre: { kind: string; n: number } | null;
+} {
+  const raw = version.replace(/^v/i, "").trim();
+  const match = raw.match(/^(\d+(?:\.\d+)*)(?:-([a-zA-Z]+)(?:\.(\d+))?)?/);
+  const core = (match?.[1] ?? "0").split(".").map((part) => Number.parseInt(part, 10) || 0);
+  if (!match?.[2]) return { core, pre: null };
+  return {
+    core,
+    pre: { kind: match[2].toLowerCase(), n: Number.parseInt(match[3] ?? "0", 10) || 0 },
+  };
 }
 
 export function compareVersions(a: string, b: string): number {
-  const left = parseVersionParts(a);
-  const right = parseVersionParts(b);
-  const len = Math.max(left.length, right.length);
+  const left = parseSemver(a);
+  const right = parseSemver(b);
+  const len = Math.max(left.core.length, right.core.length);
   for (let i = 0; i < len; i++) {
-    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    const diff = (left.core[i] ?? 0) - (right.core[i] ?? 0);
     if (diff !== 0) return diff < 0 ? -1 : 1;
   }
-  return 0;
+  if (!left.pre && !right.pre) return 0;
+  if (!left.pre) return 1;
+  if (!right.pre) return -1;
+  const kindDiff = (PRE_RANK[left.pre.kind] ?? 0) - (PRE_RANK[right.pre.kind] ?? 0);
+  if (kindDiff !== 0) return kindDiff < 0 ? -1 : 1;
+  if (left.pre.kind !== right.pre.kind) return left.pre.kind < right.pre.kind ? -1 : 1;
+  return left.pre.n === right.pre.n ? 0 : left.pre.n < right.pre.n ? -1 : 1;
 }
 
 function readPackageVersion(): string {
@@ -202,7 +223,7 @@ async function fetchLatestRelease(force = false): Promise<GithubRelease> {
     return githubCache.release;
   }
 
-  const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+  const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, {
     headers: githubHeaders(),
   });
 
@@ -219,7 +240,16 @@ async function fetchLatestRelease(force = false): Promise<GithubRelease> {
     );
   }
 
-  const release = (await res.json()) as GithubRelease;
+  const releases = (await res.json()) as GithubRelease[];
+  const platform = resolvePlatform();
+  const usable = releases.filter((r) => !r.draft && findAsset(r, platform));
+  usable.sort((a, b) =>
+    compareVersions(releaseVersion(b.tag_name), releaseVersion(a.tag_name))
+  );
+  const release = usable[0];
+  if (!release) {
+    throw new AppUpdateError(404, "No GitHub releases found for this repository");
+  }
   githubCache = { at: Date.now(), release };
   return release;
 }
@@ -333,6 +363,7 @@ export async function getAppUpdateStatus(opts?: {
     platform,
     hint: null,
     checkedAt: null,
+    prerelease: false,
   };
 
   if (process.platform !== "linux") {
@@ -383,6 +414,7 @@ export async function getAppUpdateStatus(opts?: {
       platform,
       hint,
       checkedAt: new Date().toISOString(),
+      prerelease: !!release.prerelease,
     };
   } catch (err) {
     const message = err instanceof AppUpdateError ? err.message : (err as Error).message;

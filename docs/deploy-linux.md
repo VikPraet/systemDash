@@ -132,11 +132,20 @@ symlink and restart).
 ## Publishing a release (maintainer)
 
 1. Bump `version` in root `package.json` (and keep server/web in sync if needed).
-2. Commit, tag, push:
+2. Add `docs/releases/vX.Y.Z.md` (or `vX.Y.Z-beta.N.md` for a pre-release).
+3. Commit, tag, push:
 
    ```bash
    git tag v0.1.0
    git push origin main --tags
+   ```
+
+   Tags with `-alpha`, `-beta`, `-rc`, or `-dev` (example: `v0.2.0-beta.1`) are
+   published as **GitHub pre-releases**. They do not replace the stable Latest
+   release. Install them by tag, not with `latest`:
+
+   ```bash
+   bash install-release.sh YOUR_ORG/systemDash v0.2.0-beta.1
    ```
 
 3. GitHub Actions (`.github/workflows/release.yml`) builds

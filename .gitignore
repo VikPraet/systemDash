@@ -8,3 +8,4 @@ dist/
 .release-staging/
 systemdash-*.tar.gz
 .systemdash-install.json
+.tmp-auth-test/

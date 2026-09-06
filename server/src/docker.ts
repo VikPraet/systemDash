@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -225,4 +225,71 @@ export async function containerLogs(id: string, tail = 300): Promise<string> {
   const cid = assertContainerId(id);
   const lines = Math.max(1, Math.min(5000, Math.round(tail)));
   return runDocker(["logs", "--tail", String(lines), cid], 16 * 1024 * 1024);
+}
+
+let composeAvail: boolean | undefined;
+
+export function dockerComposeAvailable(): boolean {
+  if (composeAvail !== undefined) return composeAvail;
+  try {
+    execFileSync(resolveDockerBin(), ["compose", "version"], {
+      timeout: 8_000,
+      windowsHide: true,
+      stdio: "pipe",
+    });
+    composeAvail = true;
+  } catch {
+    composeAvail = false;
+  }
+  return composeAvail;
+}
+
+export async function findContainer(idOrName: string): Promise<DockerContainer | null> {
+  const want = assertContainerId(idOrName);
+  const rows = await listContainers();
+  return (
+    rows.find(
+      (c) => c.name === want || c.id === want || c.id.startsWith(want)
+    ) ?? null
+  );
+}
+
+/** Start if stopped, restart if running, optionally set restart-unless-stopped. */
+export async function ensureContainer(idOrName: string, boot: boolean): Promise<void> {
+  const found = await findContainer(idOrName);
+  if (!found) {
+    throw new DockerError(
+      404,
+      `container ${idOrName} not found — create it first (Compose up or docker run)`
+    );
+  }
+  await runDocker([found.running ? "restart" : "start", found.id]);
+  if (boot) {
+    await runDocker(["update", "--restart", "unless-stopped", found.id]);
+  }
+}
+
+export function dockerBinPath(): string {
+  return dockerBin;
+}
+
+export async function inspectContainer(id: string): Promise<{
+  mounts: Array<{ Source: string; Destination: string }>;
+  args: string[];
+  env: string[];
+}> {
+  const out = await runDocker(["inspect", id]);
+  const data = JSON.parse(out) as Array<{
+    Mounts?: Array<{ Source?: string; Destination?: string }>;
+    Args?: string[];
+    Config?: { Env?: string[]; Cmd?: string[] };
+  }>;
+  const c = data[0];
+  return {
+    mounts: (c?.Mounts ?? [])
+      .filter((m) => m.Source && m.Destination)
+      .map((m) => ({ Source: m.Source as string, Destination: m.Destination as string })),
+    args: c?.Args ?? c?.Config?.Cmd ?? [],
+    env: c?.Config?.Env ?? [],
+  };
 }

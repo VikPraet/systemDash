@@ -6,6 +6,10 @@ import type {
   HistorySeries,
   HistoryStats,
   ProcessList,
+  ProjectSummary,
+  GitAccountPublic,
+  IngressDiscovery,
+  ProjectsCapabilities,
   Settings,
   SystemSnapshot,
 } from "./types";
@@ -57,6 +61,14 @@ interface TerminalCache {
   scrollback: Record<string, string>;
 }
 
+interface ProjectsCache {
+  projects: ProjectSummary[];
+  accounts: GitAccountPublic[];
+  capabilities: ProjectsCapabilities | null;
+  ingress: IngressDiscovery | null;
+  selectedId: number | null;
+}
+
 interface AppCache {
   processes: ProcessList | null;
   containers: ContainersCache;
@@ -65,6 +77,7 @@ interface AppCache {
   files: FilesCache;
   history: HistoryCache;
   settings: Settings;
+  projects: ProjectsCache;
 }
 
 // Module-level cache that survives tab unmount/remount. Tabs seed their initial
@@ -101,4 +114,11 @@ export const cache: AppCache = {
     hiddenCharts: [],
   },
   settings: DEFAULT_SETTINGS,
+  projects: {
+    projects: [],
+    accounts: [],
+    capabilities: null,
+    ingress: null,
+    selectedId: null,
+  },
 };

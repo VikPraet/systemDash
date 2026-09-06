@@ -53,7 +53,7 @@ export function AppUpdatesOverview() {
   if (status?.hint && !status.updateAvailable) {
     meta = status.hint;
   } else if (status?.updateAvailable && status.latestVersion) {
-    meta = `v${status.currentVersion} → v${status.latestVersion} available`;
+    meta = `v${status.currentVersion} → v${status.latestVersion}${status.prerelease ? " (beta)" : ""} available`;
   } else if (status?.latestVersion) {
     meta = `Running v${status.currentVersion}`;
   }

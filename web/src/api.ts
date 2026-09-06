@@ -24,11 +24,22 @@ import type {
   PowerCapabilities,
   PowerAction,
   PowerRunResult,
+  ActionJob,
+  GitAccountPublic,
+  GitAccountDetails,
+  GitCheckResult,
+  GitProvider,
+  GitRepoInfo,
+  ProjectAction,
+  ProjectDetail,
+  ProjectsOverview,
+  RunKind,
+  StepInput,
 } from "./types";
 
-// When any /api call (other than the auth endpoints themselves) comes back 401,
-// the session has expired/been revoked. We notify a single registered handler so
-// the app can drop back to the login screen, without each caller handling it.
+// When a gated /api call comes back 401 with "authentication required", the
+// session has expired/been revoked. Git/GitHub token failures used to reuse 401
+// and must not dump the user at sign-in.
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
@@ -46,7 +57,12 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     url.includes("/api/") &&
     !url.includes("/api/auth/")
   ) {
-    onUnauthorized?.();
+    const body = (await res.clone().json().catch(() => ({}))) as {
+      error?: string;
+    };
+    if (!body.error || body.error === "authentication required") {
+      onUnauthorized?.();
+    }
   }
   return res;
 };
@@ -479,8 +495,16 @@ export function writeTextFile(
 
 /** POSTs JSON to an /api endpoint and surfaces the server's error message. */
 async function postJson<T>(url: string, body: unknown): Promise<T> {
+  return sendJson<T>(url, "POST", body);
+}
+
+async function patchJson<T>(url: string, body: unknown): Promise<T> {
+  return sendJson<T>(url, "PATCH", body);
+}
+
+async function sendJson<T>(url: string, method: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -489,6 +513,177 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
     throw new Error(data.error ?? `Request failed: ${res.status}`);
   }
   return (await res.json()) as T;
+}
+
+async function deleteJson(url: string): Promise<void> {
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+}
+
+export async function fetchProjectsOverview(
+  signal?: AbortSignal
+): Promise<ProjectsOverview> {
+  const res = await fetch("/api/projects", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as ProjectsOverview;
+}
+
+export async function fetchProject(id: number): Promise<ProjectDetail> {
+  const res = await fetch(`/api/projects/${id}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { project: ProjectDetail }).project;
+}
+
+export function createProjectApi(input: {
+  name: string;
+  localPath: string;
+  remoteUrl: string;
+  branch: string;
+  accountId?: number | null;
+  siteUrl?: string | null;
+  runKind?: RunKind;
+  port?: number | null;
+  boot?: boolean;
+  container?: string | null;
+  composeFile?: string | null;
+  unit?: string | null;
+  publishFrom?: string | null;
+  publishTo?: string | null;
+  startCommand?: string | null;
+}): Promise<{ project: ProjectDetail }> {
+  return postJson("/api/projects", input);
+}
+
+export function updateProjectApi(
+  id: number,
+  patch: {
+    name?: string;
+    remoteUrl?: string;
+    branch?: string;
+    accountId?: number | null;
+    siteUrl?: string | null;
+    runKind?: RunKind;
+    port?: number | null;
+    boot?: boolean;
+    container?: string | null;
+    composeFile?: string | null;
+    unit?: string | null;
+    publishFrom?: string | null;
+    publishTo?: string | null;
+    startCommand?: string | null;
+  }
+): Promise<{ project: ProjectDetail }> {
+  return patchJson(`/api/projects/${id}`, patch);
+}
+
+export function deleteProjectApi(id: number): Promise<void> {
+  return deleteJson(`/api/projects/${id}`);
+}
+
+export function connectGitAccountApi(input: {
+  provider: GitProvider;
+  token: string;
+  host?: string;
+}): Promise<{ account: GitAccountPublic }> {
+  return postJson("/api/projects/accounts", input);
+}
+
+export function disconnectGitAccountApi(id: number): Promise<void> {
+  return deleteJson(`/api/projects/accounts/${id}`);
+}
+
+export async function fetchGitAccountDetails(
+  id: number,
+  opts?: { refresh?: boolean }
+): Promise<GitAccountDetails> {
+  const q = opts?.refresh ? "?refresh=1" : "";
+  const res = await fetch(`/api/projects/accounts/${id}${q}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as GitAccountDetails;
+}
+
+export async function fetchGitRepos(
+  provider: GitProvider,
+  opts?: { refresh?: boolean }
+): Promise<GitRepoInfo[]> {
+  const q = new URLSearchParams({ provider });
+  if (opts?.refresh) q.set("refresh", "1");
+  const res = await fetch(`/api/projects/repos?${q}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { repos: GitRepoInfo[] }).repos;
+}
+
+export async function fetchGitBranches(
+  url: string,
+  signal?: AbortSignal
+): Promise<{ branches: string[]; defaultBranch: string | null }> {
+  const res = await fetch(
+    `/api/projects/branches?url=${encodeURIComponent(url)}`,
+    { signal }
+  );
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as { branches: string[]; defaultBranch: string | null };
+}
+
+export function checkProjectRemoteApi(id: number): Promise<GitCheckResult> {
+  return postJson(`/api/projects/${id}/check`, {});
+}
+
+export async function fetchProjectJob(id: number): Promise<ActionJob> {
+  const res = await fetch(`/api/projects/${id}/job`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as ActionJob;
+}
+
+export function createProjectActionApi(
+  projectId: number,
+  name: string,
+  steps: StepInput[]
+): Promise<{ action: ProjectAction }> {
+  return postJson(`/api/projects/${projectId}/actions`, { name, steps });
+}
+
+export function updateProjectActionApi(
+  projectId: number,
+  actionId: number,
+  patch: { name?: string; steps?: StepInput[] }
+): Promise<{ action: ProjectAction }> {
+  return patchJson(`/api/projects/${projectId}/actions/${actionId}`, patch);
+}
+
+export function deleteProjectActionApi(
+  projectId: number,
+  actionId: number
+): Promise<void> {
+  return deleteJson(`/api/projects/${projectId}/actions/${actionId}`);
+}
+
+export function runProjectActionApi(
+  projectId: number,
+  actionId: number
+): Promise<ActionJob> {
+  return postJson(`/api/projects/${projectId}/actions/${actionId}/run`, {});
 }
 
 export function createFolder(path: string, name: string): Promise<{ entry: FsEntry }> {

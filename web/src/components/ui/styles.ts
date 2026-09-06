@@ -377,6 +377,7 @@ export const AuthError = styled.div<{ $inline?: boolean }>`
 export const RevokeDetails = styled.dl`
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 1px;
   margin: 0;
   border: 1px solid ${({ theme }) => theme.color.border};
@@ -390,6 +391,7 @@ export const RevokeDetails = styled.dl`
     justify-content: space-between;
     gap: 12px;
     padding: 9px 12px;
+    min-width: 0;
   }
 
   > div + div {
@@ -398,17 +400,22 @@ export const RevokeDetails = styled.dl`
 
   dt {
     margin: 0;
+    flex: 0 0 auto;
     font-size: 12px;
     color: ${({ theme }) => theme.color.muted};
   }
 
   dd {
     margin: 0;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
+    text-align: right;
+    overflow-wrap: anywhere;
   }
 `;
 

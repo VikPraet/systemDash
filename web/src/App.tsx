@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
   Activity as ActivityIcon,
   Box,
+  FolderGit2,
   FolderOpen,
   Gauge as GaugeIcon,
   LineChart,
@@ -41,6 +42,7 @@ import { History } from "./components/History";
 import { Users } from "./components/Users";
 import { Activity } from "./components/Activity";
 import { Containers } from "./components/Containers";
+import { Projects } from "./components/Projects";
 import { SystemUpdates } from "./components/SystemUpdates";
 import { UpdatesOverview } from "./components/SystemUpdates/UpdatesOverview";
 import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOverview";
@@ -72,6 +74,7 @@ const NAV: NavItem[] = [
   { path: "/history", label: "History", icon: LineChart },
   { path: "/processes", label: "Processes", icon: ActivityIcon },
   { path: "/containers", label: "Containers", icon: Box },
+  { path: "/projects", label: "Projects", icon: FolderGit2, minRole: "user" },
   { path: "/files", label: "Files", icon: FolderOpen },
   { path: "/terminal", label: "Terminal", icon: TerminalSquare, minRole: "user" },
   { path: "/users", label: "Users", icon: UsersIcon, minRole: "admin" },
@@ -127,6 +130,14 @@ export default function App() {
           <Route path="/history" element={<History />} />
           <Route path="/processes" element={<Processes />} />
           <Route path="/containers" element={<Containers />} />
+          <Route
+            path="/projects"
+            element={
+              <RequireRole min="user">
+                <Projects />
+              </RequireRole>
+            }
+          />
           <Route path="/files" element={<Files />} />
           <Route
             path="/terminal"
