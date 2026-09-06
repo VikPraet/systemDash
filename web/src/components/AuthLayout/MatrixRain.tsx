@@ -138,6 +138,7 @@ export function MatrixRain() {
     }
 
     function rebuild(width: number, height: number) {
+      if (!canvas || !ctx) return;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
@@ -224,7 +225,7 @@ export function MatrixRain() {
     }
 
     function frame(now: number) {
-      if (!running) return;
+      if (!running || !canvas || !ctx) return;
       raf = requestAnimationFrame(frame);
       if (cols === 0 || document.hidden) return;
       if (now - lastFrame < FRAME_MS) return;
@@ -303,6 +304,7 @@ export function MatrixRain() {
     }
 
     function fit() {
+      if (!canvas) return;
       const host = canvas.parentElement ?? canvas;
       const { width, height } = host.getBoundingClientRect();
       if (width < 8 || height < 8) return;
