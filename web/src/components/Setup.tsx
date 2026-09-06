@@ -2,7 +2,9 @@ import { useState, type FormEvent } from "react";
 import { ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import type { RecoveryQuestionId } from "../auth/recoveryQuestions";
 import { AuthLayout } from "./AuthLayout";
+import { RecoveryFields } from "./AuthLayout/RecoveryFields";
 import * as A from "./AuthLayout/styles";
 import { AuthSubmit } from "./ui/styles";
 
@@ -12,6 +14,8 @@ export function Setup() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [question, setQuestion] = useState<RecoveryQuestionId | "">("");
+  const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -21,10 +25,14 @@ export function Setup() {
       setError("passwords do not match");
       return;
     }
+    if (!question) {
+      setError("choose a recovery question");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await setup(username.trim(), password);
+      await setup(username.trim(), password, { question, answer });
       navigate("/overview", { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -74,9 +82,16 @@ export function Setup() {
             required
           />
         </A.AuthField>
+        <RecoveryFields
+          question={question}
+          answer={answer}
+          onQuestion={setQuestion}
+          onAnswer={setAnswer}
+        />
         <A.AuthHint>
           Use at least 8 characters. Username may use letters, numbers, dot, dash
-          and underscore (3-32 chars).
+          and underscore (3-32 chars). The recovery question lets you get back in
+          if you forget your username or password — pick an answer only you know.
         </A.AuthHint>
 
         {error && <A.AuthError>{error}</A.AuthError>}

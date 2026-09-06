@@ -29,9 +29,19 @@ export function authDb(): DatabaseSync {
       password_hash TEXT NOT NULL,
       role          TEXT NOT NULL,
       active        INTEGER NOT NULL DEFAULT 1,
-      created_at    INTEGER NOT NULL
+      created_at    INTEGER NOT NULL,
+      recovery_question    TEXT,
+      recovery_answer_hash TEXT
     );
   `);
+  // Migrate older user tables that predate self-serve recovery.
+  for (const col of ["recovery_question TEXT", "recovery_answer_hash TEXT"]) {
+    try {
+      fresh.exec(`ALTER TABLE users ADD COLUMN ${col};`);
+    } catch {
+      // Column already exists; ignore.
+    }
+  }
   fresh.exec(`
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash TEXT PRIMARY KEY,

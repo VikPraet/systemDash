@@ -11,32 +11,21 @@ const triggerActive = css`
   box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.18);
 `;
 
-export const DropdownTrigger = styled.button<{ $open?: boolean }>`
+export const DropdownTrigger = styled.button<{
+  $open?: boolean;
+  $variant?: "default" | "underline";
+}>`
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 9px 11px;
-  background: ${({ theme }) => theme.color.bg};
-  border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
-  color: ${({ theme }) => theme.color.text};
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
   outline: none;
+  text-transform: none;
+  letter-spacing: 0.2px;
+  color: ${({ theme }) => theme.color.text};
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover {
-    border-color: ${({ theme }) => theme.color.accent};
-  }
-
-  &:focus-visible {
-    ${triggerActive}
-  }
-
-  ${({ $open }) => $open && triggerActive}
 
   .dropdown-chevron {
     flex-shrink: 0;
@@ -44,12 +33,55 @@ export const DropdownTrigger = styled.button<{ $open?: boolean }>`
     transition: transform 0.18s ease;
     ${({ $open }) => $open && "transform: rotate(180deg);"}
   }
+
+  ${({ $variant, $open, theme }) =>
+    $variant === "underline"
+      ? css`
+          padding: 11px 2px;
+          background: transparent;
+          border: none;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+          border-radius: 0;
+          font-size: 15px;
+          font-weight: 400;
+
+          &:hover,
+          &:focus-visible {
+            border-bottom-color: ${theme.color.accent};
+          }
+
+          ${$open &&
+          css`
+            border-bottom-color: ${theme.color.accent};
+          `}
+        `
+      : css`
+          padding: 9px 11px;
+          background: ${theme.color.bg};
+          border: 1px solid ${theme.color.border};
+          border-radius: ${theme.radius.sm};
+          font-size: 13px;
+          font-weight: 500;
+
+          &:hover {
+            border-color: ${theme.color.accent};
+          }
+
+          &:focus-visible {
+            ${triggerActive}
+          }
+
+          ${$open && triggerActive}
+        `}
 `;
 
-export const DropdownValue = styled.span`
+export const DropdownValue = styled.span<{ $placeholder?: boolean }>`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  color: ${({ $placeholder }) =>
+    $placeholder ? "rgba(230, 237, 246, 0.35)" : "inherit"};
 `;
 
 // Portalled to <body>, so this must be a standalone styled component.

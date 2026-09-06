@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { LogIn } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout } from "./AuthLayout";
 import * as A from "./AuthLayout/styles";
@@ -71,6 +71,10 @@ export function Login() {
           <LogIn size={16} strokeWidth={1.8} />
           {busy ? "Signing in…" : "Sign in"}
         </AuthSubmit>
+
+        <A.AuthNav>
+          <Link to="/recover">Forgot username or password?</Link>
+        </A.AuthNav>
       </A.AuthForm>
     </AuthLayout>
   );

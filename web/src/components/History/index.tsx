@@ -768,7 +768,7 @@ function StoragePanel({
     setBusy(true);
     setMsg(null);
     try {
-      const next: Settings = { files: cache.settings.files, history: draft };
+      const next: Settings = { ...cache.settings, history: draft };
       const saved = await saveSettings(next);
       cache.settings = saved;
       setDraft(saved.history);

@@ -70,7 +70,7 @@ export const GlobalStyle = createGlobalStyle`
   }
 
   body {
-    /* Subtle blue ambient glow, echoing the login background. */
+    /* Subtle blue ambient glow, matching the CSS login backdrop. */
     background: radial-gradient(
         1100px 620px at 82% -12%,
         rgba(79, 140, 255, 0.12),

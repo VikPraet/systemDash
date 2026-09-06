@@ -59,13 +59,51 @@ export async function fetchAuthStatus(signal?: AbortSignal): Promise<AuthStatus>
 
 export async function setupAdmin(
   username: string,
-  password: string
+  password: string,
+  recovery: { question: string; answer: string }
 ): Promise<User> {
   const { user } = await postJson<{ user: User }>("/api/auth/setup", {
     username,
     password,
+    recoveryQuestion: recovery.question,
+    recoveryAnswer: recovery.answer,
   });
   return user;
+}
+
+export async function recoverUsernameApi(
+  question: string,
+  answer: string
+): Promise<string> {
+  const { username } = await postJson<{ username: string }>(
+    "/api/auth/recover/username",
+    { question, answer }
+  );
+  return username;
+}
+
+export async function recoverPasswordApi(
+  username: string,
+  answer: string,
+  password: string
+): Promise<void> {
+  await postJson("/api/auth/recover/password", { username, answer, password });
+}
+
+export async function saveRecoveryApi(
+  question: string,
+  answer: string
+): Promise<User> {
+  const res = await fetch("/api/auth/recovery", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, answer }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { user: User }).user;
 }
 
 export async function login(username: string, password: string): Promise<User> {
@@ -163,6 +201,9 @@ export const DEFAULT_SETTINGS: Settings = {
     intervalSeconds: 5,
     retentionDays: 30,
     maxSizeMb: 500,
+  },
+  terminal: {
+    osUser: "",
   },
 };
 

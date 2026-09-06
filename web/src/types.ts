@@ -147,9 +147,14 @@ export interface HistorySettings {
   maxSizeMb: number;
 }
 
+export interface TerminalSettings {
+  osUser: string;
+}
+
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
+  terminal: TerminalSettings;
 }
 
 export interface HistoryGpuSeries {
@@ -205,6 +210,8 @@ export interface User {
   role: Role;
   active: boolean;
   createdAt: number;
+  hasRecovery?: boolean;
+  recoveryQuestion?: string | null;
 }
 
 export interface AuthStatus {

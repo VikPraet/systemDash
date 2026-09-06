@@ -21,6 +21,9 @@ Environment=PORT=3001
 Environment=SYSTEMDASH_HOME=/home/vadmin/systemdash
 Environment=SYSTEMDASH_DATA_DIR=/home/vadmin/.systemdash
 Environment=GITHUB_REPO=VikPraet/systemDash
+# Optional: only if the service still runs as root and you want the
+# in-app terminal to su into this account (also settable in the UI)
+# Environment=SYSTEMDASH_OS_USER=vadmin
 ExecStart=/usr/bin/node server/dist/index.js
 Restart=on-failure
 RestartSec=5

@@ -11,10 +11,16 @@ import {
   fetchAuthStatus,
   login as loginApi,
   logout as logoutApi,
+  saveRecoveryApi,
   setUnauthorizedHandler,
   setupAdmin as setupApi,
 } from "../api";
 import type { Role, User } from "../types";
+
+interface RecoveryInput {
+  question: string;
+  answer: string;
+}
 
 interface AuthState {
   loading: boolean;
@@ -22,7 +28,8 @@ interface AuthState {
   needsSetup: boolean;
   user: User | null;
   login: (username: string, password: string) => Promise<void>;
-  setup: (username: string, password: string) => Promise<void>;
+  setup: (username: string, password: string, recovery: RecoveryInput) => Promise<void>;
+  saveRecovery: (recovery: RecoveryInput) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -70,10 +77,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setNeedsSetup(false);
   }, []);
 
-  const setup = useCallback(async (username: string, password: string) => {
-    const u = await setupApi(username, password);
+  const setup = useCallback(
+    async (username: string, password: string, recovery: RecoveryInput) => {
+      const u = await setupApi(username, password, recovery);
+      setUser(u);
+      setNeedsSetup(false);
+    },
+    []
+  );
+
+  const saveRecovery = useCallback(async (recovery: RecoveryInput) => {
+    const u = await saveRecoveryApi(recovery.question, recovery.answer);
     setUser(u);
-    setNeedsSetup(false);
   }, []);
 
   const logout = useCallback(async () => {
@@ -85,8 +100,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ loading, error, needsSetup, user, login, setup, logout, refresh }),
-    [loading, error, needsSetup, user, login, setup, logout, refresh]
+    () => ({
+      loading,
+      error,
+      needsSetup,
+      user,
+      login,
+      setup,
+      saveRecovery,
+      logout,
+      refresh,
+    }),
+    [loading, error, needsSetup, user, login, setup, saveRecovery, logout, refresh]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

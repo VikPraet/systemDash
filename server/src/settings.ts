@@ -20,9 +20,31 @@ export interface FileManagerSettings {
 
 export type { HistorySettings } from "./history.js";
 
+const USERNAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+/** Empty string means "do not switch". Invalid names fall back to `fallback`. */
+export function sanitizeOsUsername(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  const trimmed = raw.trim();
+  if (trimmed === "") return "";
+  if (trimmed.length > 32 || !USERNAME_RE.test(trimmed)) return fallback;
+  return trimmed;
+}
+
+export interface TerminalSettings {
+  /**
+   * Optional Linux OS account for the in-app terminal (and Files → Home).
+   * Empty means "use the account that runs SystemDash". When set and the
+   * process is root, the terminal opens with `su -` into this user.
+   * Per-machine — never ships with a username filled in.
+   */
+  osUser: string;
+}
+
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
+  terminal: TerminalSettings;
 }
 
 const DEFAULTS: Settings = {
@@ -33,6 +55,9 @@ const DEFAULTS: Settings = {
     confirmDelete: true,
   },
   history: HISTORY_DEFAULTS,
+  terminal: {
+    osUser: "",
+  },
 };
 
 // Reasonable guard rails for the customisable history limits.
@@ -54,6 +79,7 @@ let cached: Settings | null = null;
 function sanitize(input: unknown): Settings {
   const files = (input as Settings)?.files ?? ({} as FileManagerSettings);
   const history = (input as Settings)?.history ?? ({} as HistorySettings);
+  const terminal = (input as Settings)?.terminal ?? ({} as TerminalSettings);
   const bool = (v: unknown, fallback: boolean) =>
     typeof v === "boolean" ? v : fallback;
   const intIn = (
@@ -93,6 +119,9 @@ function sanitize(input: unknown): Settings {
         HISTORY_BOUNDS.maxSizeMb
       ),
     },
+    terminal: {
+      osUser: sanitizeOsUsername(terminal.osUser, DEFAULTS.terminal.osUser),
+    },
   };
 }
 
@@ -130,6 +159,7 @@ export async function initSettings(): Promise<Settings> {
 const SECTION_LABELS: Record<string, string> = {
   files: "Files",
   history: "History",
+  terminal: "Terminal",
 };
 
 const FIELD_LABELS: Record<string, Record<string, string>> = {
@@ -144,6 +174,9 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
     intervalSeconds: "Sample interval (s)",
     retentionDays: "Retention (days)",
     maxSizeMb: "Max size (MB)",
+  },
+  terminal: {
+    osUser: "Default OS user",
   },
 };
 

@@ -90,6 +90,12 @@ export const ModalMessage = styled.p`
   &.modal-warn {
     color: ${({ theme }) => theme.color.bad};
   }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: ${({ theme }) => theme.color.accent};
+  }
 `;
 
 export const ModalError = styled.div`

@@ -33,18 +33,25 @@ export function Dropdown<T extends string>({
   onChange,
   title,
   ariaLabel,
+  placeholder,
+  variant = "default",
+  autoFocus,
 }: {
-  value: T;
+  value: T | "";
   options: DropdownOption<T>[];
   onChange: (value: T) => void;
   title?: string;
   ariaLabel?: string;
+  placeholder?: string;
+  variant?: "default" | "underline";
+  autoFocus?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<MenuPos | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
   const selected = options.find((o) => o.value === value);
+  const shown = selected?.label ?? (placeholder || value);
 
   const place = useCallback(() => {
     const el = triggerRef.current;
@@ -87,15 +94,19 @@ export function Dropdown<T extends string>({
     <Tooltip label={title}>
       <S.DropdownRoot>
         <S.DropdownTrigger
-        ref={triggerRef}
-        type="button"
-        $open={open}
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-      >
-        <S.DropdownValue>{selected?.label ?? value}</S.DropdownValue>
+          ref={triggerRef}
+          type="button"
+          $open={open}
+          $variant={variant}
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label={ariaLabel}
+          autoFocus={autoFocus}
+        >
+        <S.DropdownValue $placeholder={!selected && !!placeholder}>
+          {shown}
+        </S.DropdownValue>
         <ChevronDown className="dropdown-chevron" size={15} strokeWidth={1.8} />
       </S.DropdownTrigger>
 

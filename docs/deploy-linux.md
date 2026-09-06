@@ -188,7 +188,7 @@ Production servers should use **releases**, not this path.
   Pterodactyl/Wings — same containers as `docker ps` on the host.
 - **OS / app updates:** service user needs the sudoers rules from `configure-service-user.sh`
   (apt + `systemctl restart systemdash`). Running as root is not required.
-- **Terminal:** opens as the **systemd `User=`** (e.g. `vadmin@nuc-home`), not the web login name.
+- **Terminal:** opens as the systemd `User=`, not the web login name. Optional: set a Linux username in **Terminal → settings** (or `SYSTEMDASH_OS_USER`) so that when the service is still root, new shells `su -` into that account.
 - **HTTPS:** put Caddy/nginx in front when not on a trusted LAN.
 
 ## Checklist

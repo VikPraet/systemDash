@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import {
   AuthError,
   authenticate,
+  allowRecoveryAttempt,
   clearSessionCookie,
   clientIp,
   createSession,
@@ -11,8 +12,14 @@ import {
   needsSetup,
   parseCookies,
   recordAudit,
+  recoverPassword,
+  recoverUsername,
+  RECOVERY_FAIL_MESSAGE,
+  recordRecoveryFailure,
+  requireAuth,
   sessionCookie,
   SESSION_COOKIE,
+  setUserRecovery,
 } from "../auth.js";
 
 export const authRouter = Router();
@@ -51,8 +58,11 @@ authRouter.post("/setup", (req, res) => {
       res.status(409).json({ error: "setup already completed" });
       return;
     }
-    const { username, password } = req.body ?? {};
-    const user = createUser(String(username ?? ""), String(password ?? ""), "admin");
+    const { username, password, recoveryQuestion, recoveryAnswer } = req.body ?? {};
+    const user = createUser(String(username ?? ""), String(password ?? ""), "admin", {
+      question: String(recoveryQuestion ?? ""),
+      answer: String(recoveryAnswer ?? ""),
+    });
     const { token, expiresAt } = createSession(user.id, sessionMeta(req));
     res.setHeader("Set-Cookie", sessionCookie(token, expiresAt, isSecure(req)));
     recordAudit({
@@ -124,4 +134,87 @@ authRouter.get("/me", (req, res) => {
     return;
   }
   res.json({ user });
+});
+
+authRouter.post("/recover/username", (req, res) => {
+  const ip = clientIp(req);
+  if (!allowRecoveryAttempt(ip)) {
+    res.status(429).json({ error: "too many attempts, try again later" });
+    return;
+  }
+  const { question, answer } = req.body ?? {};
+  const username = recoverUsername(String(question ?? ""), String(answer ?? ""));
+  if (!username) {
+    recordRecoveryFailure(ip);
+    recordAudit({
+      action: "auth.recover_username_failed",
+      detail: "recovery details did not match",
+      status: 401,
+      ip,
+    });
+    res.status(401).json({ error: RECOVERY_FAIL_MESSAGE });
+    return;
+  }
+  recordAudit({
+    username,
+    action: "auth.recover_username",
+    status: 200,
+    ip,
+  });
+  res.json({ username });
+});
+
+authRouter.post("/recover/password", (req, res) => {
+  const ip = clientIp(req);
+  if (!allowRecoveryAttempt(ip)) {
+    res.status(429).json({ error: "too many attempts, try again later" });
+    return;
+  }
+  try {
+    const { username, answer, password } = req.body ?? {};
+    const attempted = String(username ?? "");
+    const ok = recoverPassword(attempted, String(answer ?? ""), String(password ?? ""));
+    if (!ok) {
+      recordRecoveryFailure(ip);
+      recordAudit({
+        username: attempted || null,
+        action: "auth.recover_password_failed",
+        detail: "recovery details did not match",
+        status: 401,
+        ip,
+      });
+      res.status(401).json({ error: RECOVERY_FAIL_MESSAGE });
+      return;
+    }
+    recordAudit({
+      username: attempted,
+      action: "auth.recover_password",
+      detail: "password reset via recovery question",
+      status: 200,
+      ip,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+authRouter.patch("/recovery", requireAuth, (req, res) => {
+  try {
+    const { question, answer } = req.body ?? {};
+    const user = setUserRecovery(req.user!.id, {
+      question: String(question ?? ""),
+      answer: String(answer ?? ""),
+    });
+    recordAudit({
+      userId: user.id,
+      username: user.username,
+      action: "auth.recovery_set",
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ user });
+  } catch (err) {
+    sendError(res, err);
+  }
 });

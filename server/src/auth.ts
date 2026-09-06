@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import type { Request, Response, NextFunction } from "express";
 import { authDb } from "./db.js";
+import {
+  isRecoveryQuestionId,
+  normalizeRecoveryAnswer,
+} from "./recoveryQuestions.js";
 
 // Roles are an ordered hierarchy: each role implies the ones below it. We compare
 // by rank so `requireRole("user")` also admits admins.
@@ -19,6 +23,8 @@ export interface User {
   role: Role;
   active: boolean;
   createdAt: number;
+  hasRecovery: boolean;
+  recoveryQuestion: string | null;
 }
 
 interface UserRow {
@@ -28,9 +34,11 @@ interface UserRow {
   role: string;
   active: number;
   created_at: number;
+  recovery_question: string | null;
+  recovery_answer_hash: string | null;
 }
 
-/** Maps a DB row to the public User shape (never exposing the password hash). */
+/** Maps a DB row to the public User shape (never exposing hashes). */
 function toUser(row: UserRow): User {
   return {
     id: row.id,
@@ -38,6 +46,8 @@ function toUser(row: UserRow): User {
     role: isRole(row.role) ? row.role : "viewer",
     active: row.active === 1,
     createdAt: row.created_at,
+    hasRecovery: Boolean(row.recovery_answer_hash),
+    recoveryQuestion: row.recovery_question ?? null,
   };
 }
 
@@ -121,25 +131,55 @@ function validatePassword(password: string): void {
   }
 }
 
+export interface RecoveryInput {
+  question: string;
+  answer: string;
+}
+
+function validateRecovery(recovery: RecoveryInput): {
+  question: string;
+  answer: string;
+} {
+  if (!isRecoveryQuestionId(recovery.question)) {
+    throw new AuthError(400, "invalid recovery question");
+  }
+  const answer = normalizeRecoveryAnswer(recovery.answer);
+  if (answer.length < 4) {
+    throw new AuthError(400, "recovery answer must be at least 4 characters");
+  }
+  return { question: recovery.question, answer };
+}
+
 /** Creates a user. Throws AuthError(409) if the username is taken. */
 export function createUser(
   username: string,
   password: string,
-  role: Role
+  role: Role,
+  recovery?: RecoveryInput
 ): User {
   const u = validateUsername(username);
   validatePassword(password);
   if (!isRole(role)) throw new AuthError(400, "invalid role");
+  const rec = recovery ? validateRecovery(recovery) : null;
   const exists = authDb()
     .prepare("SELECT 1 FROM users WHERE username = ?")
     .get(u);
   if (exists) throw new AuthError(409, "username already exists");
   const info = authDb()
     .prepare(
-      `INSERT INTO users (username, password_hash, role, active, created_at)
-       VALUES (?, ?, ?, 1, ?)`
+      `INSERT INTO users
+         (username, password_hash, role, active, created_at,
+          recovery_question, recovery_answer_hash)
+       VALUES (?, ?, ?, 1, ?, ?, ?)`
     )
-    .run(u, hashPassword(password), role, Date.now());
+    .run(
+      u,
+      hashPassword(password),
+      role,
+      Date.now(),
+      rec?.question ?? null,
+      rec ? hashPassword(rec.answer) : null
+    );
   return getUserById(Number(info.lastInsertRowid))!;
 }
 
@@ -170,6 +210,21 @@ export function setUserPassword(id: number, password: string): void {
   deleteUserSessions(id); // force re-login with the new password
 }
 
+export function setUserRecovery(id: number, recovery: RecoveryInput): User {
+  const rec = validateRecovery(recovery);
+  const info = authDb()
+    .prepare(
+      `UPDATE users
+       SET recovery_question = ?, recovery_answer_hash = ?
+       WHERE id = ?`
+    )
+    .run(rec.question, hashPassword(rec.answer), id);
+  if (info.changes === 0) throw new AuthError(404, "user not found");
+  const user = getUserById(id);
+  if (!user) throw new AuthError(404, "user not found");
+  return user;
+}
+
 export function deleteUser(id: number): void {
   const info = authDb().prepare("DELETE FROM users WHERE id = ?").run(id);
   if (info.changes === 0) throw new AuthError(404, "user not found");
@@ -191,6 +246,104 @@ export function authenticate(username: string, password: string): User | null {
   if (!verifyPassword(password, row.password_hash)) return null;
   return toUser(row);
 }
+
+// ---------------------------------------------------------------------------
+// Account recovery: a hashed answer to a chosen question, so a locked-out
+// user can retrieve their username or set a new password without email.
+// Failed attempts always take a scrypt path so timing doesn't leak whether
+// the account (or recovery) exists. Rate-limited per IP on the route.
+// ---------------------------------------------------------------------------
+const RECOVERY_FAIL = "could not verify recovery details";
+
+let dummyRecoveryHash: string | null = null;
+function dummyHash(): string {
+  if (!dummyRecoveryHash) dummyRecoveryHash = hashPassword("__sd_recovery_dummy__");
+  return dummyRecoveryHash;
+}
+
+const RECOVERY_WINDOW_MS = 15 * 60 * 1000;
+const RECOVERY_MAX_ATTEMPTS = 8;
+const recoveryAttempts = new Map<string, { count: number; resetAt: number }>();
+
+/** Returns false when this IP has exhausted failed recovery attempts. */
+export function allowRecoveryAttempt(ip: string): boolean {
+  const key = ip || "unknown";
+  const cur = recoveryAttempts.get(key);
+  if (!cur || cur.resetAt <= Date.now()) return true;
+  return cur.count < RECOVERY_MAX_ATTEMPTS;
+}
+
+export function recordRecoveryFailure(ip: string): void {
+  const key = ip || "unknown";
+  const now = Date.now();
+  const cur = recoveryAttempts.get(key);
+  if (!cur || cur.resetAt <= now) {
+    recoveryAttempts.set(key, { count: 1, resetAt: now + RECOVERY_WINDOW_MS });
+    return;
+  }
+  cur.count += 1;
+}
+
+function userRowByUsername(username: string): UserRow | undefined {
+  return authDb()
+    .prepare("SELECT * FROM users WHERE username = ?")
+    .get(username.trim()) as UserRow | undefined;
+}
+
+/**
+ * Reveals the username for the unique account whose question+answer match.
+ * Returns null on any miss (including multiple matches) with the same message.
+ */
+export function recoverUsername(
+  question: string,
+  answer: string
+): string | null {
+  if (!isRecoveryQuestionId(question)) return null;
+  const normalised = normalizeRecoveryAnswer(answer);
+  if (normalised.length < 4) return null;
+  const rows = authDb()
+    .prepare(
+      `SELECT * FROM users
+       WHERE active = 1
+         AND recovery_question = ?
+         AND recovery_answer_hash IS NOT NULL`
+    )
+    .all(question) as unknown as UserRow[];
+  if (rows.length === 0) {
+    verifyPassword(normalised, dummyHash());
+    return null;
+  }
+  const matches: string[] = [];
+  for (const row of rows) {
+    if (row.recovery_answer_hash && verifyPassword(normalised, row.recovery_answer_hash)) {
+      matches.push(row.username);
+    }
+  }
+  return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * Sets a new password when the username + recovery answer match.
+ * Returns false on any miss; does not distinguish why.
+ */
+export function recoverPassword(
+  username: string,
+  answer: string,
+  password: string
+): boolean {
+  validatePassword(password);
+  const row = userRowByUsername(username);
+  const hash = row?.recovery_answer_hash || dummyHash();
+  const normalised = normalizeRecoveryAnswer(answer);
+  const match = normalised.length >= 4 && verifyPassword(normalised, hash);
+  if (!row || row.active !== 1 || !row.recovery_answer_hash || !match) {
+    return false;
+  }
+  setUserPassword(row.id, password);
+  return true;
+}
+
+export const RECOVERY_FAIL_MESSAGE = RECOVERY_FAIL;
 
 // ---------------------------------------------------------------------------
 // Sessions: an opaque random token is sent to the client; we only store its

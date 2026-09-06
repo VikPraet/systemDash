@@ -21,9 +21,10 @@ import {
   writeTextFile,
   HttpError,
 } from "./files.js";
-import { getSettings, saveSettings, initSettings, diffSettings } from "./settings.js";
+import { getSettings, saveSettings, initSettings, diffSettings, sanitizeOsUsername } from "./settings.js";
 import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
+import { lookupOsUser } from "./osUser.js";
 import {
   requireAuth,
   requireRole,
@@ -288,6 +289,28 @@ app.get("/api/settings", async (_req, res) => {
 
 app.put("/api/settings", requireRole("user"), async (req, res) => {
   try {
+    const rawOsUser = (req.body as { terminal?: { osUser?: unknown } })?.terminal
+      ?.osUser;
+    if (typeof rawOsUser === "string" && rawOsUser.trim() !== "") {
+      const osUser = sanitizeOsUsername(rawOsUser, "");
+      if (!osUser) {
+        res.status(400).json({
+          error:
+            "OS user must be a Linux username (letters, numbers, dot, dash, underscore)",
+        });
+        return;
+      }
+      if (process.platform !== "win32") {
+        const found = await lookupOsUser(osUser);
+        if (!found) {
+          res.status(400).json({
+            error: `OS user "${osUser}" was not found on this machine`,
+          });
+          return;
+        }
+      }
+    }
+
     const prev = await getSettings();
     const next = await saveSettings(req.body);
     // Log exactly which fields changed (grouped by section) instead of a bare

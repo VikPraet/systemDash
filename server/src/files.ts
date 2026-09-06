@@ -2,6 +2,7 @@ import { promises as fsp, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import si from "systeminformation";
+import { resolveOsUser } from "./osUser.js";
 
 export interface FsEntry {
   name: string;
@@ -53,13 +54,14 @@ export async function getRoots(): Promise<FsRoot[]> {
   const sizes = await si.fsSize().catch(() => []);
   const findSize = (predicate: (mount: string) => boolean) =>
     sizes.find((s) => s.mount && predicate(s.mount));
+  const osUser = await resolveOsUser();
 
   const roots: FsRoot[] = [
     {
       name: "Home",
-      path: os.homedir(),
+      path: osUser.home || os.homedir(),
       kind: "home",
-      label: null,
+      label: osUser.username ? osUser.username : null,
       sizeBytes: null,
       usedBytes: null,
       freeBytes: null,

@@ -123,6 +123,23 @@ export const TerminalHint = styled.span`
   }
 `;
 
+export const SettingsBlurb = styled.p`
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: ${({ theme }) => theme.color.muted};
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: ${({ theme }) => theme.color.accent};
+  }
+`;
+
+export const SettingsField = styled.div`
+  margin-bottom: 16px;
+`;
+
 export const TerminalBody = styled.div`
   flex: 1;
   min-height: 0;

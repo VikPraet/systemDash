@@ -180,6 +180,42 @@ export const ContentLayer = styled.div<{ $active?: boolean }>`
   min-height: 0;
 `;
 
+export const RecoveryNudge = styled.div`
+  max-width: 1200px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 10%, transparent);
+  border: 1px solid
+    color-mix(in srgb, ${({ theme }) => theme.color.accent} 35%, transparent);
+  border-radius: ${({ theme }) => theme.radius.sm};
+  font-size: 13px;
+  color: ${({ theme }) => theme.color.text};
+
+  button {
+    flex-shrink: 0;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid ${({ theme }) => theme.color.accent};
+    border-radius: ${({ theme }) => theme.radius.sm};
+    color: ${({ theme }) => theme.color.accent};
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  button:hover {
+    background: ${({ theme }) => theme.color.accent};
+    color: #fff;
+  }
+`;
+
 export const Brand = styled.div`
   display: flex;
   align-items: center;
@@ -370,6 +406,13 @@ export const UserChip = styled.div`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
+`;
+
+export const UserChipActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 `;
 
 export const UserChipInfo = styled.div`

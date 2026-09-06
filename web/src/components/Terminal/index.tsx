@@ -3,11 +3,14 @@ import {
   Columns2,
   Plus,
   Rows2,
+  Settings,
   X,
   PanelLeftClose,
 } from "lucide-react";
 import { cache } from "../../cache";
 import { randomId } from "../../randomId";
+import { fetchSettings, saveSettings } from "../../api";
+import type { Settings as AppSettings, TerminalSettings } from "../../types";
 import { TerminalPane, closeTerminalTabSession } from "./TerminalPane";
 import {
   syncTerminalLayout,
@@ -16,7 +19,17 @@ import {
   type TerminalTabState,
 } from "./terminalPersist";
 import { Tooltip } from "../ui/Tooltip";
-import { GhostBtn } from "../ui/styles";
+import {
+  GhostBtn,
+  Modal,
+  ModalActions,
+  ModalBtn,
+  ModalError,
+  ModalInput,
+  ModalLabel,
+  ModalOverlay,
+  ModalTitle,
+} from "../ui/styles";
 import * as S from "./styles";
 
 type SplitMode = TerminalSplitMode;
@@ -156,6 +169,24 @@ export function Terminal({ active = true }: { active?: boolean }) {
   );
   const [splitMode, setSplitMode] = useState<SplitMode>(() => cache.terminal.splitMode);
   const [focusedPane, setFocusedPane] = useState<PaneId>(() => cache.terminal.focusedPane);
+  const [settings, setSettings] = useState<AppSettings>(() => cache.settings);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSettings()
+      .then((s) => {
+        if (cancelled) return;
+        cache.settings = s;
+        setSettings(s);
+      })
+      .catch(() => {
+        // Keep cached/default settings if the request fails.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     syncTerminalLayout({
@@ -297,7 +328,20 @@ export function Terminal({ active = true }: { active?: boolean }) {
               </GhostBtn>
             </Tooltip>
           )}
-          <S.TerminalHint>local shell · output kept per tab</S.TerminalHint>
+          <Tooltip label="Terminal settings">
+            <GhostBtn
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              style={{ padding: "7px" }}
+            >
+              <Settings size={15} strokeWidth={1.8} />
+            </GhostBtn>
+          </Tooltip>
+          <S.TerminalHint>
+            {settings.terminal?.osUser
+              ? `${settings.terminal.osUser} · local shell`
+              : "service user · local shell"}
+          </S.TerminalHint>
         </S.TerminalBarActions>
       </S.TerminalBar>
 
@@ -351,6 +395,114 @@ export function Terminal({ active = true }: { active?: boolean }) {
           ))}
         </S.TerminalPaneArea>
       </S.TerminalBody>
+
+      {settingsOpen && (
+        <TerminalSettingsDialog
+          settings={settings}
+          onCancel={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            cache.settings = s;
+            setSettings(s);
+            setSettingsOpen(false);
+          }}
+        />
+      )}
     </S.TerminalRoot>
   );
+}
+
+const OS_USERNAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+
+function TerminalSettingsDialog({
+  settings,
+  onCancel,
+  onSaved,
+}: {
+  settings: AppSettings;
+  onCancel: () => void;
+  onSaved: (s: AppSettings) => void;
+}) {
+  const [osUser, setOsUser] = useState(settings.terminal?.osUser ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  async function save() {
+    if (busy) return;
+    const trimmed = osUser.trim();
+    if (trimmed && (trimmed.length > 32 || !OS_USERNAME_RE.test(trimmed))) {
+      setError("Use a Linux username: letters, numbers, dot, dash, underscore.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const terminal: TerminalSettings = { osUser: trimmed };
+      const saved = await saveSettings({ ...settings, terminal });
+      onSaved(saved);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  const exampleUser = trimmedOsExample(osUser);
+
+  return (
+    <ModalOverlay
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <Modal role="dialog" aria-modal="true">
+        <ModalTitle as="h3">Host shell user</ModalTitle>
+        <S.SettingsBlurb>
+          Optional and stored only on this machine. Leave empty to open the
+          terminal as whoever runs SystemDash. If you set a Linux username and
+          the service is running as root, new tabs switch with{" "}
+          <code>su - {exampleUser}</code> into that account’s home. Files →
+          Home follows it too.
+        </S.SettingsBlurb>
+        <S.SettingsField>
+          <ModalLabel htmlFor="terminal-os-user">Linux username</ModalLabel>
+          <ModalInput
+            id="terminal-os-user"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="not set"
+            value={osUser}
+            onChange={(e) => setOsUser(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void save();
+              }
+            }}
+          />
+        </S.SettingsField>
+        {error && <ModalError>{error}</ModalError>}
+        <ModalActions>
+          <ModalBtn type="button" onClick={onCancel}>
+            Cancel
+          </ModalBtn>
+          <ModalBtn type="button" $variant="primary" onClick={save} disabled={busy}>
+            {busy ? "Saving…" : "Save"}
+          </ModalBtn>
+        </ModalActions>
+      </Modal>
+    </ModalOverlay>
+  );
+}
+
+function trimmedOsExample(value: string): string {
+  const t = value.trim();
+  return t && OS_USERNAME_RE.test(t) ? t : "username";
 }

@@ -11,6 +11,7 @@ import {
   ScrollText,
   TerminalSquare,
   Users as UsersIcon,
+  KeyRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -46,6 +47,8 @@ import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOvervie
 import { AppVersionLink } from "./components/SystemUpdates/AppVersionLink";
 import { PowerControl } from "./components/PowerControl";
 import { Login } from "./components/Login";
+import { Recover } from "./components/Recover";
+import { RecoveryModal } from "./components/RecoveryModal";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
 import { cache } from "./cache";
@@ -105,6 +108,14 @@ export default function App() {
         element={
           <PublicOnly>
             <Login />
+          </PublicOnly>
+        }
+      />
+      <Route
+        path="/recover"
+        element={
+          <PublicOnly>
+            <Recover />
           </PublicOnly>
         }
       />
@@ -211,6 +222,8 @@ function DashboardLayout() {
     () => canUseTerminal && cache.terminal.tabs.length > 0
   );
   const [navOpen, setNavOpen] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const canSetRecovery = typeof user?.hasRecovery === "boolean";
 
   useEffect(() => {
     setNavOpen(false);
@@ -288,6 +301,13 @@ function DashboardLayout() {
           </S.Brand>
           <S.MobileTopActions>
             <StatusIndicator snap={snap} error={error} now={now} compact />
+            {canSetRecovery && (
+              <Tooltip label="Recovery question">
+                <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
+                  <KeyRound size={16} strokeWidth={1.8} />
+                </S.LogoutBtn>
+              </Tooltip>
+            )}
             <Tooltip label="Sign out">
               <S.LogoutBtn onClick={onLogout}>
                 <LogOut size={16} strokeWidth={1.8} />
@@ -317,11 +337,20 @@ function DashboardLayout() {
                 <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
               </S.UserChipInfo>
               <S.SidebarFooterDesktop>
-                <Tooltip label="Sign out">
-                  <S.LogoutBtn onClick={onLogout}>
-                    <LogOut size={16} strokeWidth={1.8} />
-                  </S.LogoutBtn>
-                </Tooltip>
+                <S.UserChipActions>
+                  {canSetRecovery && (
+                    <Tooltip label="Recovery question">
+                      <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
+                        <KeyRound size={16} strokeWidth={1.8} />
+                      </S.LogoutBtn>
+                    </Tooltip>
+                  )}
+                  <Tooltip label="Sign out">
+                    <S.LogoutBtn onClick={onLogout}>
+                      <LogOut size={16} strokeWidth={1.8} />
+                    </S.LogoutBtn>
+                  </Tooltip>
+                </S.UserChipActions>
               </S.SidebarFooterDesktop>
             </S.UserChip>
             <S.FooterMeta>
@@ -346,6 +375,17 @@ function DashboardLayout() {
             onClick={() => setNavOpen(false)}
           />
         )}
+        {!onTerminalRoute && canSetRecovery && user && !user.hasRecovery && (
+          <S.RecoveryNudge>
+            <span>
+              Set a recovery question so you can get back in if you forget your
+              username or password.
+            </span>
+            <button type="button" onClick={() => setRecoveryOpen(true)}>
+              Set up
+            </button>
+          </S.RecoveryNudge>
+        )}
         <S.ContentLayer $active={!onTerminalRoute}>
           <Outlet context={{ snap, error, now } satisfies DashboardContext} />
         </S.ContentLayer>
@@ -355,6 +395,7 @@ function DashboardLayout() {
           </S.ContentLayer>
         )}
       </S.Content>
+      {recoveryOpen && <RecoveryModal onClose={() => setRecoveryOpen(false)} />}
     </S.AppShell>
   );
 }

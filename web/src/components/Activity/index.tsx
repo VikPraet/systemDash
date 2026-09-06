@@ -37,6 +37,7 @@ import {
   Tablet,
   Bot,
   HelpCircle,
+  KeyRound,
   MapPin,
   Network,
 } from "lucide-react";
@@ -161,6 +162,36 @@ const ACTION_META: Record<string, ActionMeta> = {
   },
   "auth.logout": { label: "Signed out", attempt: "sign out", icon: LogOut, kind: "neutral" },
   "auth.setup": { label: "Created admin", attempt: "create the admin account", icon: ShieldCheck, kind: "info" },
+  "auth.recover_username": {
+    label: "Recovered username",
+    attempt: "recover a username",
+    icon: HelpCircle,
+    kind: "info",
+  },
+  "auth.recover_username_failed": {
+    label: "Failed username recovery",
+    attempt: "recover a username",
+    icon: ShieldAlert,
+    kind: "danger",
+  },
+  "auth.recover_password": {
+    label: "Reset password via recovery",
+    attempt: "reset a password",
+    icon: KeyRound,
+    kind: "warn",
+  },
+  "auth.recover_password_failed": {
+    label: "Failed password recovery",
+    attempt: "reset a password",
+    icon: ShieldAlert,
+    kind: "danger",
+  },
+  "auth.recovery_set": {
+    label: "Set recovery question",
+    attempt: "set a recovery question",
+    icon: KeyRound,
+    kind: "info",
+  },
   "user.create": { label: "Created user", attempt: "create a user", icon: UserPlus, kind: "success" },
   "user.update": { label: "Updated user", attempt: "update a user", icon: UserCog, kind: "warn" },
   "user.delete": { label: "Deleted user", attempt: "delete a user", icon: UserMinus, kind: "danger" },
@@ -207,6 +238,7 @@ const ACTION_META: Record<string, ActionMeta> = {
   settings: { label: "Changed settings", attempt: "change settings", icon: Settings, kind: "warn" },
   "settings.files": { label: "Changed file settings", attempt: "change file settings", icon: Settings, kind: "warn" },
   "settings.history": { label: "Changed history settings", attempt: "change history settings", icon: Settings, kind: "warn" },
+  "settings.terminal": { label: "Changed terminal settings", attempt: "change terminal settings", icon: Settings, kind: "warn" },
 };
 
 function actionMeta(action: string): ActionMeta {

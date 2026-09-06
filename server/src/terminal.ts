@@ -9,6 +9,7 @@ import {
   SESSION_COOKIE,
   type User,
 } from "./auth.js";
+import { resolveOsUser, type ResolvedOsUser } from "./osUser.js";
 
 // We stream a real pseudo-terminal (PTY) over a WebSocket. Because the shell
 // runs attached to a TTY, it behaves exactly like a native terminal: it does
@@ -35,11 +36,23 @@ interface SessionContext {
   ip: string;
 }
 
-function shellCommand(): { cmd: string; args: string[] } {
+function shellCommand(osUser: ResolvedOsUser): {
+  cmd: string;
+  args: string[];
+  cwd: string;
+} {
   if (process.platform === "win32") {
-    return { cmd: "powershell.exe", args: ["-NoLogo"] };
+    return { cmd: "powershell.exe", args: ["-NoLogo"], cwd: os.homedir() };
   }
-  return { cmd: process.env.SHELL || "/bin/bash", args: [] };
+  if (osUser.switchUser) {
+    // Login shell as the configured account — same as `su - <user>`.
+    return { cmd: "/bin/su", args: ["-", osUser.username], cwd: osUser.home };
+  }
+  return {
+    cmd: osUser.shell || process.env.SHELL || "/bin/bash",
+    args: [],
+    cwd: osUser.home || os.homedir(),
+  };
 }
 
 // Matches CSI escape sequences (arrow keys, history navigation, etc.) so they
@@ -75,8 +88,9 @@ class CommandTracker {
   }
 }
 
-function startSession(ws: WebSocket, ctx: SessionContext): void {
-  const { cmd, args } = shellCommand();
+async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
+  const osUser = await resolveOsUser();
+  const { cmd, args, cwd } = shellCommand(osUser);
   const send = (s: string) => {
     if (ws.readyState === ws.OPEN) ws.send(s);
   };
@@ -88,7 +102,7 @@ function startSession(ws: WebSocket, ctx: SessionContext): void {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
-      cwd: os.homedir(),
+      cwd,
       env: process.env,
     });
   } catch (err) {
@@ -156,7 +170,9 @@ function startSession(ws: WebSocket, ctx: SessionContext): void {
     }
   });
 
-  send(`Connected to ${cmd} (${os.hostname()}). Working dir: ${os.homedir()}\r\n`);
+  send(
+    `Connected as ${osUser.username}@${os.hostname()}. Working dir: ${cwd}\r\n`
+  );
 }
 
 /** Validates the session cookie on an upgrade request; returns the user or null. */
@@ -208,7 +224,7 @@ export function attachTerminal(server: Server): void {
     });
 
     wss.handleUpgrade(req, socket, head, (ws) => {
-      startSession(ws, { user, ip });
+      void startSession(ws, { user, ip });
     });
   });
 }
