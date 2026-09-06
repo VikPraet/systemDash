@@ -119,7 +119,16 @@ function gitEnv(): NodeJS.ProcessEnv {
  * extraHeader Basic is what GitHub Actions uses for PATs on both runners.
  */
 function gitArgv(auth: GitAuth, args: string[]): string[] {
-  const prefix = ["-c", "credential.helper=", "-c", "core.askPass="];
+  const prefix = [
+    "-c",
+    "credential.helper=",
+    "-c",
+    "core.askPass=",
+    // Repos on this host are often owned by a login user while the service
+    // runs as another — Git 2.35+ then refuses them as "dubious ownership".
+    "-c",
+    "safe.directory=*",
+  ];
   if (auth.token && auth.provider) {
     const user = auth.provider === "gitlab" ? "oauth2" : "x-access-token";
     const basic = Buffer.from(`${user}:${auth.token}`, "utf8").toString("base64");

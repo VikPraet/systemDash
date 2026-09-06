@@ -35,12 +35,14 @@ appUpdateRouter.get("/job", adminOnly, (_req, res) => {
 
 appUpdateRouter.post("/start", adminOnly, (req, res) => {
   try {
-    startAppUpdate();
+    const body = (req.body ?? {}) as { version?: unknown };
+    const version = typeof body.version === "string" ? body.version : undefined;
+    startAppUpdate(version);
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
       action: "app-update.start",
-      detail: "SystemDash self-update",
+      detail: version ? `SystemDash self-update to v${version}` : "SystemDash self-update",
       status: 200,
       ip: clientIp(req),
     });

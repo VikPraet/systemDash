@@ -39,6 +39,13 @@ export interface AppUpdateStatus {
   hint: string | null;
   checkedAt: string | null;
   prerelease: boolean;
+  releases: AppReleaseOption[];
+}
+
+export interface AppReleaseOption {
+  version: string;
+  prerelease: boolean;
+  publishedAt: string | null;
 }
 
 export interface AppUpdateJob {
@@ -74,7 +81,7 @@ const OUTPUT_TAIL = 24_000;
 const GITHUB_CACHE_MS = 5 * 60_000;
 const DEFAULT_REPO = "VikPraet/systemDash";
 
-let githubCache: { at: number; release: GithubRelease } | null = null;
+let githubCache: { at: number; releases: GithubRelease[] } | null = null;
 
 let appUpdateJob: AppUpdateJob = {
   running: false,
@@ -213,14 +220,14 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
-async function fetchLatestRelease(force = false): Promise<GithubRelease> {
+async function fetchUsableReleases(force = false): Promise<GithubRelease[]> {
   const repo = resolveRepo();
   if (!repo) {
     throw new AppUpdateError(503, "GITHUB_REPO is not configured");
   }
 
   if (!force && githubCache && Date.now() - githubCache.at < GITHUB_CACHE_MS) {
-    return githubCache.release;
+    return githubCache.releases;
   }
 
   const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, {
@@ -246,12 +253,13 @@ async function fetchLatestRelease(force = false): Promise<GithubRelease> {
   usable.sort((a, b) =>
     compareVersions(releaseVersion(b.tag_name), releaseVersion(a.tag_name))
   );
-  const release = usable[0];
-  if (!release) {
-    throw new AppUpdateError(404, "No GitHub releases found for this repository");
-  }
-  githubCache = { at: Date.now(), release };
-  return release;
+  githubCache = { at: Date.now(), releases: usable };
+  return usable;
+}
+
+function findReleaseByVersion(releases: GithubRelease[], version: string): GithubRelease | null {
+  const want = version.replace(/^v/i, "").trim();
+  return releases.find((r) => releaseVersion(r.tag_name) === want) ?? null;
 }
 
 function releaseVersion(tag: string): string {
@@ -364,6 +372,7 @@ export async function getAppUpdateStatus(opts?: {
     hint: null,
     checkedAt: null,
     prerelease: false,
+    releases: [],
   };
 
   if (process.platform !== "linux") {
@@ -390,7 +399,11 @@ export async function getAppUpdateStatus(opts?: {
   }
 
   try {
-    const release = await fetchLatestRelease(opts?.force ?? false);
+    const releases = await fetchUsableReleases(opts?.force ?? false);
+    const release = releases[0];
+    if (!release) {
+      throw new AppUpdateError(404, "No GitHub releases found for this repository");
+    }
     const latestVersion = releaseVersion(release.tag_name);
     const asset = findAsset(release, platform);
     const newer = compareVersions(installed.version, latestVersion) < 0;
@@ -415,6 +428,11 @@ export async function getAppUpdateStatus(opts?: {
       hint,
       checkedAt: new Date().toISOString(),
       prerelease: !!release.prerelease,
+      releases: releases.map((r) => ({
+        version: releaseVersion(r.tag_name),
+        prerelease: !!r.prerelease,
+        publishedAt: r.published_at ?? null,
+      })),
     };
   } catch (err) {
     const message = err instanceof AppUpdateError ? err.message : (err as Error).message;
@@ -427,9 +445,14 @@ export async function getAppUpdateStatus(opts?: {
   }
 }
 
-export function startAppUpdate(): void {
+export function startAppUpdate(targetVersion?: string | null): void {
   if (appUpdateJob.running) {
     throw new AppUpdateError(409, "A SystemDash update is already running");
+  }
+
+  const requested = targetVersion?.replace(/^v/i, "").trim() || null;
+  if (requested && !/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/.test(requested)) {
+    throw new AppUpdateError(400, "invalid version");
   }
 
   void (async () => {
@@ -445,24 +468,40 @@ export function startAppUpdate(): void {
 
     try {
       const status = await getAppUpdateStatus({ force: true });
-      if (!status.installRoot || !status.repo || !status.latestVersion) {
+      if (!status.installRoot || !status.repo) {
         throw new AppUpdateError(503, status.hint ?? "Update is not available");
       }
-      if (!status.updateAvailable || !status.canInstall) {
-        throw new AppUpdateError(400, "No newer SystemDash release to install");
+
+      const releases = await fetchUsableReleases(true);
+      const release = requested
+        ? findReleaseByVersion(releases, requested)
+        : releases[0];
+      if (!release) {
+        throw new AppUpdateError(
+          404,
+          requested
+            ? `Release v${requested} was not found (or has no ${status.platform} asset)`
+            : "No GitHub releases found for this repository"
+        );
       }
 
-      const release = await fetchLatestRelease(true);
+      const version = releaseVersion(release.tag_name);
+      if (version === status.currentVersion) {
+        throw new AppUpdateError(400, `SystemDash v${version} is already installed`);
+      }
+
       const asset = findAsset(release, status.platform);
       if (!asset) {
         throw new AppUpdateError(404, `Release asset not found for ${status.platform}`);
       }
 
-      const version = status.latestVersion;
       const archive = path.join(tmpDir, asset.name);
       const target = path.join(status.installRoot, "releases", version);
       const current = path.join(status.installRoot, "current");
 
+      appendLog(
+        `Installing ${release.prerelease ? "beta " : ""}v${version} (from v${status.currentVersion})…`
+      );
       appendLog(`Downloading ${asset.name}…`);
       await downloadFile(asset.url || asset.browser_download_url, archive, (pct) => {
         appUpdateJob.progress = Math.max(appUpdateJob.progress, pct);

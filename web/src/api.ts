@@ -30,6 +30,7 @@ import type {
   GitCheckResult,
   GitProvider,
   GitRepoInfo,
+  AddIngressResult,
   ProjectAction,
   ProjectDetail,
   ProjectsOverview,
@@ -385,8 +386,8 @@ export async function fetchAppUpdateJob(signal?: AbortSignal): Promise<AppUpdate
   return (await res.json()) as AppUpdateJob;
 }
 
-export async function startAppUpdate(): Promise<{ ok: true }> {
-  return postJson("/api/app-update/start", {});
+export async function startAppUpdate(version?: string): Promise<{ ok: true }> {
+  return postJson("/api/app-update/start", version ? { version } : {});
 }
 
 export async function fetchPowerCapabilities(
@@ -583,6 +584,13 @@ export function updateProjectApi(
   }
 ): Promise<{ project: ProjectDetail }> {
   return patchJson(`/api/projects/${id}`, patch);
+}
+
+export function addCloudflaredIngressApi(input: {
+  hostname: string;
+  port: number;
+}): Promise<AddIngressResult> {
+  return postJson("/api/projects/ingress", input);
 }
 
 export function deleteProjectApi(id: number): Promise<void> {

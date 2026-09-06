@@ -38,8 +38,18 @@ curl_asset() {
 }
 
 if [[ "$REQUESTED" == "latest" ]]; then
-  curl_api "releases/latest" >"$TMP/release.json"
-  TAG="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tag_name)" "$TMP/release.json")"
+  if curl_api "releases/latest" >"$TMP/release.json"; then
+    TAG="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tag_name)" "$TMP/release.json")"
+  else
+    # No stable Latest (all tags are pre-releases) — pick the newest published release.
+    curl_api "releases?per_page=20" >"$TMP/releases.json"
+    TAG="$(node -e "
+      const list = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));
+      const r = (Array.isArray(list) ? list : []).find((x) => x && !x.draft && x.tag_name);
+      if (!r) process.exit(2);
+      console.log(r.tag_name);
+    " "$TMP/releases.json")"
+  fi
 else
   TAG="$REQUESTED"
   [[ "$TAG" == v* ]] || TAG="v$TAG"

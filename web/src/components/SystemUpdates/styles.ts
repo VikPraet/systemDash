@@ -393,6 +393,19 @@ export const AppPanelMeta = styled.div`
   }
 `;
 
+export const AppPanelSelect = styled.label`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(100%, 280px);
+  padding: 0 16px 14px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
 export const SectionHead = styled.h3`
   margin: 0;
   padding: 12px 16px;

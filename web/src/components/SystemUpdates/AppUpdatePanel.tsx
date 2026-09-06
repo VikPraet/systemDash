@@ -6,6 +6,7 @@ import {
   startAppUpdate,
 } from "../../api";
 import type { AppUpdateJob, AppUpdateStatus } from "../../types";
+import { Dropdown } from "../Dropdown";
 import { DangerBtn, GhostBtn } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
@@ -34,6 +35,7 @@ function phaseLabel(phase: AppUpdateJob["phase"]): string {
 
 export function AppUpdatePanel() {
   const [status, setStatus] = useState<AppUpdateStatus | null>(null);
+  const [picked, setPicked] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<AppUpdateJob | null>(null);
@@ -45,6 +47,10 @@ export function AppUpdatePanel() {
     try {
       const next = await fetchAppUpdateStatus({ refresh });
       setStatus(next);
+      setPicked((prev) => {
+        if (prev && next.releases?.some((r) => r.version === prev)) return prev;
+        return next.latestVersion ?? "";
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -86,7 +92,7 @@ export function AppUpdatePanel() {
       error: null,
     });
     try {
-      await startAppUpdate();
+      await startAppUpdate(picked || undefined);
       const first = await fetchAppUpdateJob();
       setJob(first);
     } catch (e) {
@@ -102,7 +108,14 @@ export function AppUpdatePanel() {
 
   const busy = job?.running ?? false;
   const current = status?.currentVersion ?? "—";
-  const latest = status?.latestVersion;
+  const releases = status?.releases ?? [];
+  const selected = releases.find((r) => r.version === picked) ?? null;
+  const canInstall =
+    !!status?.enabled &&
+    !!status.installRoot &&
+    !!picked &&
+    picked !== current &&
+    !busy;
 
   return (
     <S.AppPanel>
@@ -118,9 +131,9 @@ export function AppUpdatePanel() {
               Check
             </GhostBtn>
           </Tooltip>
-          {status?.updateAvailable && status.canInstall && (
+          {canInstall && (
             <DangerBtn type="button" disabled={busy} onClick={() => void runUpdate()}>
-              Update to v{latest}
+              Install v{picked}
             </DangerBtn>
           )}
         </S.AppPanelActions>
@@ -130,31 +143,43 @@ export function AppUpdatePanel() {
         <span>
           Installed <strong>v{current}</strong>
         </span>
-        {latest && (
-          <span>
-            {status?.prerelease ? "Beta" : "Latest"} <strong>v{latest}</strong>
-          </span>
-        )}
         {status?.releaseUrl && (
           <a href={status.releaseUrl} target="_blank" rel="noreferrer">
-            Release notes <ExternalLink size={12} />
+            Releases <ExternalLink size={12} />
           </a>
         )}
       </S.AppPanelMeta>
+
+      {releases.length > 0 && (
+        <S.AppPanelSelect>
+          Version
+          <Dropdown
+            value={picked}
+            options={releases.map((r) => ({
+              value: r.version,
+              label: r.prerelease ? `v${r.version} (beta)` : `v${r.version}`,
+            }))}
+            onChange={setPicked}
+            variant="underline"
+            ariaLabel="SystemDash version"
+          />
+        </S.AppPanelSelect>
+      )}
 
       {loading && !status && (
         <S.Banner>Checking GitHub releases…</S.Banner>
       )}
       {error && !status && <S.Banner $bad>{error}</S.Banner>}
-      {status?.hint && <S.Banner $bad={!status.updateAvailable}>{status.hint}</S.Banner>}
-      {status?.updateAvailable && !status.hint && (
+      {status?.hint && <S.Banner $bad={!status.enabled}>{status.hint}</S.Banner>}
+      {canInstall && selected && (
         <S.Banner>
-          SystemDash {status.prerelease ? "beta" : ""} v{latest} is available — click
-          Update to install without using the terminal.
+          {selected.prerelease ? "Beta" : "Release"} v{picked} is selected
+          {picked === status?.latestVersion ? " (newest)." : "."} Click Install to
+          switch without using the terminal.
         </S.Banner>
       )}
-      {!status?.updateAvailable && status?.enabled && !status.hint && !loading && (
-        <S.Banner>SystemDash is up to date.</S.Banner>
+      {picked === current && status?.enabled && !status.hint && !loading && (
+        <S.Banner>SystemDash v{current} is already installed.</S.Banner>
       )}
 
       {(job?.running || job?.phase === "done" || job?.phase === "error") && (

@@ -92,12 +92,15 @@ export const DropdownMenu = styled.ul`
   padding: 5px;
   list-style: none;
   max-height: 280px;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: ${({ theme }) => theme.color.panel2};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
   animation: dropdown-in 0.12s ease;
+  scrollbar-width: thin;
 
   li {
     margin: 0;

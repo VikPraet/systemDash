@@ -50,7 +50,7 @@ import {
   projectsCapabilities,
   startActionRun,
 } from "../actionRunner.js";
-import { discoverCloudflaredIngress } from "../cloudflared.js";
+import { addCloudflaredIngress, discoverCloudflaredIngress } from "../cloudflared.js";
 
 export const projectsRouter = Router();
 
@@ -234,6 +234,28 @@ projectsRouter.get("/", async (_req, res) => {
     capabilities: projectsCapabilities(),
     ingress: await discoverCloudflaredIngress(),
   });
+});
+
+projectsRouter.post("/ingress", mutate, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { hostname?: unknown; port?: unknown };
+    const hostname = typeof body.hostname === "string" ? body.hostname : "";
+    const port = typeof body.port === "number" ? body.port : Number(body.port);
+    const result = await addCloudflaredIngress({ hostname, port });
+    recordAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: "project.cloudflared.ingress",
+      detail: result.already
+        ? `${hostname} already in cloudflared`
+        : `added ${hostname} → 127.0.0.1:${port} (${result.file ?? ""})`,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json(result);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 projectsRouter.post("/", mutate, async (req, res) => {

@@ -17,9 +17,11 @@ export interface DropdownOption<T extends string> {
 }
 
 interface MenuPos {
-  top: number;
+  top?: number;
+  bottom?: number;
   left: number;
   width: number;
+  maxHeight: number;
 }
 
 /**
@@ -57,7 +59,27 @@ export function Dropdown<T extends string>({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    const gap = 4;
+    const margin = 8;
+    const spaceBelow = window.innerHeight - r.bottom - margin;
+    const spaceAbove = r.top - margin;
+    const openUp = spaceBelow < 240 && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, Math.min(360, openUp ? spaceAbove : spaceBelow));
+    setPos(
+      openUp
+        ? {
+            bottom: window.innerHeight - r.top + gap,
+            left: r.left,
+            width: r.width,
+            maxHeight,
+          }
+        : {
+            top: r.bottom + gap,
+            left: r.left,
+            width: r.width,
+            maxHeight,
+          }
+    );
   }, []);
 
   useLayoutEffect(() => {
@@ -74,8 +96,10 @@ export function Dropdown<T extends string>({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    // Reposition would drift on scroll; simplest correct behaviour is to close.
-    function onMove() {
+    // Reposition would drift on scroll; close unless the menu itself is scrolling.
+    function onMove(e: Event) {
+      const t = e.target;
+      if (t instanceof Node && menuRef.current?.contains(t)) return;
       setOpen(false);
     }
     document.addEventListener("mousedown", onDocDown);
@@ -116,7 +140,13 @@ export function Dropdown<T extends string>({
           <S.DropdownMenu
             ref={menuRef}
             role="listbox"
-            style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
+            style={{
+              top: pos.top,
+              bottom: pos.bottom,
+              left: pos.left,
+              minWidth: pos.width,
+              maxHeight: pos.maxHeight,
+            }}
           >
             {options.map((o) => {
               const isSel = o.value === value;

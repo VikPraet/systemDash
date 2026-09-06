@@ -316,6 +316,13 @@ export interface AppUpdateStatus {
   hint: string | null;
   checkedAt: string | null;
   prerelease: boolean;
+  releases?: AppReleaseOption[];
+}
+
+export interface AppReleaseOption {
+  version: string;
+  prerelease: boolean;
+  publishedAt: string | null;
 }
 
 export interface AppUpdateJob {
@@ -487,6 +494,15 @@ export interface IngressDiscovery {
   running: boolean;
   remotelyManaged: boolean;
   note: string | null;
+}
+
+export interface AddIngressResult {
+  added: boolean;
+  already: boolean;
+  file: string | null;
+  reloaded: string | null;
+  dns: string | null;
+  ingress: IngressDiscovery;
 }
 
 export interface ProjectsOverview {

@@ -17,6 +17,7 @@ import {
   connectGitAccountApi,
   createProjectActionApi,
   createProjectApi,
+  addCloudflaredIngressApi,
   deleteProjectActionApi,
   deleteProjectApi,
   disconnectGitAccountApi,
@@ -730,6 +731,34 @@ function destExample(platform: string): string {
   return platform === "win32" ? "C:\\www\\my-app" : "/var/www/my-app";
 }
 
+function hostnameFromSiteUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const host = (/^https?:\/\//i.test(trimmed)
+      ? new URL(trimmed)
+      : new URL(`https://${trimmed}`)
+    ).hostname.toLowerCase();
+    return host || null;
+  } catch {
+    return null;
+  }
+}
+
+function pendingCloudflaredAdd(
+  ingress: IngressDiscovery | null,
+  siteUrl: string,
+  port: string
+): { hostname: string; port: number } | null {
+  const hostname = hostnameFromSiteUrl(siteUrl);
+  const n = Number(port.trim());
+  if (!hostname || !Number.isInteger(n) || n < 1 || n > 65535) return null;
+  if (!ingress) return null;
+  if (ingress.routes.some((r) => r.hostname.toLowerCase() === hostname)) return null;
+  if (ingress.remotelyManaged && ingress.sources.length === 0) return null;
+  return { hostname, port: n };
+}
+
 function serviceHint(service: string): string {
   return service.replace(/^https?:\/\//i, "");
 }
@@ -807,13 +836,26 @@ function RunProfileFields({
   capabilities,
   projectPath,
   ingress,
+  addCloudflared,
+  onAddCloudflared,
 }: {
   draft: RunProfileDraft;
   onChange: (patch: Partial<RunProfileDraft>) => void;
   capabilities: ProjectsCapabilities;
   projectPath: string;
   ingress: IngressDiscovery | null;
+  addCloudflared?: boolean;
+  onAddCloudflared?: (next: boolean) => void;
 }) {
+  const pendingIngress = pendingCloudflaredAdd(ingress, draft.siteUrl, draft.port);
+  const hostForUrl = hostnameFromSiteUrl(draft.siteUrl);
+  const needPortForIngress = !!(
+    onAddCloudflared &&
+    hostForUrl &&
+    !pendingIngress &&
+    !ingress?.routes.some((r) => r.hostname.toLowerCase() === hostForUrl) &&
+    !draft.port.trim()
+  );
   return (
     <>
       <S.Field>
@@ -825,8 +867,8 @@ function RunProfileFields({
         />
         {ingress && ingress.routes.length > 0 ? (
           <S.FieldHint>
-            From cloudflared on this host. Click a hostname to fill — this does
-            not add DNS or a new tunnel route.
+            From cloudflared on this host. Click a hostname to fill, or type a
+            new one and add it to the config on save.
           </S.FieldHint>
         ) : (
           <S.FieldHint>
@@ -886,6 +928,24 @@ function RunProfileFields({
           inputMode="numeric"
         />
       </S.Field>
+      {onAddCloudflared && pendingIngress && (
+        <S.CheckRow>
+          <input
+            type="checkbox"
+            checked={!!addCloudflared}
+            onChange={(e) => onAddCloudflared(e.target.checked)}
+          />
+          <S.Switch $on={!!addCloudflared}>
+            <S.SwitchKnob $on={!!addCloudflared} />
+          </S.Switch>
+          Add {pendingIngress.hostname} to cloudflared → 127.0.0.1:{pendingIngress.port}
+        </S.CheckRow>
+      )}
+      {needPortForIngress && (
+        <S.FieldHint>
+          Set a port to add this hostname to the local cloudflared config.
+        </S.FieldHint>
+      )}
       {draft.runKind !== "none" && (
         <S.CheckRow>
           <input
@@ -989,6 +1049,7 @@ function SiteEditor({
   const [draft, setDraft] = useState(() => draftFromProject(project));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [addCloudflared, setAddCloudflared] = useState(true);
 
   useEffect(() => {
     setDraft(draftFromProject(project));
@@ -1022,10 +1083,21 @@ function SiteEditor({
         e.preventDefault();
         setBusy(true);
         setError(null);
-        void updateProjectApi(project.id, profilePayload(draft))
-          .then(() => onSaved())
-          .catch((err) => setError((err as Error).message))
-          .finally(() => setBusy(false));
+        void (async () => {
+          try {
+            await updateProjectApi(project.id, profilePayload(draft));
+            const pending = pendingCloudflaredAdd(ingress, draft.siteUrl, draft.port);
+            if (addCloudflared && pending) {
+              await addCloudflaredIngressApi(pending);
+            }
+            await onSaved();
+          } catch (err) {
+            setError((err as Error).message);
+            void onSaved();
+          } finally {
+            setBusy(false);
+          }
+        })();
       }}
     >
       <RunProfileFields
@@ -1033,6 +1105,8 @@ function SiteEditor({
         capabilities={capabilities}
         projectPath={project.localPath}
         ingress={ingress}
+        addCloudflared={addCloudflared}
+        onAddCloudflared={setAddCloudflared}
         onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
       />
       {error && <AuthError $inline>{error}</AuthError>}
@@ -1353,6 +1427,7 @@ function AddProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [addCloudflared, setAddCloudflared] = useState(true);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
@@ -1458,6 +1533,10 @@ function AddProjectModal({
         branch,
         ...profilePayload(runDraft),
       });
+      const pending = pendingCloudflaredAdd(ingress, runDraft.siteUrl, runDraft.port);
+      if (addCloudflared && pending) {
+        await addCloudflaredIngressApi(pending);
+      }
       await onCreated(project.id);
     } catch (err) {
       setError((err as Error).message);
@@ -1604,6 +1683,8 @@ function AddProjectModal({
               }
               projectPath={localPath}
               ingress={ingress}
+              addCloudflared={addCloudflared}
+              onAddCloudflared={setAddCloudflared}
               onChange={(patch) => setRunDraft((prev) => ({ ...prev, ...patch }))}
             />
             {branchesLoading && branches.length === 0 && (
@@ -1766,10 +1847,10 @@ function ActionEditorModal({
                   {step.type === "command" && (
                     <S.Field>
                       Command
-                      <textarea
+                      <input
                         value={step.command ?? ""}
                         onChange={(e) => updateStep(i, { command: e.target.value })}
-                        placeholder="any command in the project folder"
+                        placeholder="yarn build"
                       />
                     </S.Field>
                   )}
