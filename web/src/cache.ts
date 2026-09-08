@@ -14,6 +14,7 @@ import type {
   ProjectsCapabilities,
   Settings,
   SystemSnapshot,
+  UsageTree,
 } from "./types";
 import { DEFAULT_SETTINGS } from "./api";
 
@@ -30,6 +31,9 @@ interface FilesCache {
   dirSizes: Record<string, DirSize>;
   // Which listing the cached sizes belong to, so we don't recompute on remount.
   dirSizesPath: string | null;
+  view: "list" | "map";
+  usagePath: string | null;
+  usage: UsageTree | null;
 }
 
 interface HistoryCache {
@@ -110,6 +114,9 @@ export const cache: AppCache = {
     listing: null,
     dirSizes: {},
     dirSizesPath: null,
+    view: "list",
+    usagePath: null,
+    usage: null,
   },
   history: {
     rangeId: "live",

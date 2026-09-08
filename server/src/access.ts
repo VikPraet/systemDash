@@ -1,6 +1,6 @@
 import { promises as fsp } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { DATA_DIR } from "./paths.js";
 import {
   addCloudflaredIngress,
   discoverCloudflaredIngress,
@@ -13,8 +13,6 @@ import {
 } from "./cloudflared.js";
 import { ProjectsError } from "./projects.js";
 
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const ACCESS_FILE = path.join(DATA_DIR, "access.json");
 
 export type AccessMode = "local-config" | "dashboard" | "running-unread" | "missing";

@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ChevronDown,
   ChevronUp,
   ExternalLink,
   GitBranch,
+  Globe,
+  Maximize2,
+  Pencil,
   Play,
   Plus,
   RefreshCw,
+  Server,
   Trash2,
   Unplug,
+  Workflow,
   X,
 } from "lucide-react";
 import { APP_NAME } from "../../brand";
@@ -56,6 +62,7 @@ import type {
   ProjectSummary,
   ProjectsCapabilities,
   RunKind,
+  ServiceKind,
   SiteOverallState,
   StepInput,
 } from "../../types";
@@ -74,6 +81,7 @@ import {
   RevokeDetails,
 } from "../ui/styles";
 import { FolderPicker } from "./FolderPicker";
+import { ColorLog } from "./ColorLog";
 import { TunnelDnsHint } from "../TunnelDns";
 import * as S from "./styles";
 
@@ -169,6 +177,32 @@ function healthDetail(status: ProjectSiteStatus): string {
   return bits.join(" · ") || "No URL, port, or runtime to check yet.";
 }
 
+function serviceKindOf(p: { serviceKind?: ServiceKind }): ServiceKind {
+  return p.serviceKind === "api" || p.serviceKind === "worker" ? p.serviceKind : "website";
+}
+
+function serviceKindLabel(kind: ServiceKind): string {
+  if (kind === "api") return "API";
+  if (kind === "worker") return "Worker";
+  return "Website";
+}
+
+function serviceKindIcon(kind: ServiceKind) {
+  if (kind === "api") return <Server size={12} />;
+  if (kind === "worker") return <Workflow size={12} />;
+  return <Globe size={12} />;
+}
+
+function livePreviewUrl(p: ProjectSummary): string | null {
+  if (!p.embedPreview) return null;
+  return p.embedUrl || p.siteUrl || null;
+}
+
+function publicUrlLabel(kind: ServiceKind): string {
+  if (kind === "worker") return "Public URL (optional)";
+  return "Public URL";
+}
+
 const STATUS_POLL_MS = 30_000;
 
 export function Projects() {
@@ -198,7 +232,9 @@ export function Projects() {
   const [accountOpen, setAccountOpen] = useState<GitAccountPublic | null>(null);
   const [actionEdit, setActionEdit] = useState<ProjectAction | "new" | null>(null);
   const [busy, setBusy] = useState(false);
+  const [logFullscreen, setLogFullscreen] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
+  const logFsRef = useRef<HTMLPreElement>(null);
 
   const persist = useCallback(
     (next: {
@@ -305,6 +341,7 @@ export function Projects() {
     if (selectedId == null) {
       setDetail(null);
       setCheck(null);
+      setLogFullscreen(false);
       return;
     }
     void loadDetail(selectedId).catch((e) => setError((e as Error).message));
@@ -325,8 +362,24 @@ export function Projects() {
   }, [job?.running, selectedId, loadDetail]);
 
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [job?.log]);
+    for (const el of [logRef.current, logFsRef.current]) {
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [job?.log, logFullscreen]);
+
+  useEffect(() => {
+    if (!logFullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLogFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [logFullscreen]);
 
   async function onCheck(): Promise<void> {
     if (selectedId == null) return;
@@ -508,7 +561,8 @@ export function Projects() {
             <Loading>Loading projects…</Loading>
           ) : projects.length === 0 ? (
             <S.Empty>
-              Link a repo on this machine, then define actions like pull, a command, or a restart.
+              Link a repo on this machine, then say whether it is a website, an API, or a
+              background worker — Docker, Compose, systemd, or static files all work.
               {canManage && (
                 <>
                   {" "}
@@ -527,20 +581,26 @@ export function Projects() {
                   <S.Card key={p.id} type="button" onClick={() => persist({ selectedId: p.id })}>
                     <S.CardTop>
                       <S.CardTitle>{p.name}</S.CardTitle>
-                      {status ? (
-                        <S.HealthPill
-                          $state={status.overall}
-                          title={healthDetail(status)}
-                        >
+                      <S.CardBadges>
+                        <S.KindPill>
+                          {serviceKindIcon(serviceKindOf(p))}
+                          {serviceKindLabel(serviceKindOf(p))}
+                        </S.KindPill>
+                        {status ? (
+                          <S.HealthPill
+                            $state={status.overall}
+                            title={healthDetail(status)}
+                          >
                             <S.HealthDot $state={status.overall} />
                             {healthLabel(status.overall)}
                             {ms != null ? ` · ${ms}ms` : ""}
                           </S.HealthPill>
-                      ) : (
-                        (p.siteUrl || p.port || p.runKind !== "none") && (
-                          <S.HealthPill $state="unknown">Checking…</S.HealthPill>
-                        )
-                      )}
+                        ) : (
+                          (p.siteUrl || p.port || p.runKind !== "none") && (
+                            <S.HealthPill $state="unknown">Checking…</S.HealthPill>
+                          )
+                        )}
+                      </S.CardBadges>
                     </S.CardTop>
                     <S.CardMeta>
                       {p.localPath}
@@ -548,6 +608,7 @@ export function Projects() {
                         <GitBranch size={12} />
                         {p.branch}
                       </S.BranchLine>
+                      {p.notes && <S.NotesLine>{p.notes}</S.NotesLine>}
                       {p.siteUrl && (
                         <S.SiteLink
                           href={p.siteUrl}
@@ -587,7 +648,13 @@ export function Projects() {
           <S.DetailPanel>
             <S.DetailHead>
               <S.DetailTitle>
-                <h3>{selected.name}</h3>
+                <h3>
+                  {selected.name}
+                  <S.KindPill>
+                    {serviceKindIcon(serviceKindOf(selected))}
+                    {serviceKindLabel(serviceKindOf(selected))}
+                  </S.KindPill>
+                </h3>
                 <S.StatusLine>
                   <code>{selected.localPath}</code>
                   <br />
@@ -647,7 +714,7 @@ export function Projects() {
 
             {detail && (
               <>
-                <S.SectionLabel>Site</S.SectionLabel>
+                <S.SectionLabel>Hosting</S.SectionLabel>
                 <SiteEditor
                   project={detail}
                   capabilities={
@@ -668,6 +735,10 @@ export function Projects() {
                   }}
                 />
               </>
+            )}
+
+            {selected && livePreviewUrl(selected) && (
+              <LivePreview url={livePreviewUrl(selected)!} />
             )}
 
             <S.SectionHead>
@@ -699,7 +770,13 @@ export function Projects() {
                 <span className="meta">
                   {selectedStatus?.public
                     ? probeSummary(selectedStatus.public)
-                    : selected?.siteUrl || "Set a public URL to probe the live site."}
+                    : selected?.siteUrl
+                      ? selected.healthPath
+                        ? `${selected.siteUrl}${selected.healthPath}`
+                        : selected.siteUrl
+                      : serviceKindOf(selected ?? { serviceKind: "website" }) === "api"
+                        ? "Set a public URL to probe the API, or leave it local-only."
+                        : "Set a public URL to probe the live service."}
                 </span>
               </S.HealthCell>
               <S.HealthCell>
@@ -720,7 +797,7 @@ export function Projects() {
                   {selectedStatus?.origin
                     ? probeSummary(selectedStatus.origin)
                     : selected?.port
-                      ? `127.0.0.1:${selected.port}`
+                      ? `127.0.0.1:${selected.port}${selected.healthPath ?? ""}`
                       : "Set a port to check the local process."}
                 </span>
               </S.HealthCell>
@@ -778,7 +855,7 @@ export function Projects() {
             <S.SectionLabel>Actions</S.SectionLabel>
             {detail && detail.actions.length === 0 && (
               <S.StatusLine style={{ padding: "4px 16px 8px" }}>
-                No actions yet. Add one to pull and ensure the site is running.
+                No actions yet. Add one to pull, build, or restart this service.
               </S.StatusLine>
             )}
             {detail?.actions.map((action) => (
@@ -800,16 +877,18 @@ export function Projects() {
                         onClick={() => setActionEdit(action)}
                         disabled={busy || running}
                       >
+                        <Pencil size={14} />
                         Edit
                       </S.Btn>
-                      <S.ChipBtn
+                      <S.Btn
                         type="button"
-                        title="Delete action"
+                        $danger
                         onClick={() => void onDeleteAction(action.id)}
                         disabled={busy || running}
                       >
                         <Trash2 size={14} />
-                      </S.ChipBtn>
+                        Delete
+                      </S.Btn>
                     </S.ActionBtns>
                   )}
                 </S.ActionTop>
@@ -837,24 +916,24 @@ export function Projects() {
 
             {(job?.running || job?.log || job?.error) && (
               <>
-                {(job.running || job.phase === "done" || job.phase === "error") && (
-                  <S.ProgressWrap>
-                    <S.ProgressLabel>
-                      <span>
-                        {job.running
-                          ? `${job.stepLabel || job.actionName}…`
-                          : job.phase === "error"
-                            ? "Failed"
-                            : "Finished"}
-                      </span>
-                      <span>{job.progress}%</span>
-                    </S.ProgressLabel>
-                    <S.ProgressTrack>
-                      <S.ProgressFill $value={job.progress} />
-                    </S.ProgressTrack>
-                  </S.ProgressWrap>
+                <JobRunProgress
+                  job={job}
+                  extra={
+                    <S.IconBtn
+                      type="button"
+                      title="Fullscreen log"
+                      aria-label="Fullscreen log"
+                      onClick={() => setLogFullscreen(true)}
+                    >
+                      <Maximize2 size={14} />
+                    </S.IconBtn>
+                  }
+                />
+                {job.log && (
+                  <S.LogPanel ref={logRef}>
+                    <ColorLog text={job.log} />
+                  </S.LogPanel>
                 )}
-                {job.log && <S.LogPanel ref={logRef}>{job.log}</S.LogPanel>}
               </>
             )}
             {selected.lastRun && !job?.log && (
@@ -935,7 +1014,76 @@ export function Projects() {
           }}
         />
       )}
+      {logFullscreen && job &&
+        createPortal(
+          <S.LogFsOverlay
+            role="dialog"
+            aria-modal="true"
+            aria-label="Action log"
+            onClick={() => setLogFullscreen(false)}
+          >
+            <S.LogFsPanel onClick={(e) => e.stopPropagation()}>
+              <JobRunProgress
+                job={job}
+                overlay
+                extra={
+                  <S.IconBtn
+                    type="button"
+                    title="Close fullscreen"
+                    aria-label="Close fullscreen"
+                    onClick={() => setLogFullscreen(false)}
+                  >
+                    <X size={14} />
+                  </S.IconBtn>
+                }
+              />
+              {job.log ? (
+                <S.LogPanel ref={logFsRef} $full>
+                  <ColorLog text={job.log} />
+                </S.LogPanel>
+              ) : (
+                <S.StatusLine style={{ padding: "12px 16px" }}>No log yet.</S.StatusLine>
+              )}
+            </S.LogFsPanel>
+          </S.LogFsOverlay>,
+          document.body
+        )}
     </S.Root>
+  );
+}
+
+function JobRunProgress({
+  job,
+  extra,
+  overlay,
+}: {
+  job: ActionJob;
+  extra?: ReactNode;
+  overlay?: boolean;
+}) {
+  const showBar = job.running || job.phase === "done" || job.phase === "error";
+  const label = job.running
+    ? `${job.stepLabel || job.actionName}…`
+    : job.phase === "error"
+      ? "Failed"
+      : job.phase === "done"
+        ? "Finished"
+        : job.actionName || "Log";
+  return (
+    <S.ProgressWrap $overlay={overlay}>
+      <S.ProgressLabel>
+        <span>{label}</span>
+        <S.ProgressActions>
+          {showBar && <span>{job.progress}%</span>}
+          {extra}
+        </S.ProgressActions>
+      </S.ProgressLabel>
+      {showBar && (
+        <S.ProgressTrack>
+          <S.ProgressFill $value={job.progress} />
+        </S.ProgressTrack>
+      )}
+    </S.ProgressWrap>
   );
 }
 
@@ -949,20 +1097,30 @@ function row(label: string, value: ReactNode) {
   );
 }
 
-function runKindOptions(capabilities: ProjectsCapabilities): { value: RunKind; label: string }[] {
-  const opts: { value: RunKind; label: string }[] = [
-    { value: "none", label: "Not set yet" },
+function runKindOptions(
+  capabilities: ProjectsCapabilities,
+  purpose: ServiceKind
+): { value: RunKind; label: string }[] {
+  const docker: { value: RunKind; label: string }[] = [
     { value: "docker", label: "Docker container" },
     { value: "compose", label: "Docker Compose" },
-    { value: "static", label: "Static files" },
   ];
   if (capabilities.systemd) {
-    opts.splice(3, 0, { value: "systemd", label: "systemd service" });
+    docker.push({ value: "systemd", label: "systemd service" });
   }
-  return opts;
+  const staticOpt: { value: RunKind; label: string } = {
+    value: "static",
+    label: "Static website files",
+  };
+  const none: { value: RunKind; label: string } = { value: "none", label: "Not set yet" };
+  if (purpose === "website") {
+    return [none, staticOpt, ...docker];
+  }
+  return [none, ...docker, staticOpt];
 }
 
 type RunProfileDraft = {
+  serviceKind: ServiceKind;
   siteUrl: string;
   runKind: RunKind;
   port: string;
@@ -973,10 +1131,15 @@ type RunProfileDraft = {
   publishFrom: string;
   publishTo: string;
   startCommand: string;
+  healthPath: string;
+  embedPreview: boolean;
+  embedUrl: string;
+  notes: string;
 };
 
 function draftFromProject(p: ProjectSummary): RunProfileDraft {
   return {
+    serviceKind: serviceKindOf(p),
     siteUrl: p.siteUrl ?? "",
     runKind: p.runKind ?? "none",
     port: p.port != null ? String(p.port) : "",
@@ -987,11 +1150,16 @@ function draftFromProject(p: ProjectSummary): RunProfileDraft {
     publishFrom: p.publishFrom || "dist",
     publishTo: p.publishTo ?? "",
     startCommand: p.startCommand ?? "",
+    healthPath: p.healthPath ?? "",
+    embedPreview: !!p.embedPreview,
+    embedUrl: p.embedUrl ?? "",
+    notes: p.notes ?? "",
   };
 }
 
 function profilePayload(d: RunProfileDraft) {
   return {
+    serviceKind: d.serviceKind,
     siteUrl: d.siteUrl.trim() || null,
     runKind: d.runKind,
     port: d.port.trim() ? Number(d.port) : null,
@@ -1002,6 +1170,10 @@ function profilePayload(d: RunProfileDraft) {
     publishFrom: d.publishFrom.trim() || null,
     publishTo: d.publishTo.trim() || null,
     startCommand: d.startCommand.trim() || null,
+    healthPath: d.healthPath.trim() || null,
+    embedPreview: d.embedPreview,
+    embedUrl: d.embedUrl.trim() || null,
+    notes: d.notes.trim() || null,
   };
 }
 
@@ -1160,11 +1332,41 @@ function RunProfileFields({
   return (
     <>
       <S.Field>
-        Site URL
+        What is this
+        <Dropdown
+          value={draft.serviceKind}
+          options={[
+            { value: "website", label: "Website" },
+            { value: "api", label: "API / backend" },
+            { value: "worker", label: "Background worker" },
+          ]}
+          onChange={(serviceKind) => {
+            const next = serviceKind as ServiceKind;
+            onChange({
+              serviceKind: next,
+              embedPreview: next === "website",
+            });
+          }}
+          variant="underline"
+        />
+        <S.FieldHint>
+          {draft.serviceKind === "api"
+            ? "An HTTP service — health checks use a path like /health. A public URL is optional if it only listens locally."
+            : draft.serviceKind === "worker"
+              ? "A process that is not meant to be a public page. Runtime (Docker / systemd) is the main health signal."
+              : "A public page. You can embed a live preview of it on this project."}
+        </S.FieldHint>
+      </S.Field>
+      <S.Field>
+        {publicUrlLabel(draft.serviceKind)}
         <input
           value={draft.siteUrl}
           onChange={(e) => onChange({ siteUrl: e.target.value })}
-          placeholder="https://app.example.com"
+          placeholder={
+            draft.serviceKind === "api"
+              ? "https://api.example.com"
+              : "https://app.example.com"
+          }
         />
         {ingress && ingress.routes.length > 0 ? (
           <S.FieldHint>
@@ -1174,7 +1376,9 @@ function RunProfileFields({
         ) : (
           <S.FieldHint>
             {ingress?.note ??
-              "Public https:// URL. With a port, Save can add it to the local cloudflared tunnel."}
+              (draft.serviceKind === "worker"
+                ? "Optional. Only needed if this worker is reachable over HTTP."
+                : "Public https:// URL. With a port, Save can add it to the local cloudflared tunnel.")}
           </S.FieldHint>
         )}
       </S.Field>
@@ -1209,7 +1413,7 @@ function RunProfileFields({
         How it runs
         <Dropdown
           value={draft.runKind}
-          options={runKindOptions(capabilities)}
+          options={runKindOptions(capabilities, draft.serviceKind)}
           onChange={(runKind) => {
             const next = runKind as RunKind;
             onChange({
@@ -1224,6 +1428,11 @@ function RunProfileFields({
           }}
           variant="underline"
         />
+        <S.FieldHint>
+          {draft.serviceKind === "api" || draft.serviceKind === "worker"
+            ? "APIs and workers usually run as a Docker container, Compose stack, or systemd unit. Set a port so health checks work."
+            : "Static files copy a build folder. Docker, Compose, or systemd keep a process running."}
+        </S.FieldHint>
       </S.Field>
       <S.Field>
         Port
@@ -1351,6 +1560,89 @@ function RunProfileFields({
           />
         </>
       )}
+      <S.Field>
+        Health check path
+        <input
+          value={draft.healthPath}
+          onChange={(e) => onChange({ healthPath: e.target.value })}
+          placeholder={draft.serviceKind === "website" ? "/" : "/health"}
+        />
+        <S.FieldHint>
+          {draft.serviceKind === "api"
+            ? "Probed on the public URL and on 127.0.0.1:port. Use /health or /api/status if / is not a useful check."
+            : "Optional. Leave blank to probe the public URL (or / on the local port)."}
+        </S.FieldHint>
+      </S.Field>
+      <S.CheckRow>
+        <input
+          type="checkbox"
+          checked={draft.embedPreview}
+          onChange={(e) => onChange({ embedPreview: e.target.checked })}
+        />
+        <S.Switch $on={draft.embedPreview}>
+          <S.SwitchKnob $on={draft.embedPreview} />
+        </S.Switch>
+        Show live preview (iframe)
+      </S.CheckRow>
+      {draft.embedPreview && (
+        <S.Field>
+          Preview URL
+          <input
+            value={draft.embedUrl}
+            onChange={(e) => onChange({ embedUrl: e.target.value })}
+            placeholder={draft.siteUrl.trim() || "https://app.example.com"}
+          />
+          <S.FieldHint>
+            Loaded in your browser, so this must be a URL you can reach — usually the
+            public hostname, not 127.0.0.1. If the main site blocks iframes, point this
+            at a page that allows embedding.
+          </S.FieldHint>
+        </S.Field>
+      )}
+      <S.Field>
+        Notes
+        <textarea
+          value={draft.notes}
+          onChange={(e) => onChange({ notes: e.target.value })}
+          placeholder="What this is, how to reach it, anything you want on the project card."
+          rows={3}
+        />
+      </S.Field>
+    </>
+  );
+}
+
+function LivePreview({ url }: { url: string }) {
+  const [frameKey, setFrameKey] = useState(0);
+  return (
+    <>
+      <S.SectionLabel>Live preview</S.SectionLabel>
+      <S.PreviewWrap>
+        <S.PreviewBar>
+          <span>Embedded view</span>
+          <S.PreviewActions>
+            <S.Btn type="button" onClick={() => setFrameKey((k) => k + 1)}>
+              <RefreshCw size={14} />
+              Reload
+            </S.Btn>
+            <S.SiteLink href={url} target="_blank" rel="noreferrer">
+              <ExternalLink size={12} />
+              Open
+            </S.SiteLink>
+          </S.PreviewActions>
+        </S.PreviewBar>
+        <S.PreviewFrame
+          key={frameKey}
+          src={url}
+          title="Live preview"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"
+          referrerPolicy="no-referrer-when-downgrade"
+        />
+        <S.PreviewHint>
+          If this is blank, the service is blocking iframes. Open it in a new tab, or set a
+          different preview URL under Hosting.
+        </S.PreviewHint>
+      </S.PreviewWrap>
     </>
   );
 }
@@ -1383,19 +1675,29 @@ function SiteEditor({
   if (!canManage) {
     return (
       <S.StatusLine style={{ padding: "8px 16px 12px" }}>
+        {serviceKindLabel(serviceKindOf(project))}
         {project.siteUrl ? (
-          <S.SiteLink href={project.siteUrl} target="_blank" rel="noreferrer">
-            <ExternalLink size={12} />
-            {project.siteUrl}
-          </S.SiteLink>
+          <>
+            {" · "}
+            <S.SiteLink href={project.siteUrl} target="_blank" rel="noreferrer">
+              <ExternalLink size={12} />
+              {project.siteUrl}
+            </S.SiteLink>
+          </>
         ) : (
-          "No public URL set."
+          " · no public URL"
         )}
         {project.runKind !== "none" && (
           <>
             {" "}
             · {project.runKind}
             {project.boot ? " · starts on boot" : ""}
+          </>
+        )}
+        {project.notes && (
+          <>
+            <br />
+            {project.notes}
           </>
         )}
       </S.StatusLine>
@@ -1439,7 +1741,7 @@ function SiteEditor({
       {error && <AuthError $inline>{error}</AuthError>}
       <div>
         <S.Btn type="submit" disabled={disabled || busy}>
-          {busy ? "Saving…" : "Save site"}
+          {busy ? "Saving…" : "Save hosting"}
         </S.Btn>
       </div>
     </S.SiteForm>
@@ -1831,6 +2133,7 @@ function AddProjectModal({
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [runDraft, setRunDraft] = useState<RunProfileDraft>({
+    serviceKind: "website",
     siteUrl: "",
     runKind: "none",
     port: "",
@@ -1841,6 +2144,10 @@ function AddProjectModal({
     publishFrom: "dist",
     publishTo: "",
     startCommand: "",
+    healthPath: "",
+    embedPreview: true,
+    embedUrl: "",
+    notes: "",
   });
   const connected = accounts.filter((a) => a.provider === provider);
 

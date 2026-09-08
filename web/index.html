@@ -4,8 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Beacon</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/apple-touch-icon.png" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" data-connection-favicon="1" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#060a12" />
     <script>
@@ -16,9 +15,23 @@
           if (stored === "light" || stored === "dark") theme = stored;
         } catch (e) {}
         document.documentElement.dataset.theme = theme;
+        var palette = "classic";
+        try {
+          var storedPalette = localStorage.getItem("systemdash.palette");
+          if (storedPalette === "lime") palette = "lime";
+          else if (storedPalette === "classic" || storedPalette === "original") palette = "classic";
+        } catch (e) {}
+        document.documentElement.dataset.palette = palette;
         document.documentElement.style.colorScheme = theme;
         var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute("content", theme === "light" ? "#e7eef7" : "#060a12");
+        if (meta) {
+          var colors = {
+            classic: { dark: "#060a12", light: "#e7eef7" },
+            original: { dark: "#060a12", light: "#e7eef7" },
+            lime: { dark: "#000000", light: "#ececec" },
+          };
+          meta.setAttribute("content", colors[palette][theme]);
+        }
       })();
     </script>
   </head>

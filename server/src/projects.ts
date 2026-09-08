@@ -1,10 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { DATA_DIR } from "./paths.js";
 
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const DB_FILE = path.join(DATA_DIR, "projects.db");
 
 export function projectsDataDir(): string {
@@ -32,6 +30,7 @@ export type ActionStepType =
   | "systemd_apply"
   | "publish";
 export type RunKind = "none" | "docker" | "compose" | "systemd" | "static";
+export type ServiceKind = "website" | "api" | "worker";
 export type RunStatus = "running" | "ok" | "error";
 
 export interface GitAccountPublic {
@@ -89,6 +88,7 @@ export interface ProjectSummary {
   createdAt: number;
   siteUrl: string | null;
   runKind: RunKind;
+  serviceKind: ServiceKind;
   port: number | null;
   boot: boolean;
   container: string | null;
@@ -97,6 +97,10 @@ export interface ProjectSummary {
   publishFrom: string | null;
   publishTo: string | null;
   startCommand: string | null;
+  healthPath: string | null;
+  embedPreview: boolean;
+  embedUrl: string | null;
+  notes: string | null;
   lastRun: ActionRun | null;
 }
 
@@ -125,6 +129,7 @@ const STEP_TYPES = new Set<ActionStepType>([
   "publish",
 ]);
 const RUN_KINDS = new Set<RunKind>(["none", "docker", "compose", "systemd", "static"]);
+const SERVICE_KINDS = new Set<ServiceKind>(["website", "api", "worker"]);
 
 let db: DatabaseSync | null = null;
 
@@ -206,6 +211,11 @@ export function projectsDb(): DatabaseSync {
     "publish_from TEXT",
     "publish_to TEXT",
     "start_command TEXT",
+    "service_kind TEXT NOT NULL DEFAULT 'website'",
+    "health_path TEXT",
+    "embed_preview INTEGER NOT NULL DEFAULT 0",
+    "embed_url TEXT",
+    "notes TEXT",
   ]) {
     try {
       fresh.exec(`ALTER TABLE projects ADD COLUMN ${col};`);
@@ -235,12 +245,37 @@ export function projectsDb(): DatabaseSync {
   return db;
 }
 
+/** Flushes the WAL so a file copy of projects.db is consistent. */
+export function checkpointProjectsDb(): void {
+  if (!db && !fs.existsSync(DB_FILE)) return;
+  try {
+    projectsDb().exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  } catch {
+    // Best-effort; the copy still includes -wal/-shm when present.
+  }
+}
+
+/** Closes the projects database so files can be replaced (restore). */
+export function closeProjectsDb(): void {
+  if (!db) return;
+  try {
+    db.close();
+  } catch {
+    // Ignore close errors so restore can still swap files.
+  }
+  db = null;
+}
+
 export function isGitProvider(v: unknown): v is GitProvider {
   return v === "github" || v === "gitlab";
 }
 
 export function isRunKind(v: unknown): v is RunKind {
   return typeof v === "string" && RUN_KINDS.has(v as RunKind);
+}
+
+export function isServiceKind(v: unknown): v is ServiceKind {
+  return typeof v === "string" && SERVICE_KINDS.has(v as ServiceKind);
 }
 
 export function isStepType(v: unknown): v is ActionStepType {
@@ -421,6 +456,40 @@ export function sanitizeRunKind(raw: unknown): RunKind {
   return raw;
 }
 
+export function sanitizeServiceKind(raw: unknown): ServiceKind {
+  if (raw === undefined || raw === null || raw === "") return "website";
+  if (!isServiceKind(raw)) {
+    throw new ProjectsError(400, "kind must be website, api, or worker");
+  }
+  return raw;
+}
+
+export function sanitizeHealthPath(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid health path");
+  let p = raw.trim().replace(/\\/g, "/");
+  if (!p || p === "/") return null;
+  if (!p.startsWith("/")) p = `/${p}`;
+  if (p.length > 200) throw new ProjectsError(400, "health path is too long");
+  if (p.includes("..") || p.includes("://") || p.includes("\\")) {
+    throw new ProjectsError(400, "invalid health path");
+  }
+  return p;
+}
+
+export function sanitizeNotes(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid notes");
+  const n = raw.replace(/\r\n/g, "\n").trim();
+  if (!n) return null;
+  if (n.length > 2000) throw new ProjectsError(400, "notes are too long");
+  return n;
+}
+
+export function sanitizeEmbedPreview(raw: unknown): boolean {
+  return raw === true || raw === 1 || raw === "1" || raw === "true";
+}
+
 export function sanitizePort(raw: unknown): number | null {
   if (raw === undefined || raw === null || raw === "") return null;
   const n = typeof raw === "number" ? raw : Number(String(raw).trim());
@@ -599,14 +668,21 @@ type ProjectRow = {
   publish_from: string | null;
   publish_to: string | null;
   start_command: string | null;
+  service_kind: string | null;
+  health_path: string | null;
+  embed_preview: number | null;
+  embed_url: string | null;
+  notes: string | null;
 };
 
 const PROJECT_COLS = `id, name, local_path, remote_url, branch, account_id, created_at,
          site_url, run_kind, port, boot, container, compose_file, unit,
-         publish_from, publish_to, start_command`;
+         publish_from, publish_to, start_command, service_kind, health_path,
+         embed_preview, embed_url, notes`;
 
 function mapProject(row: ProjectRow): ProjectSummary {
   const kind = isRunKind(row.run_kind) ? row.run_kind : "none";
+  const serviceKind = isServiceKind(row.service_kind) ? row.service_kind : "website";
   return {
     id: row.id,
     name: row.name,
@@ -617,6 +693,7 @@ function mapProject(row: ProjectRow): ProjectSummary {
     createdAt: row.created_at,
     siteUrl: row.site_url || null,
     runKind: kind,
+    serviceKind,
     port: typeof row.port === "number" && row.port > 0 ? row.port : null,
     boot: !!row.boot,
     container: row.container,
@@ -625,6 +702,10 @@ function mapProject(row: ProjectRow): ProjectSummary {
     publishFrom: row.publish_from,
     publishTo: row.publish_to,
     startCommand: row.start_command,
+    healthPath: row.health_path || null,
+    embedPreview: !!row.embed_preview,
+    embedUrl: row.embed_url || null,
+    notes: row.notes || null,
     lastRun: getLatestRun(row.id),
   };
 }
@@ -771,6 +852,11 @@ export function insertProject(input: {
   publishFrom?: string | null;
   publishTo?: string | null;
   startCommand?: string | null;
+  serviceKind?: ServiceKind;
+  healthPath?: string | null;
+  embedPreview?: boolean;
+  embedUrl?: string | null;
+  notes?: string | null;
 }): ProjectSummary {
   const existing = projectsDb()
     .prepare("SELECT id FROM projects WHERE local_path = ?")
@@ -782,13 +868,17 @@ export function insertProject(input: {
     throw new ProjectsError(400, "git account not found");
   }
   const runKind = input.runKind ?? "none";
+  const serviceKind = input.serviceKind ?? "website";
+  const embedPreview =
+    input.embedPreview !== undefined ? input.embedPreview : serviceKind === "website";
   const info = projectsDb()
     .prepare(
       `INSERT INTO projects (
          name, local_path, remote_url, branch, account_id, created_at,
          site_url, run_kind, port, boot, container, compose_file, unit,
-         publish_from, publish_to, start_command
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         publish_from, publish_to, start_command, service_kind, health_path,
+         embed_preview, embed_url, notes
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       input.name,
@@ -806,7 +896,12 @@ export function insertProject(input: {
       input.unit ?? null,
       input.publishFrom ?? null,
       input.publishTo ?? null,
-      input.startCommand ?? null
+      input.startCommand ?? null,
+      serviceKind,
+      input.healthPath ?? null,
+      embedPreview ? 1 : 0,
+      input.embedUrl ?? null,
+      input.notes ?? null
     );
   const project = requireProject(Number(info.lastInsertRowid));
   seedDefaultAction(project);
@@ -830,6 +925,11 @@ export function updateProject(
     publishFrom?: string | null;
     publishTo?: string | null;
     startCommand?: string | null;
+    serviceKind?: ServiceKind;
+    healthPath?: string | null;
+    embedPreview?: boolean;
+    embedUrl?: string | null;
+    notes?: string | null;
   }
 ): ProjectSummary {
   const prev = requireProject(id);
@@ -893,6 +993,29 @@ export function updateProject(
     projectsDb()
       .prepare("UPDATE projects SET start_command = ? WHERE id = ?")
       .run(patch.startCommand, id);
+  }
+  if (patch.serviceKind !== undefined) {
+    projectsDb()
+      .prepare("UPDATE projects SET service_kind = ? WHERE id = ?")
+      .run(patch.serviceKind, id);
+  }
+  if (patch.healthPath !== undefined) {
+    projectsDb()
+      .prepare("UPDATE projects SET health_path = ? WHERE id = ?")
+      .run(patch.healthPath, id);
+  }
+  if (patch.embedPreview !== undefined) {
+    projectsDb()
+      .prepare("UPDATE projects SET embed_preview = ? WHERE id = ?")
+      .run(patch.embedPreview ? 1 : 0, id);
+  }
+  if (patch.embedUrl !== undefined) {
+    projectsDb()
+      .prepare("UPDATE projects SET embed_url = ? WHERE id = ?")
+      .run(patch.embedUrl, id);
+  }
+  if (patch.notes !== undefined) {
+    projectsDb().prepare("UPDATE projects SET notes = ? WHERE id = ?").run(patch.notes, id);
   }
   const next = requireProject(id);
   if (prev.runKind === "none" && next.runKind !== "none" && listActions(id).length === 0) {

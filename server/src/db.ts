@@ -1,15 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
+import { DATA_DIR } from "./paths.js";
 
 // Auth data (users + sessions) lives in its own SQLite file alongside the
 // history/settings, using the same data-dir convention so everything is
 // writable regardless of where the server was launched from. We rely on Node's
 // built-in `node:sqlite` (already used by history.ts) to avoid any native
 // dependency.
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const DB_FILE = path.join(DATA_DIR, "auth.db");
 
 let db: DatabaseSync | null = null;
@@ -101,4 +99,25 @@ export function authDb(): DatabaseSync {
   `);
   db = fresh;
   return db;
+}
+
+/** Flushes the WAL so a file copy of auth.db is consistent. */
+export function checkpointAuthDb(): void {
+  if (!db && !fs.existsSync(DB_FILE)) return;
+  try {
+    authDb().exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  } catch {
+    // Best-effort; the copy still includes -wal/-shm when present.
+  }
+}
+
+/** Closes the auth database so files can be replaced (restore). */
+export function closeAuthDb(): void {
+  if (!db) return;
+  try {
+    db.close();
+  } catch {
+    // Ignore close errors so restore can still swap files.
+  }
+  db = null;
 }

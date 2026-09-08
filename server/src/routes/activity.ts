@@ -8,6 +8,8 @@ import {
   recordAudit,
   requireRole,
   revokeSession,
+  auditStats,
+  clearAudit,
 } from "../auth.js";
 import { resolveLocations, normalizeForLookup, type GeoLocation } from "../geo.js";
 
@@ -77,8 +79,33 @@ activityRouter.post("/sessions/revoke", adminOnly, (req, res) => {
 activityRouter.get("/audit", adminOnly, async (req, res) => {
   try {
     const limit = Number(req.query.limit);
-    const entries = await withLocations(listAudit(Number.isFinite(limit) ? limit : 200));
-    res.json({ entries });
+    const { entries, total } = listAudit(Number.isFinite(limit) ? limit : 2000);
+    res.json({ entries: await withLocations(entries), total });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+activityRouter.get("/audit/stats", adminOnly, (_req, res) => {
+  try {
+    res.json(auditStats());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+activityRouter.post("/audit/clear", adminOnly, (req, res) => {
+  try {
+    clearAudit();
+    recordAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: "activity.clear",
+      detail: "cleared activity log",
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
   }

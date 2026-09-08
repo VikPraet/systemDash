@@ -53,7 +53,31 @@ function hostnameFromSiteUrl(raw: string | null): string | null {
   }
 }
 
-function originUrl(port: number, siteUrl: string | null): string {
+function joinHealthPath(healthPath: string): string {
+  return healthPath.startsWith("/") ? healthPath : `/${healthPath}`;
+}
+
+function withHealthPath(url: string, healthPath: string | null): string {
+  if (!healthPath) return url;
+  try {
+    const u = new URL(url);
+    u.pathname = joinHealthPath(healthPath);
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+function originUrl(
+  port: number,
+  siteUrl: string | null,
+  healthPath: string | null
+): string {
+  if (healthPath) {
+    return `http://127.0.0.1:${port}${joinHealthPath(healthPath)}`;
+  }
   if (siteUrl) {
     try {
       const u = new URL(/^https?:\/\//i.test(siteUrl) ? siteUrl : `https://${siteUrl}`);
@@ -247,14 +271,14 @@ async function statusFor(project: ProjectSummary): Promise<ProjectSiteStatus> {
 
   if (project.siteUrl) {
     probes.push(
-      probeHttp(project.siteUrl).then((v) => {
+      probeHttp(withHealthPath(project.siteUrl, project.healthPath)).then((v) => {
         pub = v;
       })
     );
   }
   if (project.port != null && project.port > 0) {
     probes.push(
-      probeHttp(originUrl(project.port, project.siteUrl)).then((v) => {
+      probeHttp(originUrl(project.port, project.siteUrl, project.healthPath)).then((v) => {
         origin = v;
       })
     );

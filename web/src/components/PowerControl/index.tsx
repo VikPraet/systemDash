@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Power, RefreshCw, Skull, X } from "lucide-react";
+import { AlertTriangle, Power, PowerOff, RefreshCw, X } from "lucide-react";
 import { APP_NAME } from "../../brand";
 import { fetchPowerCapabilities, runPowerAction } from "../../api";
 import type { PowerAction, PowerCapabilities } from "../../types";
@@ -42,7 +42,7 @@ const ACTION_META: Record<
     title: "Force power off",
     detail: "Immediately cuts power to the host. Unsaved work may be lost.",
     confirm: "POWEROFF",
-    icon: Skull,
+    icon: PowerOff,
   },
 };
 

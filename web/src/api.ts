@@ -1,5 +1,6 @@
 import type {
   AuditEntry,
+  ActivityStats,
   AuthStatus,
   DirListing,
   DockerContainerList,
@@ -39,10 +40,15 @@ import type {
   CloudflareAccountPublic,
   SitesStatusResponse,
   RunKind,
+  ServiceKind,
   StepInput,
   SharesStatus,
   NetworkShare,
   ShareProtocol,
+  BackupSnapshot,
+  TrashItem,
+  UsageProgress,
+  UsageTree,
 } from "./types";
 
 // When a gated /api call comes back 401 with "authentication required", the
@@ -202,15 +208,30 @@ export async function revokeSession(id: string): Promise<void> {
 }
 
 export async function fetchAudit(
-  limit = 200,
+  limit = 2000,
   signal?: AbortSignal
-): Promise<AuditEntry[]> {
+): Promise<{ entries: AuditEntry[]; total: number }> {
   const res = await fetch(`/api/audit?limit=${limit}`, { signal });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `Request failed: ${res.status}`);
   }
-  return ((await res.json()) as { entries: AuditEntry[] }).entries;
+  const data = (await res.json()) as { entries?: AuditEntry[]; total?: number };
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  return {
+    entries,
+    total: typeof data.total === "number" ? data.total : entries.length,
+  };
+}
+
+export async function fetchAuditStats(signal?: AbortSignal): Promise<ActivityStats> {
+  const res = await fetch("/api/audit/stats", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as ActivityStats;
+}
+
+export async function clearAudit(): Promise<{ ok: true }> {
+  return postJson("/api/audit/clear", {});
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -225,6 +246,11 @@ export const DEFAULT_SETTINGS: Settings = {
     intervalSeconds: 5,
     retentionDays: 30,
     maxSizeMb: 500,
+  },
+  activity: {
+    enabled: true,
+    retentionDays: 30,
+    maxSizeMb: 50,
   },
   terminal: {
     osUser: "",
@@ -574,6 +600,61 @@ export async function fetchDirSize(
   return (await res.json()) as { bytes: number; partial: boolean };
 }
 
+export async function scanUsageTree(
+  path: string,
+  onProgress: (progress: UsageProgress) => void,
+  signal?: AbortSignal
+): Promise<UsageTree> {
+  const res = await fetch(`/api/fs/usage?path=${encodeURIComponent(path)}`, {
+    signal,
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  if (!res.body) throw new Error("Disk map scan returned no data");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let doneResult: UsageTree | null = null;
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const msg = JSON.parse(trimmed) as
+      | ({ type: "progress" } & UsageProgress)
+      | ({ type: "done" } & UsageTree)
+      | { type: "error"; error: string };
+    if (msg.type === "progress") {
+      onProgress({
+        bytes: msg.bytes,
+        files: msg.files,
+        dirs: msg.dirs,
+        scanning: msg.scanning,
+      });
+      return;
+    }
+    if (msg.type === "error") throw new Error(msg.error);
+    doneResult = msg;
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl = buf.indexOf("\n");
+    while (nl >= 0) {
+      handleLine(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+      nl = buf.indexOf("\n");
+    }
+  }
+  if (buf.trim()) handleLine(buf);
+  if (!doneResult) throw new Error("Disk map scan ended without a result");
+  return doneResult;
+}
+
 export function downloadUrl(path: string): string {
   return `/api/fs/download?path=${encodeURIComponent(path)}`;
 }
@@ -657,6 +738,7 @@ export function createProjectApi(input: {
   accountId?: number | null;
   siteUrl?: string | null;
   runKind?: RunKind;
+  serviceKind?: ServiceKind;
   port?: number | null;
   boot?: boolean;
   container?: string | null;
@@ -665,6 +747,10 @@ export function createProjectApi(input: {
   publishFrom?: string | null;
   publishTo?: string | null;
   startCommand?: string | null;
+  healthPath?: string | null;
+  embedPreview?: boolean;
+  embedUrl?: string | null;
+  notes?: string | null;
 }): Promise<{ project: ProjectDetail }> {
   return postJson("/api/projects", input);
 }
@@ -678,6 +764,7 @@ export function updateProjectApi(
     accountId?: number | null;
     siteUrl?: string | null;
     runKind?: RunKind;
+    serviceKind?: ServiceKind;
     port?: number | null;
     boot?: boolean;
     container?: string | null;
@@ -686,6 +773,10 @@ export function updateProjectApi(
     publishFrom?: string | null;
     publishTo?: string | null;
     startCommand?: string | null;
+    healthPath?: string | null;
+    embedPreview?: boolean;
+    embedUrl?: string | null;
+    notes?: string | null;
   }
 ): Promise<{ project: ProjectDetail }> {
   return patchJson(`/api/projects/${id}`, patch);
@@ -851,6 +942,65 @@ export function copyEntry(path: string, dest: string): Promise<{ entry: FsEntry 
 
 export function deleteEntry(path: string): Promise<{ ok: true }> {
   return postJson("/api/fs/delete", { path });
+}
+
+export async function fetchTrash(signal?: AbortSignal): Promise<TrashItem[]> {
+  const res = await fetch("/api/fs/trash", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { items: TrashItem[] }).items;
+}
+
+export function restoreTrashItem(id: string): Promise<{ item: TrashItem }> {
+  return postJson(`/api/fs/trash/${encodeURIComponent(id)}/restore`, {});
+}
+
+export function purgeTrashItem(id: string): Promise<void> {
+  return deleteJson(`/api/fs/trash/${encodeURIComponent(id)}`);
+}
+
+export function emptyTrash(): Promise<{ ok: true; count: number }> {
+  return postJson("/api/fs/trash/empty", {});
+}
+
+export async function fetchBackups(signal?: AbortSignal): Promise<BackupSnapshot[]> {
+  const res = await fetch("/api/backup", { signal });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { snapshots: BackupSnapshot[] }).snapshots;
+}
+
+export function createBackup(): Promise<{ snapshot: BackupSnapshot }> {
+  return postJson("/api/backup", {});
+}
+
+export function backupDownloadUrl(id: string): string {
+  return `/api/backup/${encodeURIComponent(id)}/download`;
+}
+
+export function restoreBackup(id: string, confirm: string): Promise<{ ok: true; restarting: true }> {
+  return postJson("/api/backup/restore", { id, confirm });
+}
+
+export async function restoreBackupUpload(
+  file: File,
+  confirm: string
+): Promise<{ ok: true; restarting: true }> {
+  const res = await fetch(
+    `/api/backup/restore?confirm=${encodeURIComponent(confirm)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/gzip" },
+      body: file,
+    }
+  );
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new Error(body.error ?? `Request failed: ${res.status}`);
+  return body as { ok: true; restarting: true };
 }
 
 /** Streams a single File to the given directory; reports progress 0..1. */

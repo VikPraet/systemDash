@@ -53,7 +53,7 @@ export const StatValue = styled.span`
 `;
 
 /* ---- Gauge --------------------------------------------------------------- */
-export const GaugeRoot = styled.div`
+export const GaugeRoot = styled.div<{ $squircle?: boolean }>`
   position: relative;
   width: 120px;
   height: 120px;
@@ -63,7 +63,7 @@ export const GaugeRoot = styled.div`
   .gauge-svg {
     width: 100%;
     height: 100%;
-    transform: rotate(-90deg);
+    transform: ${({ $squircle }) => ($squircle ? "none" : "rotate(-90deg)")};
   }
 
   .gauge-track {
@@ -76,8 +76,9 @@ export const GaugeRoot = styled.div`
     fill: none;
     stroke-width: 12;
     stroke-linecap: round;
+    stroke-linejoin: ${({ $squircle }) => ($squircle ? "round" : "miter")};
     transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1),
-      stroke 0.8s ease;
+      stroke-dasharray 0.8s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.8s ease;
   }
 `;
 
@@ -111,12 +112,20 @@ export const BarTrack = styled.div`
   background: ${({ theme }) => theme.color.track};
   border-radius: 999px;
   overflow: hidden;
+
+  html[data-palette="lime"] & {
+    border-radius: var(--radius-sm);
+  }
 `;
 
 export const BarFill = styled.div`
   height: 100%;
   border-radius: 999px;
   transition: width 0.4s ease;
+
+  html[data-palette="lime"] & {
+    border-radius: var(--radius-sm);
+  }
 `;
 
 /* ---- LabeledBar ---------------------------------------------------------- */

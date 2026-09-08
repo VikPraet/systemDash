@@ -19,6 +19,10 @@ import {
   renameEntry,
   saveSettings,
   uploadFile,
+  fetchTrash,
+  restoreTrashItem,
+  purgeTrashItem,
+  emptyTrash,
 } from "../../api";
 import type {
   DirListing,
@@ -28,6 +32,7 @@ import type {
   Settings,
   ShareProtocol,
   SharesStatus,
+  TrashItem,
 } from "../../types";
 import { cache, type DirSize } from "../../cache";
 import { Bar } from "../widgets";
@@ -45,6 +50,7 @@ import {
   ModalTitle,
 } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
+import { DiskMap, type DiskMapHandle } from "./DiskMap";
 import * as S from "./styles";
 
 // `null` path = the "This PC" overview that lists drives.
@@ -55,6 +61,8 @@ type Dialog =
   | { kind: "newFile" }
   | { kind: "rename"; entry: FsEntry }
   | { kind: "delete"; entry: FsEntry }
+  | { kind: "deleteForever"; item: TrashItem }
+  | { kind: "emptyTrash" }
   | { kind: "addShare" }
   | { kind: "removeShare"; root: FsRoot }
   | null;
@@ -87,13 +95,16 @@ export function Files() {
     null
   );
   const [dialog, setDialog] = useState<Dialog>(null);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [settings, setSettings] = useState<Settings>(() => cache.settings);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [filePanel, setFilePanel] = useState<{
     entry: FsEntry;
     mode: FileEditorMode;
   } | null>(null);
+  const [view, setView] = useState<"list" | "map">(() => cache.files.view);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mapRef = useRef<DiskMapHandle>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +128,10 @@ export function Files() {
     cache.files.path = path;
   }, [path]);
 
+  useEffect(() => {
+    cache.files.view = view;
+  }, [view]);
+
   const reloadRoots = useCallback(async () => {
     const r = await fetchRoots();
     cache.files.roots = r;
@@ -136,15 +151,35 @@ export function Files() {
     if (path === null) {
       setListing(null);
       cache.files.listing = null;
+      setTrashItems([]);
       return;
     }
+    const trash = roots.find((r) => r.kind === "trash");
+    const viewingTrash = !!(trash && path === trash.path);
     let cancelled = false;
     const ctrl = new AbortController();
-    // Only show the loader when there's nothing to display yet; if we already
-    // have this folder cached we keep showing it while refreshing.
     setLoading(true);
     setError(null);
     setQuery("");
+    if (viewingTrash) {
+      setListing(null);
+      cache.files.listing = null;
+      fetchTrash(ctrl.signal)
+        .then((items) => {
+          if (!cancelled) setTrashItems(items);
+        })
+        .catch((e) => {
+          if (!cancelled && (e as Error).name !== "AbortError") {
+            setError((e as Error).message);
+          }
+        })
+        .finally(() => !cancelled && setLoading(false));
+      return () => {
+        cancelled = true;
+        ctrl.abort();
+      };
+    }
+    setTrashItems([]);
     fetchListing(path, ctrl.signal)
       .then((l) => {
         if (!cancelled) {
@@ -162,12 +197,13 @@ export function Files() {
       cancelled = true;
       ctrl.abort();
     };
-  }, [path]);
+  }, [path, roots]);
 
   // After a listing loads, compute folder sizes in the background (bounded
   // concurrency) and fill them in as each completes. Sizes are cached per
   // listing so revisiting a folder doesn't recompute everything from scratch.
   useEffect(() => {
+    if (view === "map") return;
     if (!listing || !settings.files.showFolderSizes) {
       setDirSizes({});
       cache.files.dirSizes = {};
@@ -224,12 +260,17 @@ export function Files() {
       cancelled = true;
       ctrl.abort();
     };
-  }, [listing, settings.files.showFolderSizes]);
+  }, [listing, settings.files.showFolderSizes, view]);
 
   const homePath = useMemo(
     () => roots.find((r) => r.kind === "home")?.path ?? null,
     [roots]
   );
+  const trashRoot = useMemo(
+    () => roots.find((r) => r.kind === "trash") ?? null,
+    [roots]
+  );
+  const inTrash = !!(path && trashRoot && path === trashRoot.path);
   const drives = useMemo(
     () => roots.filter((r) => r.kind === "drive" || r.kind === "root"),
     [roots]
@@ -238,11 +279,30 @@ export function Files() {
     () => roots.filter((r) => r.kind === "network"),
     [roots]
   );
+  const trashCards = useMemo(
+    () => roots.filter((r) => r.kind === "trash"),
+    [roots]
+  );
 
   const crumbs = useMemo(
-    () => (path && listing ? breadcrumbs(listing.path, roots) : []),
-    [path, listing, roots]
+    () =>
+      inTrash && trashRoot
+        ? [{ label: "Trash", path: trashRoot.path }]
+        : path && listing
+          ? breadcrumbs(listing.path, roots)
+          : [],
+    [path, listing, roots, inTrash, trashRoot]
   );
+
+  const visibleTrash = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return trashItems;
+    return trashItems.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.originalPath.toLowerCase().includes(q)
+    );
+  }, [trashItems, query]);
 
   const entries = useMemo(() => {
     if (!listing) return [];
@@ -256,7 +316,12 @@ export function Files() {
   }, [listing, query, settings.files.showHiddenFiles]);
 
   function goUp() {
-    if (listing?.parent) setPath(listing.parent);
+    if (view === "map" && mapRef.current?.zoomed) {
+      mapRef.current.zoomOut();
+      return;
+    }
+    if (inTrash) setPath(null);
+    else if (listing?.parent) setPath(listing.parent);
     else setPath(null);
   }
 
@@ -288,13 +353,19 @@ export function Files() {
   const reload = useCallback(async () => {
     if (path === null) return;
     try {
+      const trash = roots.find((r) => r.kind === "trash");
+      if (trash && path === trash.path) {
+        setTrashItems(await fetchTrash());
+        await reloadRoots();
+        return;
+      }
       const l = await fetchListing(path);
       cache.files.listing = l;
       setListing(l);
     } catch (e) {
       setActionError((e as Error).message);
     }
-  }, [path]);
+  }, [path, roots, reloadRoots]);
 
   // Runs a mutation, surfaces any error, and refreshes the listing on success.
   async function run(fn: () => Promise<unknown>): Promise<boolean> {
@@ -380,9 +451,10 @@ export function Files() {
   }
 
   const atThisPc = path === null;
+  const showMap = view === "map" && !inTrash;
 
   return (
-    <S.FilesRoot>
+    <S.FilesRoot $map={showMap}>
       <S.FilesToolbar>
         <S.FilesRoots>
           <button className={atThisPc ? "active" : ""} onClick={() => setPath(null)}>
@@ -399,22 +471,46 @@ export function Files() {
             </button>
           )}
         </S.FilesRoots>
-        {!atThisPc && (
+        {!atThisPc && !showMap && (
           <S.FilesSearch
             type="text"
-            placeholder="Filter in this folder…"
+            placeholder={inTrash ? "Filter trash…" : "Filter in this folder…"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         )}
-        {canWrite && (
-          <Tooltip label="File manager settings">
-            <S.FilesSettingsBtn onClick={() => setSettingsOpen(true)}>
-              <GearIcon />
-              Settings
-            </S.FilesSettingsBtn>
-          </Tooltip>
-        )}
+        <S.FilesToolbarEnd>
+          <S.FilesViewToggle>
+            <Tooltip label="File list">
+              <button
+                type="button"
+                className={view === "list" || inTrash ? "active" : ""}
+                onClick={() => setView("list")}
+              >
+                List
+              </button>
+            </Tooltip>
+            <Tooltip label="WizTree-style size map">
+              <button
+                type="button"
+                className={view === "map" && !inTrash ? "active" : ""}
+                disabled={inTrash}
+                onClick={() => setView("map")}
+              >
+                <MapIcon />
+                Map
+              </button>
+            </Tooltip>
+          </S.FilesViewToggle>
+          {canWrite && (
+            <Tooltip label="File manager settings">
+              <S.FilesSettingsBtn onClick={() => setSettingsOpen(true)}>
+                <GearIcon />
+                Settings
+              </S.FilesSettingsBtn>
+            </Tooltip>
+          )}
+        </S.FilesToolbarEnd>
       </S.FilesToolbar>
 
       <S.FilesNav>
@@ -442,7 +538,7 @@ export function Files() {
         </S.FilesMessage>
       )}
 
-      {!atThisPc && canWrite && (
+      {!atThisPc && canWrite && !inTrash && !showMap && (
         <S.FilesActions>
           <button onClick={handleNewFolder} disabled={busy}>
             <PlusIcon /> New folder
@@ -478,18 +574,93 @@ export function Files() {
         </S.FilesActions>
       )}
 
-      <S.FilesBody>
+      {inTrash && canWrite && (
+        <S.FilesActions>
+          <button
+            className="danger"
+            onClick={() => setDialog({ kind: "emptyTrash" })}
+            disabled={busy || trashItems.length === 0}
+          >
+            <TrashIcon /> Empty trash
+          </button>
+          <S.FilesActionsStatus>
+            {actionError && <span className="bad">{actionError}</span>}
+          </S.FilesActionsStatus>
+        </S.FilesActions>
+      )}
+
+      <S.FilesBody $fill={showMap && !atThisPc}>
         {atThisPc ? (
-          <ThisPc
+          <>
+            {showMap && (
+              <S.FilesMapHint>
+                Pick a drive or folder to see a size map. Rectangles are scaled by
+                disk use, like WizTree. A whole drive can take a while to scan.
+              </S.FilesMapHint>
+            )}
+            <ThisPc
             drives={drives}
             network={network}
+            trash={trashCards}
             canWrite={canWrite}
             onOpen={openRoot}
             onAdd={() => setDialog({ kind: "addShare" })}
             onRemove={(root) => setDialog({ kind: "removeShare", root })}
           />
+          </>
+        ) : inTrash ? (
+          error ? (
+            <S.FilesMessage $bad>{error}</S.FilesMessage>
+          ) : loading && trashItems.length === 0 ? (
+            <S.FilesMessage className="muted">Loading…</S.FilesMessage>
+          ) : (
+            <S.FilesTable>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Deleted from</th>
+                  <th className="ta-right">Deleted</th>
+                  <th className="ta-right"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleTrash.map((item) => (
+                  <TrashRow
+                    key={item.id}
+                    item={item}
+                    busy={busy}
+                    canWrite={canWrite}
+                    onRestore={() => void run(() => restoreTrashItem(item.id))}
+                    onDeleteForever={() =>
+                      setDialog({ kind: "deleteForever", item })
+                    }
+                  />
+                ))}
+                {visibleTrash.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="muted proc-empty">
+                      {trashItems.length > 0
+                        ? "No matching items."
+                        : "Trash is empty. Deleted files stay here for 30 days."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </S.FilesTable>
+          )
         ) : error ? (
           <S.FilesMessage $bad>{error}</S.FilesMessage>
+        ) : showMap && path ? (
+          <DiskMap
+            ref={mapRef}
+            path={path}
+            roots={roots}
+            onOpenFolder={(next) => {
+              setView("list");
+              setPath(next);
+            }}
+            onOpenFile={(entry) => setFilePanel({ entry, mode: "view" })}
+          />
         ) : loading && !listing ? (
           <S.FilesMessage className="muted">Loading…</S.FilesMessage>
         ) : (
@@ -656,19 +827,19 @@ export function Files() {
 
       {dialog?.kind === "delete" && (
         <ConfirmDialog
-          title={`Delete ${dialog.entry.type === "dir" ? "folder" : "file"}?`}
+          title="Move to Trash?"
           message={
             <>
-              Are you sure you want to delete <strong>{dialog.entry.name}</strong>?
+              Move <strong>{dialog.entry.name}</strong> to Trash?
               {dialog.entry.type === "dir" && (
                 <span className="modal-warn">
                   {" "}
-                  This permanently deletes everything inside it.
+                  The folder and everything inside it can be restored for 30 days.
                 </span>
               )}
             </>
           }
-          confirmLabel="Delete"
+          confirmLabel="Move to Trash"
           danger
           onCancel={() => setDialog(null)}
           onConfirm={async () => {
@@ -682,6 +853,41 @@ export function Files() {
           }}
         />
       )}
+
+      {dialog?.kind === "deleteForever" && (
+        <ConfirmDialog
+          title="Delete forever?"
+          message={
+            <>
+              Permanently delete <strong>{dialog.item.name}</strong>? This cannot
+              be undone.
+            </>
+          }
+          confirmLabel="Delete forever"
+          danger
+          onCancel={() => setDialog(null)}
+          onConfirm={async () => {
+            const err = await doMutation(() => purgeTrashItem(dialog.item.id));
+            if (!err) setDialog(null);
+            return err;
+          }}
+        />
+      )}
+
+      {dialog?.kind === "emptyTrash" && (
+        <ConfirmDialog
+          title="Empty trash?"
+          message="Permanently delete everything in Trash? This cannot be undone."
+          confirmLabel="Empty trash"
+          danger
+          onCancel={() => setDialog(null)}
+          onConfirm={async () => {
+            const err = await doMutation(() => emptyTrash());
+            if (!err) setDialog(null);
+            return err;
+          }}
+        />
+      )}
     </S.FilesRoot>
   );
 }
@@ -689,6 +895,7 @@ export function Files() {
 function ThisPc({
   drives,
   network,
+  trash,
   canWrite,
   onOpen,
   onAdd,
@@ -696,12 +903,13 @@ function ThisPc({
 }: {
   drives: FsRoot[];
   network: FsRoot[];
+  trash: FsRoot[];
   canWrite: boolean;
   onOpen: (root: FsRoot) => void;
   onAdd: () => void;
   onRemove: (root: FsRoot) => void;
 }) {
-  if (drives.length === 0 && network.length === 0 && !canWrite) {
+  if (drives.length === 0 && network.length === 0 && trash.length === 0 && !canWrite) {
     return <S.FilesMessage className="muted">Loading drives…</S.FilesMessage>;
   }
   return (
@@ -734,6 +942,16 @@ function ThisPc({
           )}
         </S.Drives>
       </S.DriveSection>
+      {trash.length > 0 && (
+        <S.DriveSection>
+          <S.DriveSectionTitle>Trash</S.DriveSectionTitle>
+          <S.Drives>
+            {trash.map((d) => (
+              <DriveCardView key={d.path} d={d} onOpen={() => onOpen(d)} />
+            ))}
+          </S.Drives>
+        </S.DriveSection>
+      )}
     </>
   );
 }
@@ -764,7 +982,13 @@ function DriveCardView({
         </S.DriveCardRemove>
       )}
       <S.DriveCardHead>
-        {d.kind === "network" ? <NetworkIcon /> : <DriveIcon />}
+        {d.kind === "trash" ? (
+          <TrashDriveIcon />
+        ) : d.kind === "network" ? (
+          <NetworkIcon />
+        ) : (
+          <DriveIcon />
+        )}
         <S.DriveName>
           {d.name}
           {d.label && <span className="drive-label muted"> {d.label}</span>}
@@ -894,7 +1118,7 @@ function FileRow({
                   <CutIcon />
                 </button>
               </Tooltip>
-              <Tooltip label="Delete">
+              <Tooltip label="Move to Trash">
                 <button className="row-act danger" onClick={onDelete} disabled={busy}>
                   <TrashIcon />
                 </button>
@@ -902,6 +1126,57 @@ function FileRow({
             </>
           )}
         </div>
+      </td>
+    </tr>
+  );
+}
+
+function TrashRow({
+  item,
+  busy,
+  canWrite,
+  onRestore,
+  onDeleteForever,
+}: {
+  item: TrashItem;
+  busy: boolean;
+  canWrite: boolean;
+  onRestore: () => void;
+  onDeleteForever: () => void;
+}) {
+  return (
+    <tr>
+      <td>
+        <span className="file-name">
+          {item.type === "dir" ? <FolderIcon /> : <FileIcon ext={null} />}
+          <span className="file-label" title={item.name}>
+            {item.name}
+          </span>
+        </span>
+      </td>
+      <td className="muted" title={item.originalPath}>
+        {item.originalPath}
+      </td>
+      <td className="ta-right muted">{formatDate(item.deletedAt)}</td>
+      <td className="ta-right">
+        {canWrite && (
+          <div className="row-actions">
+            <Tooltip label="Restore">
+              <button className="row-act" onClick={onRestore} disabled={busy}>
+                <RestoreIcon />
+              </button>
+            </Tooltip>
+            <Tooltip label="Delete forever">
+              <button
+                className="row-act danger"
+                onClick={onDeleteForever}
+                disabled={busy}
+              >
+                <TrashIcon />
+              </button>
+            </Tooltip>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -1321,7 +1596,7 @@ function SettingsDialog({
         />
         <ToggleRow
           label="Confirm before deleting"
-          desc="Ask before deleting files or folders."
+          desc="Ask before moving files or folders to Trash. Items stay recoverable for 30 days."
           checked={files.confirmDelete}
           onChange={() => toggle("confirmDelete")}
         />
@@ -1484,6 +1759,14 @@ function DriveIcon() {
   );
 }
 
+function TrashDriveIcon() {
+  return (
+    <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
+      <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
 function NetworkIcon() {
   return (
     <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
@@ -1500,6 +1783,18 @@ function PcIcon() {
     <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
       <rect x="3" y="4" width="18" height="12" rx="1.5" />
       <path d="M8 20h8M12 16v4" />
+    </svg>
+  );
+}
+
+function MapIcon() {
+  return (
+    <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="3" width="8" height="11" rx="0.8" />
+      <rect x="12" y="3" width="9" height="7" rx="0.8" />
+      <rect x="12" y="11" width="5" height="10" rx="0.8" />
+      <rect x="18" y="11" width="3" height="10" rx="0.8" />
+      <rect x="3" y="15" width="8" height="6" rx="0.8" />
     </svg>
   );
 }
@@ -1584,6 +1879,14 @@ function TrashIcon() {
   return (
     <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
       <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+function RestoreIcon() {
+  return (
+    <svg className="act-icon" viewBox="0 0 24 24" aria-hidden>
+      <path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5" />
     </svg>
   );
 }

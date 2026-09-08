@@ -9,6 +9,7 @@ import type { PendingPackage, UpdateJob, UpdatesStatus } from "../../types";
 import { DangerBtn, GhostBtn, Loading } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
 import { AppUpdatePanel } from "./AppUpdatePanel";
+import { BackupPanel } from "./BackupPanel";
 import * as S from "./styles";
 
 const JOB_POLL_MS = 800;
@@ -146,12 +147,18 @@ export function SystemUpdates() {
   }
 
   if (loading && !status) {
-    return <Loading>Fetching package lists — this can take a minute…</Loading>;
+    return (
+      <S.Root>
+        <BackupPanel />
+        <Loading>Fetching package lists — this can take a minute…</Loading>
+      </S.Root>
+    );
   }
 
   if (error && !status) {
     return (
       <S.Root>
+        <BackupPanel />
         <S.Banner $bad>{error}</S.Banner>
         <S.Empty>
           <GhostBtn type="button" onClick={() => void reload()}>
@@ -165,6 +172,8 @@ export function SystemUpdates() {
   if (!status?.available) {
     return (
       <S.Root>
+        <BackupPanel />
+        <AppUpdatePanel />
         <S.Banner $bad>{status?.hint ?? "Updates are not available on this platform."}</S.Banner>
       </S.Root>
     );
@@ -175,6 +184,7 @@ export function SystemUpdates() {
 
   return (
     <S.Root>
+      <BackupPanel />
       <AppUpdatePanel />
       <S.SectionHead>OS packages</S.SectionHead>
       <S.Toolbar>

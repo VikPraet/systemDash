@@ -125,7 +125,7 @@ export interface DirListing {
 export interface FsRoot {
   name: string;
   path: string;
-  kind: "home" | "drive" | "root" | "network";
+  kind: "home" | "drive" | "root" | "network" | "trash";
   label: string | null;
   sizeBytes: number | null;
   usedBytes: number | null;
@@ -168,9 +168,52 @@ export interface FileManagerSettings {
   confirmDelete: boolean;
 }
 
+export type UsageNodeType = "dir" | "file" | "other" | "free";
+
+export interface UsageNode {
+  name: string;
+  type: UsageNodeType;
+  size: number;
+  files: number;
+  ext: string | null;
+  children?: UsageNode[];
+}
+
+export interface UsageLargestFile {
+  name: string;
+  path: string;
+  size: number;
+  ext: string | null;
+}
+
+export interface UsageProgress {
+  bytes: number;
+  files: number;
+  dirs: number;
+  scanning: string;
+}
+
+export interface UsageTree {
+  path: string;
+  name: string;
+  size: number;
+  files: number;
+  dirs: number;
+  partial: boolean;
+  elapsedMs: number;
+  tree: UsageNode;
+  largest: UsageLargestFile[];
+}
+
 export interface HistorySettings {
   enabled: boolean;
   intervalSeconds: number;
+  retentionDays: number;
+  maxSizeMb: number;
+}
+
+export interface ActivitySettings {
+  enabled: boolean;
   retentionDays: number;
   maxSizeMb: number;
 }
@@ -182,6 +225,7 @@ export interface TerminalSettings {
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
+  activity: ActivitySettings;
   terminal: TerminalSettings;
 }
 
@@ -227,6 +271,18 @@ export interface HistoryStats {
   newest: number | null;
   dbBytes: number;
   bytesPerSample: number;
+  estimatedDaysToFull: number | null;
+}
+
+export interface ActivityStats {
+  enabled: boolean;
+  retentionDays: number;
+  maxSizeMb: number;
+  rowCount: number;
+  oldest: number | null;
+  newest: number | null;
+  dbBytes: number;
+  bytesPerEntry: number;
   estimatedDaysToFull: number | null;
 }
 
@@ -412,6 +468,7 @@ export type ActionStepType =
   | "publish";
 
 export type RunKind = "none" | "docker" | "compose" | "systemd" | "static";
+export type ServiceKind = "website" | "api" | "worker";
 
 export interface GitAccountPublic {
   id: number;
@@ -505,6 +562,7 @@ export interface ProjectSummary {
   createdAt: number;
   siteUrl: string | null;
   runKind: RunKind;
+  serviceKind: ServiceKind;
   port: number | null;
   boot: boolean;
   container: string | null;
@@ -513,6 +571,10 @@ export interface ProjectSummary {
   publishFrom: string | null;
   publishTo: string | null;
   startCommand: string | null;
+  healthPath: string | null;
+  embedPreview: boolean;
+  embedUrl: string | null;
+  notes: string | null;
   lastRun: ActionRun | null;
 }
 
@@ -636,4 +698,24 @@ export interface ActionJob {
   log: string;
   error: string | null;
   runId: number | null;
+}
+
+export type BackupReason = "manual" | "pre-update" | "pre-restore";
+
+export interface BackupSnapshot {
+  id: string;
+  fileName: string;
+  reason: BackupReason;
+  createdAt: number;
+  sizeBytes: number;
+}
+
+export interface TrashItem {
+  id: string;
+  name: string;
+  originalPath: string;
+  type: "dir" | "file";
+  deletedAt: number;
+  deletedBy: string | null;
+  sizeBytes: number | null;
 }

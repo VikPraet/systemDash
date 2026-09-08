@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { APP_NAME, APP_USER_AGENT } from "./brand.js";
+import { createSnapshot } from "./backup.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -503,6 +504,15 @@ export function startAppUpdate(targetVersion?: string | null): void {
       appendLog(
         `Installing ${release.prerelease ? "beta " : ""}v${version} (from v${status.currentVersion})…`
       );
+      try {
+        appendLog("Saving data-dir snapshot…");
+        const snap = await createSnapshot("pre-update");
+        appendLog(`Snapshot ${snap.fileName}`);
+      } catch (snapErr) {
+        appendLog(
+          `Snapshot failed (${(snapErr as Error).message}) — continuing with update`
+        );
+      }
       appendLog(`Downloading ${asset.name}…`);
       await downloadFile(asset.url || asset.browser_download_url, archive, (pct) => {
         appUpdateJob.progress = Math.max(appUpdateJob.progress, pct);

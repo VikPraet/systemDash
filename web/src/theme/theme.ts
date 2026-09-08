@@ -40,6 +40,7 @@ export const theme = {
   radius: {
     base: "var(--radius)",
     sm: "var(--radius-sm)",
+    icon: "var(--radius-icon)",
   },
   font: {
     sans: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',

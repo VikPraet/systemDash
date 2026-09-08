@@ -10,6 +10,7 @@ import {
   getRoots,
   listDirectory,
   directorySize,
+  scanUsageTree,
   resolveFile,
   createFolder,
   createFile,
@@ -22,6 +23,13 @@ import {
   writeTextFile,
   HttpError,
 } from "./files.js";
+import {
+  emptyTrash,
+  listTrash,
+  pruneTrash,
+  purgeTrashItem,
+  restoreTrashItem,
+} from "./trash.js";
 import {
   addShare,
   initShares,
@@ -51,6 +59,7 @@ import { appUpdateRouter } from "./routes/appUpdate.js";
 import { powerRouter } from "./routes/power.js";
 import { projectsRouter } from "./routes/projects.js";
 import { accessRouter } from "./routes/access.js";
+import { backupRouter } from "./routes/backup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -82,6 +91,7 @@ app.use("/api/updates", updatesRouter);
 app.use("/api/app-update", appUpdateRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/access", accessRouter);
+app.use("/api/backup", backupRouter);
 
 // Host power control (reboot / shutdown). Admin-only; explicit audit before the
 // generic middleware. Must respond before the OS command runs.
@@ -146,6 +156,15 @@ app.use("/api", (req, res, next) => {
       return;
     }
     if (req.path.startsWith("/api/fs/shares") && res.statusCode < 400) {
+      return;
+    }
+    if (req.path.startsWith("/api/backup") || req.path.startsWith("/backup")) {
+      if (res.statusCode < 400) return;
+    }
+    if (
+      (req.path.startsWith("/api/fs/trash") || req.path.startsWith("/fs/trash")) &&
+      res.statusCode < 400
+    ) {
       return;
     }
     const action =
@@ -309,6 +328,47 @@ app.get("/api/fs/dirsize", async (req, res) => {
     } else {
       console.error("Failed to compute directory size:", err);
       res.status(500).json({ error: "failed to compute directory size" });
+    }
+  }
+});
+
+app.get("/api/fs/usage", async (req, res) => {
+  let aborted = false;
+  req.on("close", () => {
+    aborted = true;
+  });
+  const write = (obj: unknown) => {
+    if (aborted || res.writableEnded) return;
+    if (!res.headersSent) {
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+    }
+    res.write(`${JSON.stringify(obj)}\n`);
+  };
+  try {
+    const result = await scanUsageTree(String(req.query.path ?? ""), {
+      shouldAbort: () => aborted,
+      onProgress: (progress) => write({ type: "progress", ...progress }),
+    });
+    if (aborted) return;
+    write({ type: "done", ...result });
+    res.end();
+  } catch (err) {
+    if (aborted) return;
+    const message =
+      err instanceof HttpError ? err.message : "failed to scan disk usage";
+    if (res.headersSent) {
+      write({ type: "error", error: message });
+      res.end();
+      return;
+    }
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
+    } else {
+      console.error("Failed to scan disk usage:", err);
+      res.status(500).json({ error: "failed to scan disk usage" });
     }
   }
 });
@@ -497,10 +557,71 @@ app.post("/api/fs/copy", requireRole("user"), async (req, res) => {
 app.post("/api/fs/delete", requireRole("user"), async (req, res) => {
   try {
     const { path: target } = req.body ?? {};
-    await deleteEntry(String(target ?? ""));
+    await deleteEntry(String(target ?? ""), req.user?.username ?? null);
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err, "failed to delete");
+  }
+});
+
+app.get("/api/fs/trash", async (_req, res) => {
+  try {
+    res.json({ items: await listTrash() });
+  } catch (err) {
+    sendError(res, err, "failed to list trash");
+  }
+});
+
+app.post("/api/fs/trash/:id/restore", requireRole("user"), async (req, res) => {
+  const id = String(req.params.id ?? "");
+  try {
+    const item = await restoreTrashItem(id);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.trash.restore",
+      detail: `${item.name} → ${item.originalPath}`,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ item });
+  } catch (err) {
+    sendError(res, err, "failed to restore");
+  }
+});
+
+app.delete("/api/fs/trash/:id", requireRole("user"), async (req, res) => {
+  const id = String(req.params.id ?? "");
+  try {
+    await purgeTrashItem(id);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.trash.purge",
+      detail: id,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err, "failed to delete forever");
+  }
+});
+
+app.post("/api/fs/trash/empty", requireRole("user"), async (req, res) => {
+  try {
+    const count = await emptyTrash();
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.trash.empty",
+      detail: `${count} item(s)`,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true, count });
+  } catch (err) {
+    sendError(res, err, "failed to empty trash");
   }
 });
 
@@ -567,13 +688,19 @@ initShares().catch((err) => {
   console.error("Failed to reconnect network shares:", err);
 });
 
-// Periodically drop expired sessions and trim the audit log so the auth DB
+// Periodically drop expired sessions and trim the activity log so the auth DB
 // doesn't grow unbounded.
 pruneSessions();
 pruneAudit();
+pruneTrash().catch((err) => {
+  console.error("Failed to prune trash:", err);
+});
 setInterval(() => {
   pruneSessions();
   pruneAudit();
+  pruneTrash().catch((err) => {
+    console.error("Failed to prune trash:", err);
+  });
 }, 60 * 60 * 1000).unref?.();
 
 server.listen(PORT, () => {

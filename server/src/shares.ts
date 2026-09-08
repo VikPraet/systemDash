@@ -3,6 +3,7 @@ import { promises as fsp, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { DATA_DIR, MOUNTS_DIR, CREDS_DIR } from "./paths.js";
 
 export class ShareError extends Error {
   constructor(public status: number, message: string) {
@@ -58,11 +59,7 @@ export interface SharesStatus {
   hint: string | null;
 }
 
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const SHARES_FILE = path.join(DATA_DIR, "shares.json");
-const MOUNTS_DIR = path.join(DATA_DIR, "mounts");
-const CREDS_DIR = path.join(DATA_DIR, "share-creds");
 
 const HOST_RE = /^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,253}[A-Za-z0-9])?|\d{1,3}(?:\.\d{1,3}){3})$/;
 const SMB_VERS = ["3.1.1", "3.0", "2.1", "2.0"];

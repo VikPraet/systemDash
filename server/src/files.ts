@@ -9,6 +9,8 @@ import {
   listShares,
   pathsEqual,
 } from "./shares.js";
+import { isInTrash, trashCount, trashPath } from "./trash.js";
+import { TRASH_DIR } from "./paths.js";
 
 export interface FsEntry {
   name: string;
@@ -28,7 +30,7 @@ export interface DirListing {
 export interface FsRoot {
   name: string;
   path: string;
-  kind: "home" | "drive" | "root" | "network";
+  kind: "home" | "drive" | "root" | "network" | "trash";
   label: string | null;
   sizeBytes: number | null;
   usedBytes: number | null;
@@ -157,6 +159,18 @@ export async function getRoots(): Promise<FsRoot[]> {
     });
   }
 
+  const count = await trashCount();
+  roots.push({
+    name: "Trash",
+    path: TRASH_DIR,
+    kind: "trash",
+    label: count === 1 ? "1 item" : `${count} items`,
+    sizeBytes: null,
+    usedBytes: null,
+    freeBytes: null,
+    usedPercent: null,
+  });
+
   return roots;
 }
 
@@ -263,6 +277,388 @@ export async function directorySize(
 
   await walk(dir);
   return { bytes: total, partial };
+}
+
+// ---------------------------------------------------------------------------
+// Disk usage tree (WizTree-style map)
+// ---------------------------------------------------------------------------
+
+export type UsageNodeType = "dir" | "file" | "other" | "free";
+
+export interface UsageNode {
+  name: string;
+  type: UsageNodeType;
+  size: number;
+  files: number;
+  ext: string | null;
+  children?: UsageNode[];
+}
+
+export interface UsageLargestFile {
+  name: string;
+  path: string;
+  size: number;
+  ext: string | null;
+}
+
+export interface UsageProgress {
+  bytes: number;
+  files: number;
+  dirs: number;
+  scanning: string;
+}
+
+export interface UsageTree {
+  path: string;
+  name: string;
+  size: number;
+  files: number;
+  dirs: number;
+  partial: boolean;
+  elapsedMs: number;
+  tree: UsageNode;
+  largest: UsageLargestFile[];
+}
+
+const USAGE_FS_CONCURRENCY = 24;
+const USAGE_KEEP_FILES_PER_DIR = 40;
+const USAGE_MAX_CHILDREN = 40;
+const USAGE_MAX_NODES = 7000;
+const USAGE_TOP_FILES = 200;
+const LINUX_VIRTUAL_FS = new Set(["/proc", "/sys", "/dev", "/run"]);
+
+function createLimiter(max: number) {
+  let active = 0;
+  const wait: Array<() => void> = [];
+  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
+    if (active >= max) {
+      await new Promise<void>((resolve) => wait.push(resolve));
+    }
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      wait.shift()?.();
+    }
+  };
+}
+
+function isVirtualFs(full: string): boolean {
+  if (process.platform === "win32") return false;
+  const n = full.replaceAll("\\", "/");
+  if (LINUX_VIRTUAL_FS.has(n)) return true;
+  for (const root of LINUX_VIRTUAL_FS) {
+    if (n.startsWith(`${root}/`)) return true;
+  }
+  return false;
+}
+
+class TopFiles {
+  private items: UsageLargestFile[] = [];
+  constructor(private n: number) {}
+
+  add(item: UsageLargestFile) {
+    if (this.items.length < this.n) {
+      this.items.push(item);
+      if (this.items.length === this.n) this.heapify();
+      return;
+    }
+    if (item.size <= this.items[0].size) return;
+    this.items[0] = item;
+    this.siftDown(0);
+  }
+
+  toArray(): UsageLargestFile[] {
+    return [...this.items].sort((a, b) => b.size - a.size);
+  }
+
+  private heapify() {
+    for (let i = Math.floor(this.items.length / 2) - 1; i >= 0; i--) {
+      this.siftDown(i);
+    }
+  }
+
+  private siftDown(i: number) {
+    const n = this.items.length;
+    while (true) {
+      let smallest = i;
+      const l = i * 2 + 1;
+      const r = i * 2 + 2;
+      if (l < n && this.items[l].size < this.items[smallest].size) smallest = l;
+      if (r < n && this.items[r].size < this.items[smallest].size) smallest = r;
+      if (smallest === i) return;
+      const tmp = this.items[i];
+      this.items[i] = this.items[smallest];
+      this.items[smallest] = tmp;
+      i = smallest;
+    }
+  }
+}
+
+class DirFileKeeper {
+  private items: UsageNode[] = [];
+  otherBytes = 0;
+  otherFiles = 0;
+
+  constructor(private maxKeep: number) {}
+
+  add(name: string, size: number, ext: string | null) {
+    const node: UsageNode = { name, type: "file", size, files: 1, ext };
+    if (this.items.length < this.maxKeep) {
+      this.items.push(node);
+      return;
+    }
+    let minI = 0;
+    for (let i = 1; i < this.items.length; i++) {
+      if (this.items[i].size < this.items[minI].size) minI = i;
+    }
+    if (size > this.items[minI].size) {
+      this.otherBytes += this.items[minI].size;
+      this.otherFiles += this.items[minI].files;
+      this.items[minI] = node;
+    } else {
+      this.otherBytes += size;
+      this.otherFiles++;
+    }
+  }
+
+  finish(): UsageNode[] {
+    const out = [...this.items].sort((a, b) => b.size - a.size);
+    if (this.otherFiles > 0) {
+      out.push({
+        name: "(other files)",
+        type: "other",
+        size: this.otherBytes,
+        files: this.otherFiles,
+        ext: null,
+      });
+    }
+    return out;
+  }
+}
+
+function countUsageNodes(node: UsageNode): number {
+  let n = 1;
+  if (node.children) {
+    for (const c of node.children) n += countUsageNodes(c);
+  }
+  return n;
+}
+
+function pruneUsageNode(node: UsageNode, budget: number, parentSize: number): number {
+  if (!node.children?.length) return 1;
+  const threshold = Math.max(parentSize * 0.002, 1);
+  const sorted = [...node.children].sort((a, b) => b.size - a.size);
+  const kept: UsageNode[] = [];
+  let otherSize = 0;
+  let otherFiles = 0;
+
+  for (const child of sorted) {
+    if (cTypeKeep(child, kept.length, threshold)) {
+      kept.push(child);
+    } else {
+      otherSize += child.size;
+      otherFiles += child.files;
+    }
+  }
+
+  const existingOther = kept.findIndex((c) => c.type === "other");
+  if (otherFiles > 0) {
+    if (existingOther >= 0) {
+      kept[existingOther] = {
+        ...kept[existingOther],
+        size: kept[existingOther].size + otherSize,
+        files: kept[existingOther].files + otherFiles,
+      };
+    } else {
+      kept.push({
+        name: "(other files)",
+        type: "other",
+        size: otherSize,
+        files: otherFiles,
+        ext: null,
+      });
+    }
+  }
+
+  kept.sort((a, b) => b.size - a.size);
+  const capped = kept.slice(0, USAGE_MAX_CHILDREN);
+  if (capped.length < kept.length) {
+    let extraSize = 0;
+    let extraFiles = 0;
+    for (const c of kept.slice(USAGE_MAX_CHILDREN)) {
+      extraSize += c.size;
+      extraFiles += c.files;
+    }
+    const other = capped.find((c) => c.type === "other");
+    if (other) {
+      other.size += extraSize;
+      other.files += extraFiles;
+    } else {
+      capped.push({
+        name: "(other files)",
+        type: "other",
+        size: extraSize,
+        files: extraFiles,
+        ext: null,
+      });
+    }
+  }
+
+  const childBudget = Math.max(
+    2,
+    Math.floor((budget - 1) / Math.max(1, capped.length))
+  );
+  let used = 1;
+  for (const child of capped) {
+    used += pruneUsageNode(child, childBudget, node.size);
+  }
+  node.children = capped;
+  return used;
+}
+
+function cTypeKeep(child: UsageNode, kept: number, threshold: number): boolean {
+  if (child.type === "free") return true;
+  if (kept < 12) return true;
+  if (child.size >= threshold) return true;
+  if (child.type === "dir" && kept < USAGE_MAX_CHILDREN) return true;
+  return false;
+}
+
+/**
+ * Walks a directory tree and returns a pruned size map plus the largest files.
+ * Progress is reported periodically so the UI can show a live scan. Symlinks
+ * and Linux virtual filesystems are skipped. Aborting marks the result partial.
+ */
+export async function scanUsageTree(
+  input: string,
+  opts: {
+    shouldAbort: () => boolean;
+    onProgress?: (progress: UsageProgress) => void;
+  }
+): Promise<UsageTree> {
+  const dir = normalizeInput(input);
+  await assertDirectory(dir);
+
+  const started = Date.now();
+  const limit = createLimiter(USAGE_FS_CONCURRENCY);
+  const largest = new TopFiles(USAGE_TOP_FILES);
+  let files = 0;
+  let dirs = 0;
+  let bytes = 0;
+  let partial = false;
+  let scanning = dir;
+  let lastProgress = 0;
+
+  function emit() {
+    const now = Date.now();
+    if (now - lastProgress < 180 && !opts.shouldAbort()) {
+      // Keep the first and last ticks; throttle the rest.
+      if (lastProgress !== 0) return;
+    }
+    lastProgress = now;
+    opts.onProgress?.({ bytes, files, dirs, scanning });
+  }
+
+  async function walk(current: string): Promise<UsageNode> {
+    const node: UsageNode = {
+      name: path.basename(current) || current,
+      type: "dir",
+      size: 0,
+      files: 0,
+      ext: null,
+      children: [],
+    };
+    if (opts.shouldAbort()) {
+      partial = true;
+      return node;
+    }
+    dirs++;
+    scanning = current;
+    emit();
+
+    let dirents;
+    try {
+      dirents = await limit(() => fsp.readdir(current, { withFileTypes: true }));
+    } catch {
+      return node;
+    }
+
+    const keeper = new DirFileKeeper(USAGE_KEEP_FILES_PER_DIR);
+    const subdirs: string[] = [];
+
+    for (const de of dirents) {
+      if (opts.shouldAbort()) {
+        partial = true;
+        break;
+      }
+      if (de.isSymbolicLink()) continue;
+      const full = path.join(current, de.name);
+      if (isVirtualFs(full)) continue;
+      if (de.isDirectory()) {
+        subdirs.push(full);
+        continue;
+      }
+      if (!de.isFile()) continue;
+      try {
+        const st = await limit(() => fsp.lstat(full));
+        if (st.isSymbolicLink() || !st.isFile()) continue;
+        files++;
+        bytes += st.size;
+        const ext = path.extname(de.name).slice(1).toLowerCase() || null;
+        keeper.add(de.name, st.size, ext);
+        largest.add({ name: de.name, path: full, size: st.size, ext });
+      } catch {
+        // Unreadable file; skip it.
+      }
+    }
+
+    const childDirs: UsageNode[] = [];
+    let next = 0;
+    const workers = Math.min(8, subdirs.length);
+    async function dirWorker() {
+      while (next < subdirs.length) {
+        if (opts.shouldAbort()) {
+          partial = true;
+          return;
+        }
+        const idx = next++;
+        childDirs.push(await walk(subdirs[idx]));
+      }
+    }
+    await Promise.all(Array.from({ length: workers }, () => dirWorker()));
+
+    const children = [
+      ...childDirs.filter((c) => c.size > 0 || (c.children && c.children.length > 0)),
+      ...keeper.finish(),
+    ].sort((a, b) => b.size - a.size);
+
+    node.children = children;
+    node.files = children.reduce((sum, c) => sum + c.files, 0);
+    node.size = children.reduce((sum, c) => sum + c.size, 0);
+    return node;
+  }
+
+  const tree = await walk(dir);
+  tree.name = path.basename(dir) || dir;
+  pruneUsageNode(tree, USAGE_MAX_NODES, Math.max(tree.size, 1));
+  if (countUsageNodes(tree) > USAGE_MAX_NODES) {
+    pruneUsageNode(tree, USAGE_MAX_NODES, Math.max(tree.size, 1));
+  }
+  opts.onProgress?.({ bytes, files, dirs, scanning: dir });
+
+  return {
+    path: dir,
+    name: tree.name,
+    size: tree.size,
+    files,
+    dirs,
+    partial,
+    elapsedMs: Date.now() - started,
+    tree,
+    largest: largest.toArray(),
+  };
 }
 
 /** Validates a path points to a readable file and returns its absolute path. */
@@ -493,14 +889,25 @@ export async function copyEntry(
   return describe(dest);
 }
 
-export async function deleteEntry(targetInput: string): Promise<void> {
+export async function deleteEntry(
+  targetInput: string,
+  deletedBy: string | null = null
+): Promise<void> {
   const target = normalizeInput(targetInput);
   if (await isProtectedRoot(target))
     throw new HttpError(400, "refusing to delete a drive root");
   if (!existsSync(target)) throw new HttpError(404, "path not found");
   try {
-    await fsp.rm(target, { recursive: true, force: false });
+    if (isInTrash(target)) {
+      const rel = path.relative(TRASH_DIR, path.resolve(target));
+      const id = rel.split(path.sep).filter(Boolean)[0];
+      const dir = id ? path.join(TRASH_DIR, id) : target;
+      await fsp.rm(dir, { recursive: true, force: false });
+      return;
+    }
+    await trashPath(target, deletedBy);
   } catch (err) {
+    if (err instanceof HttpError) throw err;
     throw fsError(err, "failed to delete");
   }
 }

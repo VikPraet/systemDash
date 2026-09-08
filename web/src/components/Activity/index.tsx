@@ -3,7 +3,6 @@ import {
   Monitor,
   RefreshCw,
   Power,
-  ScrollText,
   XCircle,
   AlertTriangle,
   X,
@@ -32,10 +31,11 @@ import {
   Eraser,
   Settings,
   Circle,
-  Skull,
+  PowerOff,
   Smartphone,
   Tablet,
   Bot,
+  Archive,
   HelpCircle,
   KeyRound,
   MapPin,
@@ -43,13 +43,27 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
+  clearAudit,
+  DEFAULT_SETTINGS,
   fetchAudit,
+  fetchAuditStats,
   fetchSessions,
+  fetchSettings,
+  formatBytes,
   formatDate,
   formatRelative,
   revokeSession,
+  saveSettings,
 } from "../../api";
-import type { AuditEntry, GeoLocation, SessionInfo } from "../../types";
+import { cache } from "../../cache";
+import type {
+  ActivitySettings,
+  ActivityStats,
+  AuditEntry,
+  GeoLocation,
+  SessionInfo,
+  Settings as AppSettings,
+} from "../../types";
 import { parseUserAgent } from "../../device";
 import type { DeviceKind } from "../../device";
 import {
@@ -58,6 +72,7 @@ import {
   GhostBtn,
   Loading,
   ModalActions,
+  ModalBtn,
   ModalCard,
   ModalClose,
   ModalHead,
@@ -68,6 +83,9 @@ import {
   RoleBadge,
 } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
+import { Bar, Stat } from "../widgets";
+import { CardTitle } from "../widgets/styles";
+import * as H from "../History/styles";
 import * as S from "./styles";
 
 // Turns an ISO 3166-1 alpha-2 code into its flag emoji (regional indicators).
@@ -91,18 +109,18 @@ function LocationLine({
   if (!location) return null;
   if (location.status === "local") {
     return (
-      <S.LocLine className="muted">
+      <S.LocLine>
         <Network size={12} strokeWidth={1.8} />
-        {location.label}
+        <S.LocText>{location.label}</S.LocText>
       </S.LocLine>
     );
   }
   if (location.status === "unknown") {
     if (hideUnknown) return null;
     return (
-      <S.LocLine className="muted">
+      <S.LocLine>
         <MapPin size={12} strokeWidth={1.8} />
-        Unknown location
+        <S.LocText>Unknown location</S.LocText>
       </S.LocLine>
     );
   }
@@ -117,7 +135,7 @@ function LocationLine({
       ) : (
         <MapPin size={12} strokeWidth={1.8} />
       )}
-      {location.label}
+      <S.LocText>{location.label}</S.LocText>
     </S.LocLine>
   );
 }
@@ -217,7 +235,10 @@ const ACTION_META: Record<string, ActionMeta> = {
   "fs.read": { label: "Opened file", attempt: "open a file", icon: FileText, kind: "neutral" },
   "fs.download": { label: "Downloaded file", attempt: "download a file", icon: Download, kind: "neutral" },
   "fs.write": { label: "Edited file", attempt: "edit a file", icon: FilePen, kind: "warn" },
-  "fs.delete": { label: "Deleted item", attempt: "delete an item", icon: Trash2, kind: "danger" },
+  "fs.delete": { label: "Moved to trash", attempt: "delete an item", icon: Trash2, kind: "danger" },
+  "fs.trash.restore": { label: "Restored from trash", attempt: "restore an item", icon: FolderInput, kind: "success" },
+  "fs.trash.purge": { label: "Deleted forever", attempt: "permanently delete an item", icon: Trash2, kind: "danger" },
+  "fs.trash.empty": { label: "Emptied trash", attempt: "empty trash", icon: Eraser, kind: "danger" },
   "fs.folder": { label: "Created folder", attempt: "create a folder", icon: FolderPlus, kind: "success" },
   "fs.file": { label: "Created file", attempt: "create a file", icon: FilePlus, kind: "success" },
   "fs.rename": { label: "Renamed item", attempt: "rename an item", icon: PenLine, kind: "warn" },
@@ -230,18 +251,23 @@ const ACTION_META: Record<string, ActionMeta> = {
   "process.kill": { label: "Killed process", attempt: "kill a process", icon: Ban, kind: "danger" },
   "process.end": { label: "Ended process", attempt: "end a process", icon: Ban, kind: "danger" },
   "history.clear": { label: "Cleared history", attempt: "clear history", icon: Eraser, kind: "danger" },
+  "activity.clear": { label: "Cleared activity log", attempt: "clear the activity log", icon: Eraser, kind: "danger" },
   "system.reboot": { label: "Scheduled reboot", attempt: "reboot the host", icon: RefreshCw, kind: "danger" },
   "system.shutdown": { label: "Scheduled shutdown", attempt: "shut down the host", icon: Power, kind: "danger" },
   "system.poweroff": {
     label: "Scheduled force power off",
     attempt: "force power off the host",
-    icon: Skull,
+    icon: PowerOff,
     kind: "danger",
   },
   settings: { label: "Changed settings", attempt: "change settings", icon: Settings, kind: "warn" },
   "settings.files": { label: "Changed file settings", attempt: "change file settings", icon: Settings, kind: "warn" },
   "settings.history": { label: "Changed history settings", attempt: "change history settings", icon: Settings, kind: "warn" },
+  "settings.activity": { label: "Changed activity settings", attempt: "change activity settings", icon: Settings, kind: "warn" },
   "settings.terminal": { label: "Changed terminal settings", attempt: "change terminal settings", icon: Settings, kind: "warn" },
+  "backup.create": { label: "Created backup", attempt: "create a backup", icon: Archive, kind: "success" },
+  "backup.download": { label: "Downloaded backup", attempt: "download a backup", icon: Download, kind: "neutral" },
+  "backup.restore": { label: "Restored backup", attempt: "restore a backup", icon: Archive, kind: "danger" },
 };
 
 function actionMeta(action: string): ActionMeta {
@@ -335,6 +361,7 @@ function displayLabel(e: AuditEntry): string {
 export function Activity() {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(() => Date.now());
@@ -342,15 +369,22 @@ export function Activity() {
   const [category, setCategory] = useState<CategoryId>("all");
   const [query, setQuery] = useState("");
   const [failedOnly, setFailedOnly] = useState(false);
+  const [stats, setStats] = useState<ActivityStats | null>(null);
   const inFlight = useRef(false);
 
   const load = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const [s, a] = await Promise.all([fetchSessions(), fetchAudit(200)]);
+      const [s, a, st] = await Promise.all([
+        fetchSessions(),
+        fetchAudit(2000),
+        fetchAuditStats().catch(() => null),
+      ]);
       setSessions(s);
-      setAudit(a);
+      setAudit(a.entries ?? []);
+      setAuditTotal(a.total ?? a.entries.length);
+      if (st) setStats(st);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -422,123 +456,119 @@ export function Activity() {
       {error && <AuthError $inline>{error}</AuthError>}
 
       <S.ActivityCard>
-        <S.ActivityCardHead>
-          <Monitor size={16} strokeWidth={1.8} />
-          <h3>Active sessions</h3>
-          <span className="muted">{sessions.length}</span>
-        </S.ActivityCardHead>
+        <S.SectionTitle>
+          Active sessions
+          <span>{sessions.length}</span>
+        </S.SectionTitle>
         {sessions.length === 0 ? (
           <S.ActivityEmpty className="muted">No active sessions.</S.ActivityEmpty>
         ) : (
-          <S.SessionsTable>
-            <S.SessionsRow $head>
-              <span>User</span>
-              <span>Device</span>
-              <span>IP</span>
-              <span>Signed in</span>
-              <span>Last seen</span>
-              <span></span>
-            </S.SessionsRow>
+          <S.SessionGrid>
             {sessions.map((s) => {
               const device = parseUserAgent(s.userAgent);
               const DeviceIcon = DEVICE_ICON[device.kind];
               return (
-              <S.SessionsRow $current={s.current} key={s.id}>
-                <S.SessUser>
-                  {s.username}
-                  {s.current && <S.SelfBadge>you</S.SelfBadge>}
-                  <RoleBadge $role={s.role}>{s.role}</RoleBadge>
-                </S.SessUser>
-                <S.SessDevice title={device.raw ?? "No device information"}>
-                  <DeviceIcon size={15} strokeWidth={1.8} />
-                  <S.SessDeviceText>
-                    <S.SessDeviceLabel>{device.label}</S.SessDeviceLabel>
-                    {device.os && (
-                      <S.SessDeviceOs className="muted">{device.os}</S.SessDeviceOs>
-                    )}
-                  </S.SessDeviceText>
-                </S.SessDevice>
-                <S.SessNet>
-                  <span className="muted mono">{s.ip || "—"}</span>
-                  <LocationLine location={s.location} />
-                </S.SessNet>
-                <S.SessSignedIn className="muted" title={formatDate(s.createdAt)}>
-                  {formatRelative(s.createdAt, now)}
-                </S.SessSignedIn>
-                <S.SessLastSeen className="muted" title={formatDate(s.lastSeen)}>
-                  {formatRelative(s.lastSeen, now)}
-                </S.SessLastSeen>
-                <S.SessActions>
-                  <Tooltip
-                    label={s.current ? "Revoke (signs you out)" : "Revoke session"}
-                  >
-                    <GhostBtn $danger onClick={() => setRevokeTarget(s)}>
-                      <XCircle size={15} strokeWidth={1.8} />
-                    </GhostBtn>
-                  </Tooltip>
-                </S.SessActions>
-              </S.SessionsRow>
+                <S.SessionCard $current={s.current} key={s.id}>
+                  <S.SessUser>
+                    {s.username}
+                    {s.current && <S.SelfBadge>you</S.SelfBadge>}
+                    <RoleBadge $role={s.role}>{s.role}</RoleBadge>
+                  </S.SessUser>
+                  <S.SessDevice title={device.raw ?? "No device information"}>
+                    <DeviceIcon size={14} strokeWidth={1.8} />
+                    {device.label}
+                  </S.SessDevice>
+                  <S.SessNet>
+                    <LocationLine location={s.location} />
+                    <S.SessIp className="mono" title={s.ip || undefined}>
+                      {s.ip || "—"}
+                    </S.SessIp>
+                  </S.SessNet>
+                  <S.SessFoot>
+                    <S.SessTimes>
+                      <span title={formatDate(s.createdAt)}>
+                        Signed in {formatRelative(s.createdAt, now)}
+                      </span>
+                      <span title={formatDate(s.lastSeen)}>
+                        Last seen {formatRelative(s.lastSeen, now)}
+                      </span>
+                    </S.SessTimes>
+                    <Tooltip
+                      label={s.current ? "Revoke (signs you out)" : "Revoke session"}
+                    >
+                      <GhostBtn $danger onClick={() => setRevokeTarget(s)}>
+                        <XCircle size={15} strokeWidth={1.8} />
+                      </GhostBtn>
+                    </Tooltip>
+                  </S.SessFoot>
+                </S.SessionCard>
               );
             })}
-          </S.SessionsTable>
+          </S.SessionGrid>
         )}
       </S.ActivityCard>
 
       <S.ActivityCard $log>
-        <S.ActivityCardHead>
-          <ScrollText size={16} strokeWidth={1.8} />
-          <h3>Activity log</h3>
-          <span className="muted">
-            {filtered.length === audit.length
-              ? audit.length
-              : `${filtered.length} / ${audit.length}`}
-          </span>
-        </S.ActivityCardHead>
+        <S.LogSticky>
+          <S.SectionTitle>
+            Activity log
+            <span>
+              {filtered.length !== audit.length
+                ? `${filtered.length} / ${audit.length}`
+                : auditTotal > audit.length
+                  ? `${audit.length.toLocaleString()} of ${auditTotal.toLocaleString()}`
+                  : auditTotal.toLocaleString()}
+            </span>
+          </S.SectionTitle>
 
-        {audit.length > 0 && (
-          <S.AuditFilters>
-            <S.AuditChips>
-              {CATEGORIES.map((c) => (
-                <S.AuditChip
-                  key={c.id}
-                  $active={category === c.id}
-                  onClick={() => setCategory(c.id)}
-                >
-                  {c.label}
-                  <S.AuditChipCount>{counts[c.id] ?? 0}</S.AuditChipCount>
-                </S.AuditChip>
-              ))}
-            </S.AuditChips>
-            <S.AuditFilterRight>
-              <Tooltip label="Show only failed actions">
-                <S.AuditChip
-                  $active={failedOnly}
-                  $danger
-                  onClick={() => setFailedOnly((v) => !v)}
-                >
-                  <ShieldAlert size={13} strokeWidth={1.9} />
-                  Failures
-                </S.AuditChip>
-              </Tooltip>
-              <S.AuditSearch>
-                <Search size={14} strokeWidth={1.8} />
-                <input
-                  type="text"
-                  placeholder="Search user, action, detail…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                {query && (
-                  <Tooltip label="Clear">
-                    <S.AuditSearchClear onClick={() => setQuery("")}>
-                      <X size={13} strokeWidth={2} />
-                    </S.AuditSearchClear>
-                  </Tooltip>
-                )}
-              </S.AuditSearch>
-            </S.AuditFilterRight>
-          </S.AuditFilters>
-        )}
+          {audit.length > 0 && (
+            <S.LogToolbar>
+              <S.Seg>
+                {CATEGORIES.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={category === c.id ? "active" : undefined}
+                    onClick={() => setCategory(c.id)}
+                  >
+                    {c.label}
+                    <span className="seg-count">{counts[c.id] ?? 0}</span>
+                  </button>
+                ))}
+              </S.Seg>
+              <S.LogToolbarRight>
+                <Tooltip label="Show only failed actions">
+                  <S.Seg>
+                    <button
+                      type="button"
+                      className={failedOnly ? "active danger" : undefined}
+                      onClick={() => setFailedOnly((v) => !v)}
+                    >
+                      <ShieldAlert size={13} strokeWidth={1.9} />
+                      Failures
+                    </button>
+                  </S.Seg>
+                </Tooltip>
+                <S.AuditSearch>
+                  <Search size={14} strokeWidth={1.8} />
+                  <input
+                    type="text"
+                    placeholder="Search user, action, detail…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  {query && (
+                    <Tooltip label="Clear">
+                      <S.AuditSearchClear type="button" onClick={() => setQuery("")}>
+                        <X size={13} strokeWidth={2} />
+                      </S.AuditSearchClear>
+                    </Tooltip>
+                  )}
+                </S.AuditSearch>
+              </S.LogToolbarRight>
+            </S.LogToolbar>
+          )}
+        </S.LogSticky>
 
         {loading && audit.length === 0 ? (
           <Loading>Loading…</Loading>
@@ -555,48 +585,54 @@ export function Activity() {
             {filtered.map((e) => {
               const meta = actionMeta(e.action);
               const result = outcome(e);
-              // Denied/failed attempts get a neutral grey icon so the colour
-              // doesn't imply the action actually took effect.
               const Icon = result === "denied" ? ShieldAlert : meta.icon;
               const iconKind = result === "ok" ? meta.kind : "neutral";
               return (
-              <S.AuditRow $outcome={result} key={e.id}>
-                <S.AuditIcon $kind={iconKind}>
-                  <Icon size={14} strokeWidth={1.9} />
-                </S.AuditIcon>
-                <S.AuditMain>
-                  <S.AuditAction>{displayLabel(e)}</S.AuditAction>
-                  <S.AuditCat className={actionCategory(e.action)}>
-                    {actionCategory(e.action)}
-                  </S.AuditCat>
-                  {result === "denied" && (
-                    <S.AuditStatusBadge $denied>
-                      denied{e.status ? ` · ${e.status}` : ""}
-                    </S.AuditStatusBadge>
-                  )}
-                  {result === "failed" && e.action !== "auth.login_failed" && (
-                    <S.AuditStatusBadge>
-                      failed{e.status ? ` · ${e.status}` : ""}
-                    </S.AuditStatusBadge>
-                  )}
-                </S.AuditMain>
-                <S.AuditUser>{e.username ?? "—"}</S.AuditUser>
-                <S.AuditDetail className="muted" title={e.detail ?? ""}>
-                  {e.detail ?? ""}
-                </S.AuditDetail>
-                <S.AuditIp className="muted">
-                  {e.ip && <span className="mono">{e.ip}</span>}
-                  <LocationLine location={e.location} hideUnknown />
-                </S.AuditIp>
-                <S.AuditTime className="muted" title={formatDate(e.ts)}>
-                  {formatRelative(e.ts, now)}
-                </S.AuditTime>
-              </S.AuditRow>
+                <S.AuditRow $outcome={result} key={e.id}>
+                  <S.AuditIcon $kind={iconKind}>
+                    <Icon size={14} strokeWidth={1.9} />
+                  </S.AuditIcon>
+                  <S.AuditBody>
+                    <S.AuditTop>
+                      <S.AuditAction>{displayLabel(e)}</S.AuditAction>
+                      <S.AuditCat>{actionCategory(e.action)}</S.AuditCat>
+                      {result === "denied" && (
+                        <S.AuditStatusBadge $denied>
+                          denied{e.status ? ` · ${e.status}` : ""}
+                        </S.AuditStatusBadge>
+                      )}
+                      {result === "failed" && e.action !== "auth.login_failed" && (
+                        <S.AuditStatusBadge>
+                          failed{e.status ? ` · ${e.status}` : ""}
+                        </S.AuditStatusBadge>
+                      )}
+                      <S.AuditTime title={formatDate(e.ts)}>
+                        {formatRelative(e.ts, now)}
+                      </S.AuditTime>
+                    </S.AuditTop>
+                    <S.AuditMeta>
+                      <S.AuditUser>{e.username ?? "—"}</S.AuditUser>
+                      {e.detail ? (
+                        <S.AuditDetail title={e.detail}>{e.detail}</S.AuditDetail>
+                      ) : null}
+                      {e.ip ? (
+                        <S.AuditIp className="mono" title={e.ip}>
+                          {e.ip}
+                        </S.AuditIp>
+                      ) : null}
+                      <LocationLine location={e.location} hideUnknown />
+                    </S.AuditMeta>
+                  </S.AuditBody>
+                </S.AuditRow>
               );
             })}
           </S.AuditList>
         )}
       </S.ActivityCard>
+
+      <S.StorageWrap>
+        <StoragePanel stats={stats} onChanged={() => void load()} />
+      </S.StorageWrap>
 
       {revokeTarget && (
         <RevokeModal
@@ -610,6 +646,235 @@ export function Activity() {
         />
       )}
     </S.ActivityTab>
+  );
+}
+
+function StoragePanel({
+  stats,
+  onChanged,
+}: {
+  stats: ActivityStats | null;
+  onChanged: () => void;
+}) {
+  const [draft, setDraft] = useState<ActivitySettings | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(cache.settings.activity ?? DEFAULT_SETTINGS.activity);
+    fetchSettings()
+      .then((s) => {
+        cache.settings = s;
+        setDraft(s.activity ?? DEFAULT_SETTINGS.activity);
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!draft) return null;
+
+  const dirty =
+    !!stats &&
+    (draft.enabled !== stats.enabled ||
+      draft.retentionDays !== stats.retentionDays ||
+      draft.maxSizeMb !== stats.maxSizeMb);
+
+  async function save() {
+    if (busy || !draft) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const next: AppSettings = { ...cache.settings, activity: draft };
+      const saved = await saveSettings(next);
+      cache.settings = saved;
+      setDraft(saved.activity ?? draft);
+      onChanged();
+      setMsg("Saved.");
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doClear() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      await clearAudit();
+      onChanged();
+      setConfirmClear(false);
+      setMsg("Activity log cleared.");
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const usedPct =
+    stats && stats.maxSizeMb > 0
+      ? (stats.dbBytes / (stats.maxSizeMb * 1024 * 1024)) * 100
+      : 0;
+
+  return (
+    <H.StoragePanel>
+      <CardTitle as="h2">Storage &amp; recording</CardTitle>
+      <H.StorageGrid>
+        <H.StorageStats>
+          {stats ? (
+            <>
+              <H.KvTight>
+                <Stat label="Log size" value={formatBytes(stats.dbBytes)} />
+                <Stat
+                  label="Entries stored"
+                  value={stats.rowCount.toLocaleString()}
+                />
+                <Stat
+                  label="Per entry"
+                  value={
+                    stats.bytesPerEntry > 0 ? formatBytes(stats.bytesPerEntry) : "—"
+                  }
+                />
+                <Stat label="Oldest record" value={formatDate(stats.oldest)} />
+                <Stat
+                  label="Est. headroom"
+                  value={
+                    stats.estimatedDaysToFull != null
+                      ? `~${stats.estimatedDaysToFull.toFixed(1)} days`
+                      : "unlimited"
+                  }
+                />
+              </H.KvTight>
+              {stats.maxSizeMb > 0 && (
+                <H.StorageBar>
+                  <Bar value={usedPct} />
+                  <H.StorageBarFoot className="muted">
+                    {formatBytes(stats.dbBytes)} of {stats.maxSizeMb} MB cap (
+                    {usedPct.toFixed(usedPct < 10 ? 1 : 0)}%)
+                  </H.StorageBarFoot>
+                </H.StorageBar>
+              )}
+            </>
+          ) : (
+            <div className="muted">Loading storage stats…</div>
+          )}
+        </H.StorageStats>
+        <H.StorageForm>
+          <H.ToggleRow
+            type="button"
+            role="switch"
+            aria-checked={draft.enabled}
+            onClick={() => setDraft({ ...draft, enabled: !draft.enabled })}
+          >
+            <H.ToggleText>
+              <H.ToggleLabel>Record activity</H.ToggleLabel>
+              <H.ToggleDesc>
+                Store logins, file changes, terminal sessions, and other actions as they happen.
+              </H.ToggleDesc>
+            </H.ToggleText>
+            <H.Switch $on={draft.enabled}>
+              <H.SwitchKnob />
+            </H.Switch>
+          </H.ToggleRow>
+          <NumberField
+            label="Keep activity for"
+            unit="days (0 = no age limit)"
+            min={0}
+            max={3650}
+            value={draft.retentionDays}
+            onChange={(v) => setDraft({ ...draft, retentionDays: v })}
+          />
+          <NumberField
+            label="Max log size"
+            unit="MB (0 = no size limit)"
+            min={0}
+            max={1048576}
+            value={draft.maxSizeMb}
+            onChange={(v) => setDraft({ ...draft, maxSizeMb: v })}
+          />
+          <H.StorageActions>
+            <ModalBtn
+              type="button"
+              $variant="danger-ghost"
+              onClick={() => setConfirmClear(true)}
+              disabled={busy}
+            >
+              Clear log
+            </ModalBtn>
+            <H.StorageActionsRight>
+              {msg && <H.StorageMsg className="muted">{msg}</H.StorageMsg>}
+              <ModalBtn
+                type="button"
+                $variant="primary"
+                onClick={() => void save()}
+                disabled={busy || !dirty}
+              >
+                {busy ? "Saving…" : "Save"}
+              </ModalBtn>
+            </H.StorageActionsRight>
+          </H.StorageActions>
+        </H.StorageForm>
+      </H.StorageGrid>
+      {confirmClear && (
+        <H.StorageConfirm>
+          <span>Permanently delete all activity log entries?</span>
+          <H.StorageConfirmActions>
+            <ModalBtn
+              type="button"
+              onClick={() => setConfirmClear(false)}
+              disabled={busy}
+            >
+              Cancel
+            </ModalBtn>
+            <ModalBtn
+              type="button"
+              $variant="danger"
+              onClick={() => void doClear()}
+              disabled={busy}
+            >
+              Delete everything
+            </ModalBtn>
+          </H.StorageConfirmActions>
+        </H.StorageConfirm>
+      )}
+    </H.StoragePanel>
+  );
+}
+
+function NumberField({
+  label,
+  unit,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  unit: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <H.NumField>
+      <H.NumFieldLabel>{label}</H.NumFieldLabel>
+      <H.NumFieldInput>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) return;
+            onChange(Math.max(min, Math.min(max, Math.round(n))));
+          }}
+        />
+        <H.NumFieldUnit className="muted">{unit}</H.NumFieldUnit>
+      </H.NumFieldInput>
+    </H.NumField>
   );
 }
 

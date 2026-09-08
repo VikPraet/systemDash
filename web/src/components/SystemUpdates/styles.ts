@@ -418,4 +418,48 @@ export const SectionHead = styled.h3`
   letter-spacing: 0.04em;
 `;
 
+export const BackupList = styled.div`
+  max-height: 280px;
+  overflow: auto;
+  flex-shrink: 0;
+`;
+
+export const BackupTable = styled.table`
+  ${procTableBase}
+
+  thead th {
+    cursor: default;
+  }
+
+  th,
+  td {
+    padding: 8px 16px;
+  }
+`;
+
+export const BackupEmpty = styled.div`
+  padding: 16px 16px 18px;
+  font-size: 13px;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const ConfirmField = styled.label`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.muted};
+
+  input {
+    padding: 8px 10px;
+    background: ${({ theme }) => theme.color.bg};
+    border: 1px solid ${({ theme }) => theme.color.border};
+    border-radius: ${({ theme }) => theme.radius.sm};
+    color: ${({ theme }) => theme.color.text};
+    font: inherit;
+  }
+`;
+
+
 

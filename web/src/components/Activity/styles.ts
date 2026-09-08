@@ -1,24 +1,13 @@
 import styled, { css } from "styled-components";
 import { mobile } from "../../theme/media";
 
-/* ----------------------------------------------------------------------------
-   Activity tab: active sessions + audit log.
-
-   Styles reflect the *final* cascade from the old global stylesheet, including
-   the trailing "EDITORIAL THEME" overrides (squared chips/search, large head).
-   Shared modal/button/badge primitives live in `../ui/styles`.
-   ------------------------------------------------------------------------- */
-
 type Outcome = "ok" | "denied" | "failed";
 type IconKind = "info" | "success" | "warn" | "danger" | "terminal" | "neutral";
 
-// Pins to the viewport height so the audit log scrolls internally instead of
-// growing the whole page.
 export const ActivityTab = styled.div`
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 100%;
   min-height: 0;
 `;
 
@@ -30,7 +19,6 @@ export const ActivityHead = styled.div`
 
   h2 {
     margin: 0;
-    /* EDITORIAL override of the base 18px. */
     font-size: 26px;
     font-weight: 600;
     letter-spacing: -0.4px;
@@ -43,96 +31,99 @@ export const ActivityHead = styled.div`
   }
 `;
 
-// The `$log` card grows to fill leftover space; its list scrolls internally.
 export const ActivityCard = styled.section<{ $log?: boolean }>`
+  background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
-  background: ${({ theme }) => theme.color.panel};
   box-shadow: ${({ theme }) => theme.elev};
-  overflow: hidden;
+  padding: 18px;
+  min-width: 0;
+
+  @media ${mobile} {
+    padding: 14px;
+  }
 
   ${({ $log }) =>
     $log &&
     css`
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
+      overflow: visible;
     `}
 `;
 
-export const ActivityCardHead = styled.div`
+export const StorageWrap = styled.div`
+  flex-shrink: 0;
+`;
+
+export const LogSticky = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: ${({ theme }) => theme.color.panel};
+  margin: -18px -18px 0;
+  padding: 18px 18px 12px;
+
+  @media ${mobile} {
+    margin: -14px -14px 0;
+    padding: 14px 14px 12px;
+  }
+`;
+
+export const SectionTitle = styled.h3`
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 12px 14px;
-  background: ${({ theme }) => theme.color.panel2};
-  border-bottom: 1px solid ${({ theme }) => theme.color.border};
-  color: ${({ theme }) => theme.color.text};
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: ${({ theme }) => theme.color.muted};
 
-  h3 {
-    margin: 0;
-    font-size: 14px;
-    flex: 1;
+  &::before {
+    content: "";
+    width: 16px;
+    height: 2px;
+    flex-shrink: 0;
+    background: ${({ theme }) => theme.color.accent};
+  }
+
+  > span {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 500;
   }
 `;
 
 export const ActivityEmpty = styled.div`
-  padding: 18px 14px;
+  padding: 8px 0 4px;
   font-size: 13px;
 `;
 
-/* ---- Active sessions table ---------------------------------------------- */
-export const SessionsTable = styled.div`
+/* ---- Active sessions ---------------------------------------------------- */
+export const SessionGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+`;
+
+export const SessionCard = styled.div<{ $current?: boolean }>`
   display: flex;
   flex-direction: column;
-`;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px;
+  background: ${({ theme }) => theme.color.panel2};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
 
-export const SessionsRow = styled.div<{ $current?: boolean; $head?: boolean }>`
-  display: grid;
-  grid-template-columns: 1.3fr 1.5fr 1.1fr 1fr 1fr 0.5fr;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-top: 1px solid ${({ theme }) => theme.color.border};
-  font-size: 13px;
-
-  &:first-child {
-    border-top: none;
-  }
-
-  ${({ $current }) =>
+  ${({ $current, theme }) =>
     $current &&
     css`
-      background: rgba(79, 140, 255, 0.07);
+      border-color: color-mix(in srgb, ${theme.color.accent} 50%, ${theme.color.border});
+      background: color-mix(in srgb, ${theme.color.accent} 8%, ${theme.color.panel2});
     `}
-
-  ${({ $head }) =>
-    $head &&
-    css`
-      color: ${({ theme }) => theme.color.muted};
-      font-size: 11.5px;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-    `}
-
-  @media ${mobile} {
-    ${({ $head }) =>
-      $head
-        ? css`
-            display: none;
-          `
-        : css`
-            grid-template-columns: 1fr auto;
-            grid-template-areas:
-              "user actions"
-              "device device"
-              "net net"
-              "signed last";
-            gap: 8px 10px;
-            padding: 12px 14px;
-          `}
-  }
 `;
 
 export const SessUser = styled.span`
@@ -141,20 +132,6 @@ export const SessUser = styled.span`
   gap: 8px;
   font-weight: 600;
   flex-wrap: wrap;
-
-  @media ${mobile} {
-    grid-area: user;
-  }
-`;
-
-export const SessActions = styled.span`
-  display: flex;
-  justify-content: flex-end;
-
-  @media ${mobile} {
-    grid-area: actions;
-    align-self: start;
-  }
 `;
 
 export const SessDevice = styled.span`
@@ -162,90 +139,49 @@ export const SessDevice = styled.span`
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: ${({ theme }) => theme.color.muted};
+  font-size: 13px;
 
   > svg {
     flex: none;
-    color: ${({ theme }) => theme.color.text};
-  }
-
-  @media ${mobile} {
-    grid-area: device;
+    color: ${({ theme }) => theme.color.muted};
   }
 `;
 
-export const SessDeviceText = styled.span`
+export const SessNet = styled.span`
   display: flex;
   flex-direction: column;
+  gap: 3px;
   min-width: 0;
-  line-height: 1.25;
 `;
 
-export const SessDeviceLabel = styled.span`
-  color: ${({ theme }) => theme.color.text};
-  font-weight: 500;
-  white-space: nowrap;
+export const SessIp = styled.span`
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.muted};
   overflow: hidden;
   text-overflow: ellipsis;
-`;
-
-export const SessDeviceOs = styled.span`
-  font-size: 11px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 `;
 
-// Stacked IP + location cell.
-export const SessNet = styled.span`
+export const SessFoot = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid ${({ theme }) => theme.color.border};
+`;
+
+export const SessTimes = styled.span`
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-
-  @media ${mobile} {
-    grid-area: net;
-  }
+  font-size: 11px;
+  color: ${({ theme }) => theme.color.muted};
+  font-variant-numeric: tabular-nums;
 `;
 
-export const SessTime = styled.span`
-  @media ${mobile} {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 12px;
-
-    &::before {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.4px;
-      text-transform: uppercase;
-      color: ${({ theme }) => theme.color.muted};
-    }
-  }
-`;
-
-export const SessSignedIn = styled(SessTime)`
-  @media ${mobile} {
-    grid-area: signed;
-
-    &::before {
-      content: "Signed in";
-    }
-  }
-`;
-
-export const SessLastSeen = styled(SessTime)`
-  @media ${mobile} {
-    grid-area: last;
-
-    &::before {
-      content: "Last seen";
-    }
-  }
-`;
-
-// "you" pill (final cascade: editorial squared corners).
 export const SelfBadge = styled.span`
   font-size: 10px;
   text-transform: uppercase;
@@ -256,131 +192,133 @@ export const SelfBadge = styled.span`
   color: ${({ theme }) => theme.color.muted};
 `;
 
-/* ---- "Where from" line (Activity-owned): flag/icon + city, country ------- */
 export const LocLine = styled.span`
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   min-width: 0;
+  max-width: 100%;
+  color: ${({ theme }) => theme.color.muted};
 
   > svg {
     flex: none;
   }
 `;
 
+export const LocText = styled.span`
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
 export const LocFlag = styled.span`
   font-size: 13px;
   line-height: 1;
+  flex: none;
 `;
 
-/* ---- Activity log: filters ---------------------------------------------- */
-export const AuditFilters = styled.div`
+/* ---- Activity log: toolbar ---------------------------------------------- */
+export const LogToolbar = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 11px 14px;
-  border-bottom: 1px solid ${({ theme }) => theme.color.border};
-  background: ${({ theme }) => theme.color.hover};
 `;
 
-export const AuditChips = styled.div`
+export const LogToolbarRight = styled.div`
   display: flex;
+  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 6px;
+  min-width: 0;
 `;
 
-export const AuditFilterRight = styled.div`
-  display: flex;
+export const Seg = styled.div`
+  display: inline-flex;
+  flex-wrap: wrap;
+  background: ${({ theme }) => theme.color.bg};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  padding: 3px;
+  gap: 2px;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    color: ${({ theme }) => theme.color.muted};
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    border-radius: ${({ theme }) => theme.radius.sm};
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+
+  button:hover {
+    color: ${({ theme }) => theme.color.text};
+  }
+
+  button.active {
+    background: ${({ theme }) => theme.color.accent};
+    color: ${({ theme }) => theme.color.onAccent};
+  }
+
+  button.active.danger {
+    background: ${({ theme }) => theme.color.bad};
+    color: ${({ theme }) => theme.color.onAccent};
+  }
+
+  .seg-count {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    padding: 1px 6px;
+    border-radius: ${({ theme }) => theme.radius.sm};
+    background: ${({ theme }) => theme.color.track};
+    color: ${({ theme }) => theme.color.muted};
+  }
+
+  button.active .seg-count {
+    background: color-mix(in srgb, ${({ theme }) => theme.color.onAccent} 18%, transparent);
+    color: ${({ theme }) => theme.color.onAccent};
+  }
+`;
+
+export const AuditSearch = styled.label`
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-`;
-
-// Count bubble nested inside a chip (final cascade: editorial squared corners).
-export const AuditChipCount = styled.span`
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.color.hover};
+  min-width: 160px;
+  flex: 1;
+  max-width: 280px;
   color: ${({ theme }) => theme.color.muted};
-`;
-
-export const AuditChip = styled.button<{ $active?: boolean; $danger?: boolean }>`
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid ${({ theme }) => theme.color.border};
-  /* EDITORIAL overrides: squared corners, uppercase, wider tracking. */
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.color.panel2};
-  color: ${({ theme }) => theme.color.muted};
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
-
-  &:hover {
-    color: ${({ theme }) => theme.color.text};
-    border-color: ${({ theme }) => theme.color.accent};
-  }
-
-  ${({ $active }) =>
-    $active &&
-    css`
-      background: rgba(79, 140, 255, 0.16);
-      border-color: ${({ theme }) => theme.color.accent};
-      color: ${({ theme }) => theme.color.text};
-
-      ${AuditChipCount} {
-        background: color-mix(in srgb, ${({ theme }) => theme.color.text} 12%, transparent);
-        color: ${({ theme }) => theme.color.text};
-      }
-    `}
-
-  ${({ $active, $danger }) =>
-    $active &&
-    $danger &&
-    css`
-      background: rgba(232, 106, 111, 0.16);
-      border-color: ${({ theme }) => theme.color.bad};
-    `}
-`;
-
-export const AuditSearch = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 9px;
-  border: 1px solid ${({ theme }) => theme.color.border};
-  /* EDITORIAL override of the base 9px radius. */
-  border-radius: ${({ theme }) => theme.radius.sm};
-  background: ${({ theme }) => theme.color.panel2};
-  color: ${({ theme }) => theme.color.muted};
-
-  &:focus-within {
-    border-color: ${({ theme }) => theme.color.accent};
-  }
 
   input {
+    flex: 1;
+    min-width: 0;
     border: none;
+    border-bottom: 1px solid ${({ theme }) => theme.color.hairline};
+    border-radius: 0;
     background: transparent;
+    padding: 6px 2px;
     color: ${({ theme }) => theme.color.text};
-    font-size: 12.5px;
+    font-size: 13px;
     outline: none;
-    width: 200px;
 
-    &::placeholder {
-      color: ${({ theme }) => theme.color.muted};
+    &:focus {
+      border-bottom-color: ${({ theme }) => theme.color.accent};
     }
 
-    @media (max-width: 720px) {
-      width: 130px;
+    &::placeholder {
+      color: ${({ theme }) => theme.color.placeholder};
     }
   }
 `;
@@ -402,20 +340,21 @@ export const AuditSearchClear = styled.button`
 export const AuditList = styled.div`
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  margin: 0 -6px;
 `;
 
-export const AuditMain = styled.span`
-  display: inline-flex;
+export const AuditBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+`;
+
+export const AuditTop = styled.div`
+  display: flex;
   align-items: center;
   gap: 7px;
   min-width: 0;
-
-  @media (max-width: 720px) {
-    grid-area: main;
-  }
 `;
 
 export const AuditAction = styled.span`
@@ -431,7 +370,7 @@ export const AuditCat = styled.span`
   letter-spacing: 0.4px;
   text-transform: uppercase;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.muted};
   background: ${({ theme }) => theme.color.hover};
   border: 1px solid ${({ theme }) => theme.color.border};
@@ -444,26 +383,50 @@ export const AuditStatusBadge = styled.span<{ $denied?: boolean }>`
   text-transform: uppercase;
   letter-spacing: 0.4px;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.bad};
-  background: rgba(232, 106, 111, 0.14);
+  background: color-mix(in srgb, ${({ theme }) => theme.color.bad} 14%, transparent);
   flex-shrink: 0;
 
-  ${({ $denied }) =>
+  ${({ $denied, theme }) =>
     $denied &&
     css`
-      color: ${({ theme }) => theme.color.warn};
-      background: rgba(214, 162, 63, 0.14);
+      color: ${theme.color.warn};
+      background: color-mix(in srgb, ${theme.color.warn} 14%, transparent);
     `}
+`;
+
+export const AuditTime = styled.span`
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const AuditMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.muted};
+
+  > * {
+    min-width: 0;
+  }
+
+  > * + *::before {
+    content: "·";
+    margin: 0 8px;
+    color: ${({ theme }) => theme.color.muted};
+    opacity: 0.6;
+  }
 `;
 
 export const AuditUser = styled.span`
   color: ${({ theme }) => theme.color.text};
   font-weight: 500;
-
-  @media (max-width: 720px) {
-    grid-area: user;
-  }
 `;
 
 export const AuditDetail = styled.span`
@@ -472,63 +435,40 @@ export const AuditDetail = styled.span`
   white-space: nowrap;
   font-family: ${({ theme }) => theme.font.mono};
   font-size: 11.5px;
-
-  @media (max-width: 720px) {
-    grid-area: detail;
-  }
+  max-width: 280px;
 `;
 
 export const AuditIp = styled.span`
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-
-  .mono,
-  ${LocLine} {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 100%;
-  }
-
-  @media (max-width: 720px) {
-    grid-area: ip;
-  }
-`;
-
-export const AuditTime = styled.span`
-  text-align: right;
-
-  @media (max-width: 720px) {
-    grid-area: time;
-  }
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
 `;
 
 const iconKindStyles: Record<IconKind, ReturnType<typeof css>> = {
   info: css`
     color: ${({ theme }) => theme.color.accent};
-    background: rgba(79, 140, 255, 0.15);
+    background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 14%, transparent);
   `,
   success: css`
     color: ${({ theme }) => theme.color.good};
-    background: rgba(51, 201, 142, 0.15);
+    background: color-mix(in srgb, ${({ theme }) => theme.color.good} 14%, transparent);
   `,
   warn: css`
     color: ${({ theme }) => theme.color.warn};
-    background: rgba(214, 162, 63, 0.15);
+    background: color-mix(in srgb, ${({ theme }) => theme.color.warn} 14%, transparent);
   `,
   danger: css`
     color: ${({ theme }) => theme.color.bad};
-    background: rgba(232, 106, 111, 0.16);
+    background: color-mix(in srgb, ${({ theme }) => theme.color.bad} 14%, transparent);
   `,
   terminal: css`
-    color: #c4a8ff;
-    background: rgba(167, 139, 250, 0.16);
+    color: ${({ theme }) => theme.color.accent};
+    background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 14%, transparent);
   `,
   neutral: css`
     color: ${({ theme }) => theme.color.muted};
-    background: rgba(139, 151, 168, 0.14);
+    background: color-mix(in srgb, ${({ theme }) => theme.color.muted} 14%, transparent);
   `,
 };
 
@@ -536,27 +476,24 @@ export const AuditIcon = styled.span<{ $kind: IconKind }>`
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.muted};
-  background: rgba(139, 151, 168, 0.14);
+  background: color-mix(in srgb, ${({ theme }) => theme.color.muted} 14%, transparent);
 
   ${({ $kind }) => iconKindStyles[$kind]}
-
-  @media (max-width: 720px) {
-    grid-area: icon;
-  }
 `;
 
 export const AuditRow = styled.div<{ $outcome: Outcome }>`
   display: grid;
-  grid-template-columns: 28px 1.4fr 0.9fr 2fr 1fr 0.9fr;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px 12px;
+  padding: 10px 6px;
   border-top: 1px solid ${({ theme }) => theme.color.border};
-  font-size: 12.5px;
+  font-size: 13px;
 
   &:first-child {
     border-top: none;
@@ -566,41 +503,28 @@ export const AuditRow = styled.div<{ $outcome: Outcome }>`
     background: ${({ theme }) => theme.color.hover};
   }
 
-  /* Denied/failed attempts keep their tint (even on hover, matching the old
-     equal-specificity cascade) and mute the headline. */
-  ${({ $outcome }) =>
+  ${({ $outcome, theme }) =>
     $outcome === "failed"
       ? css`
           &,
           &:hover {
-            background: rgba(232, 106, 111, 0.06);
+            background: color-mix(in srgb, ${theme.color.bad} 7%, transparent);
           }
 
           ${AuditAction} {
-            color: ${({ theme }) => theme.color.muted};
-            font-weight: 600;
+            color: ${theme.color.muted};
           }
         `
       : $outcome === "denied"
-      ? css`
-          &,
-          &:hover {
-            background: rgba(214, 162, 63, 0.05);
-          }
+        ? css`
+            &,
+            &:hover {
+              background: color-mix(in srgb, ${theme.color.warn} 7%, transparent);
+            }
 
-          ${AuditAction} {
-            color: ${({ theme }) => theme.color.muted};
-            font-weight: 600;
-          }
-        `
-      : ""}
-
-  @media (max-width: 720px) {
-    grid-template-columns: 28px 1fr auto;
-    grid-template-areas:
-      "icon main time"
-      "icon user detail"
-      "icon ip ip";
-    row-gap: 2px;
-  }
+            ${AuditAction} {
+              color: ${theme.color.muted};
+            }
+          `
+        : ""}
 `;

@@ -2,7 +2,7 @@ import styled from "styled-components";
 import { procTableBase } from "../ui/styles";
 import { mobile } from "../../theme/media";
 
-export const FilesRoot = styled.div`
+export const FilesRoot = styled.div<{ $map?: boolean }>`
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
@@ -12,6 +12,21 @@ export const FilesRoot = styled.div`
   min-height: 0;
   display: flex;
   flex-direction: column;
+  ${({ $map }) =>
+    $map &&
+    `
+    height: calc(100dvh - 80px);
+    min-height: 420px;
+  `}
+
+  @media ${mobile} {
+    ${({ $map }) =>
+      $map &&
+      `
+      height: calc(100dvh - var(--mobile-header-height, 52px) - 24px);
+      min-height: 280px;
+    `}
+  }
 
   /* Inline SVG glyph utilities, scoped to the Files panel. */
   .act-icon {
@@ -131,8 +146,61 @@ export const FilesSearch = styled.input`
   }
 `;
 
-export const FilesSettingsBtn = styled.button`
+export const FilesToolbarEnd = styled.div`
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+`;
+
+export const FilesViewToggle = styled.div`
+  display: flex;
+  gap: 2px;
+  background: ${({ theme }) => theme.color.bg};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  padding: 3px;
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: none;
+    color: ${({ theme }) => theme.color.muted};
+    padding: 6px 12px;
+    border-radius: ${({ theme }) => theme.radius.sm};
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    transition: all 0.15s ease;
+  }
+
+  button:hover:not(:disabled) {
+    color: ${({ theme }) => theme.color.text};
+  }
+
+  button.active {
+    background: ${({ theme }) => theme.color.panel2};
+    color: ${({ theme }) => theme.color.text};
+  }
+
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+`;
+
+export const FilesMapHint = styled.div`
+  padding: 14px 18px 0;
+  font-size: 13px;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const FilesSettingsBtn = styled.button`
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -278,6 +346,17 @@ export const FilesActions = styled.div`
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  > button.danger {
+    color: ${({ theme }) => theme.color.bad};
+    border-color: ${({ theme }) => theme.color.bad};
+  }
+
+  > button.danger:hover:not(:disabled) {
+    background: ${({ theme }) => theme.color.bad};
+    border-color: ${({ theme }) => theme.color.bad};
+    color: ${({ theme }) => theme.color.onAccent};
+  }
 `;
 
 export const FilesActionsStatus = styled.div`
@@ -293,13 +372,15 @@ export const FilesActionsStatus = styled.div`
   }
 `;
 
-export const FilesBody = styled.div`
-  flex: 0 1 auto;
+export const FilesBody = styled.div<{ $fill?: boolean }>`
+  flex: ${({ $fill }) => ($fill ? "1 1 auto" : "0 1 auto")};
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: ${({ $fill }) => ($fill ? "hidden" : "auto")};
+  display: ${({ $fill }) => ($fill ? "flex" : "block")};
+  flex-direction: column;
 
   @media ${mobile} {
-    overflow-x: auto;
+    overflow-x: ${({ $fill }) => ($fill ? "hidden" : "auto")};
     -webkit-overflow-scrolling: touch;
   }
 `;

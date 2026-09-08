@@ -21,18 +21,36 @@ export function Setup() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    const name = username.trim();
+    if (!name) {
+      setError("Enter a username.");
+      return;
+    }
+    if (!password) {
+      setError("Enter a password.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Use at least 8 characters for the password.");
+      return;
+    }
     if (password !== confirm) {
-      setError("passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
     if (!question) {
-      setError("choose a recovery question");
+      setError("Choose a recovery question.");
+      return;
+    }
+    if (answer.trim().length < 4) {
+      setError("Recovery answer must be at least 4 characters.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await setup(username.trim(), password, { question, answer });
+      await setup(name, password, { question, answer });
       navigate("/overview", { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -57,9 +75,11 @@ export function Setup() {
             type="text"
             autoComplete="username"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              if (error) setError(null);
+            }}
             autoFocus
-            required
           />
         </A.AuthField>
         <A.AuthField>
@@ -68,8 +88,10 @@ export function Setup() {
             type="password"
             autoComplete="new-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
           />
         </A.AuthField>
         <A.AuthField>
@@ -78,15 +100,23 @@ export function Setup() {
             type="password"
             autoComplete="new-password"
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            required
+            onChange={(e) => {
+              setConfirm(e.target.value);
+              if (error) setError(null);
+            }}
           />
         </A.AuthField>
         <RecoveryFields
           question={question}
           answer={answer}
-          onQuestion={setQuestion}
-          onAnswer={setAnswer}
+          onQuestion={(id) => {
+            setQuestion(id);
+            if (error) setError(null);
+          }}
+          onAnswer={(value) => {
+            setAnswer(value);
+            if (error) setError(null);
+          }}
         />
         <A.AuthHint>
           Use at least 8 characters. Username may use letters, numbers, dot, dash

@@ -10,8 +10,10 @@ import { theme } from "./theme/theme";
 import { cache } from "./cache";
 import { getDefaultTerminalLayout, initTerminalCache } from "./components/Terminal/terminalPersist";
 import { APP_NAME } from "./brand";
+import { applyConnectionFavicon } from "./connectionFavicon";
 
 document.title = APP_NAME;
+applyConnectionFavicon("idle");
 
 initTerminalCache();
 if (!cache.terminal.tabs.length) {

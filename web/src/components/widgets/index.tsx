@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Maximize2, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
+import { useAppearance } from "../../theme/AppearanceContext";
 import * as S from "./styles";
 
 export function Card({
@@ -44,8 +45,72 @@ function colorFor(value: number): string {
 }
 
 export function Gauge({ value, label }: { value: number; label: string }) {
+  const { palette } = useAppearance();
+  const gradId = `gauge-grad-${useId().replace(/:/g, "")}`;
   const clamped = Math.max(0, Math.min(100, value));
   const color = colorFor(clamped);
+  const squircle = palette === "lime";
+
+  if (squircle) {
+    const inset = 10;
+    const size = 100;
+    const rx = 36;
+    return (
+      <S.GaugeRoot $squircle>
+        <svg className="gauge-svg" viewBox="0 0 120 120">
+          <defs>
+            <linearGradient
+              id={gradId}
+              x1="18"
+              y1="18"
+              x2="102"
+              y2="102"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop
+                offset="0%"
+                stopColor={`color-mix(in srgb, ${color} 42%, white)`}
+              />
+              <stop offset="55%" stopColor={color} />
+              <stop
+                offset="100%"
+                stopColor={`color-mix(in srgb, ${color} 72%, var(--accent))`}
+              />
+            </linearGradient>
+          </defs>
+          <rect
+            className="gauge-track"
+            x={inset}
+            y={inset}
+            width={size}
+            height={size}
+            rx={rx}
+            ry={rx}
+            pathLength={100}
+          />
+          <rect
+            className="gauge-arc"
+            x={inset}
+            y={inset}
+            width={size}
+            height={size}
+            rx={rx}
+            ry={rx}
+            pathLength={100}
+            style={{
+              stroke: `url(#${gradId})`,
+              strokeDasharray: `${clamped} ${100 - clamped}`,
+            }}
+          />
+        </svg>
+        <S.GaugeInner>
+          <S.GaugeValue>{Math.round(clamped)}%</S.GaugeValue>
+          <S.GaugeLabel>{label}</S.GaugeLabel>
+        </S.GaugeInner>
+      </S.GaugeRoot>
+    );
+  }
+
   const radius = 52;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - clamped / 100);

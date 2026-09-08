@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { mobile } from "./theme/media";
 
 /* ---- App shell ----------------------------------------------------------- */
@@ -9,11 +9,13 @@ export const AppShell = styled.div`
   height: 100vh;
   height: 100dvh;
   display: flex;
+  overflow: hidden;
 
   @media ${mobile} {
     flex-direction: column;
     min-height: 100dvh;
     height: auto;
+    overflow: visible;
   }
 `;
 
@@ -83,7 +85,7 @@ export const MenuBtn = styled.button`
     appearance: none;
     background: transparent;
     border: 1px solid ${({ theme }) => theme.color.border};
-    border-radius: ${({ theme }) => theme.radius.sm};
+    border-radius: ${({ theme }) => theme.radius.icon};
     color: ${({ theme }) => theme.color.text};
     cursor: pointer;
 
@@ -158,10 +160,11 @@ export const NavBackdrop = styled.button`
 export const Content = styled.main`
   flex: 1;
   min-width: 0;
+  min-height: 0;
   height: 100vh;
   height: 100dvh;
   overflow-y: auto;
-  padding: 20px;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 
   @media ${mobile} {
@@ -169,6 +172,16 @@ export const Content = styled.main`
     min-height: 0;
     height: auto;
     position: relative;
+    overscroll-behavior: auto;
+  }
+`;
+
+/* Padding lives here instead of on `Content`. Padding on an overflow box
+   leaves a gutter above `position: sticky` where scrolled rows still paint. */
+export const ContentPad = styled.div`
+  padding: 20px;
+
+  @media ${mobile} {
     padding: 12px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
@@ -422,33 +435,41 @@ export const FooterMeta = styled.div`
 `;
 
 export const UserChip = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 8px;
   min-width: 0;
   padding: 10px;
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   box-shadow: ${({ theme }) => theme.elev};
+
+  ${SidebarFooterDesktop} {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 `;
 
 export const UserChipRow = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
+  display: contents;
+
+  & > span:first-child {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
 `;
 
 export const UserChipActions = styled.div`
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 4px;
   flex-shrink: 0;
+  width: 100%;
 
   button {
     width: 26px;
@@ -457,6 +478,8 @@ export const UserChipActions = styled.div`
 `;
 
 export const UserChipName = styled.span`
+  grid-column: 1;
+  grid-row: 1;
   font-size: 13px;
   font-weight: 600;
   min-width: 0;
@@ -474,7 +497,7 @@ export const LogoutBtn = styled.button`
   height: 30px;
   background: transparent;
   border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
+  border-radius: ${({ theme }) => theme.radius.icon};
   color: ${({ theme }) => theme.color.muted};
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
@@ -497,9 +520,9 @@ export const Status = styled.div<{ $compact?: boolean }>`
 `;
 
 export const Dot = styled.span<{ $state: "good" | "bad" | "idle" }>`
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
   background: ${({ $state, theme }) =>
     $state === "good"
       ? theme.color.good
@@ -508,6 +531,55 @@ export const Dot = styled.span<{ $state: "good" | "bad" | "idle" }>`
       : theme.color.muted};
   ${({ $state, theme }) =>
     $state === "good" && `box-shadow: 0 0 8px ${theme.color.good};`}
+`;
+
+export const Meter = styled.span<{ $state: "good" | "bad" | "idle" }>`
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  flex-shrink: 0;
+
+  i {
+    display: block;
+    width: 3px;
+    border-radius: 1px;
+    background: ${({ theme }) => theme.color.track};
+    html[data-palette="lime"] & {
+      border-radius: 2px;
+    }
+  }
+
+  i:nth-child(1) { height: 5px; }
+  i:nth-child(2) { height: 8px; }
+  i:nth-child(3) { height: 12px; }
+  i:nth-child(4) { height: 16px; }
+
+  ${({ $state, theme }) =>
+    $state === "good" &&
+    css`
+      i {
+        background: ${theme.color.good};
+        box-shadow: 0 0 8px ${theme.color.good};
+      }
+    `}
+
+  ${({ $state, theme }) =>
+    $state === "idle" &&
+    css`
+      i:nth-child(-n + 2) {
+        background: ${theme.color.muted};
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+    `}
+
+  ${({ $state, theme }) =>
+    $state === "bad" &&
+    css`
+      i:nth-child(1) {
+        background: ${theme.color.bad};
+      }
+    `}
 `;
 
 /* ---- Overview dashboard -------------------------------------------------- */

@@ -83,6 +83,7 @@ export const AuthPanelForm = styled.div`
   flex-direction: column;
   padding: 26px 28px 20px;
   overflow-y: auto;
+  overflow-x: hidden;
   max-height: min(92vh, 920px);
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
@@ -116,6 +117,13 @@ export const AuthPanelFoot = styled.div`
   color: ${({ theme }) => theme.color.muted};
 `;
 
+export const AuthFootToggles = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+`;
+
 export const AuthFootMeta = styled.div`
   display: flex;
   align-items: center;
@@ -143,8 +151,15 @@ export const AuthMatrix = styled.canvas`
   pointer-events: none;
 `;
 
-/* ---- Form primitives shared by Login + Setup + Recover ------------------ */
-export const AuthForm = styled.form`
+export const AuthSwap = styled.div<{ $dir?: number }>`
+  --auth-slide: ${({ $dir }) => ($dir != null && $dir < 0 ? "-18px" : "18px")};
+  animation: auth-pane-in 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+`;
+export const AuthForm = styled.form.attrs({ noValidate: true })`
   width: 100%;
   max-width: 100%;
   display: flex;
@@ -221,7 +236,7 @@ export const AuthUsernameReveal = styled.p`
   font-family: ${({ theme }) => theme.font.mono};
 `;
 
-export const AuthField = styled.label`
+export const AuthField = styled.label<{ $invalid?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -229,13 +244,14 @@ export const AuthField = styled.label`
   font-weight: 600;
   letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: ${({ theme }) => theme.color.accent};
+  color: ${({ $invalid, theme }) => ($invalid ? theme.color.bad : theme.color.accent)};
 
   input {
     padding: 12px 2px;
     background: transparent;
     border: none;
-    border-bottom: 1px solid ${({ theme }) => theme.color.hairline};
+    border-bottom: 1px solid
+      ${({ $invalid, theme }) => ($invalid ? theme.color.bad : theme.color.hairline)};
     border-radius: 0;
     color: ${({ theme }) => theme.color.text};
     font-size: 15px;
@@ -251,7 +267,8 @@ export const AuthField = styled.label`
   }
 
   input:focus {
-    border-bottom-color: ${({ theme }) => theme.color.accent};
+    border-bottom-color: ${({ $invalid, theme }) =>
+      $invalid ? theme.color.bad : theme.color.accent};
   }
 `;
 
@@ -289,12 +306,19 @@ export const AuthNav = styled.p`
   color: ${({ theme }) => theme.color.muted};
   line-height: 1.5;
 
-  a {
+  a,
+  button {
     color: ${({ theme }) => theme.color.accent};
     text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
   }
 
-  a:hover {
+  a:hover,
+  button:hover {
     text-decoration: underline;
   }
 `;

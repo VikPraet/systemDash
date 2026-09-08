@@ -276,7 +276,7 @@ export const IconBtn = styled.button`
   appearance: none;
   background: transparent;
   border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
+  border-radius: ${({ theme }) => theme.radius.icon};
   color: ${({ theme }) => theme.color.muted};
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
@@ -388,13 +388,14 @@ export const Placeholder = styled.div`
 `;
 
 /* ---- Form / modal error box (auth screens + modals) --------------------- */
-export const AuthError = styled.div<{ $inline?: boolean }>`
+export const AuthError = styled.div.attrs({ role: "alert" })<{ $inline?: boolean }>`
   padding: 10px 12px;
-  background: rgba(232, 106, 111, 0.12);
+  background: color-mix(in srgb, ${({ theme }) => theme.color.bad} 12%, transparent);
   border: 1px solid ${({ theme }) => theme.color.bad};
   border-radius: ${({ theme }) => theme.radius.sm};
-  color: #f6c1c3;
+  color: ${({ theme }) => theme.color.bad};
   font-size: 12.5px;
+  line-height: 1.45;
   ${({ $inline }) => $inline && "margin-bottom: 14px;"}
 `;
 

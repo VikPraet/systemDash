@@ -56,10 +56,12 @@ import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
 import { cache } from "./cache";
 import { APP_NAME } from "./brand";
+import { applyConnectionFavicon } from "./connectionFavicon";
 import { Loading, RoleBadge } from "./components/ui/styles";
-import { Logo } from "./components/ui/Logo";
 import { Tooltip } from "./components/ui/Tooltip";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
+import { PaletteToggle } from "./components/ui/PaletteToggle";
+import { AuthLayout } from "./components/AuthLayout";
 import { AuthScreen } from "./components/AuthLayout/styles";
 import * as S from "./App.styles";
 
@@ -101,31 +103,17 @@ export default function App() {
   const { loading } = useAuth();
 
   if (loading) {
-    return (
-      <AuthScreen>
-        <Loading>Loading…</Loading>
-      </AuthScreen>
-    );
+    return <AuthLoading />;
   }
 
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={
-          <PublicOnly>
-            <Login />
-          </PublicOnly>
-        }
-      />
-      <Route
-        path="/recover"
-        element={
-          <PublicOnly>
-            <Recover />
-          </PublicOnly>
-        }
-      />
+      <Route element={<PublicOnly />}>
+        <Route element={<AuthLayout />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/recover" element={<Recover />} />
+        </Route>
+      </Route>
       <Route path="/setup" element={<SetupRoute />} />
       <Route element={<RequireAuth />}>
         <Route element={<DashboardLayout />}>
@@ -184,11 +172,11 @@ export default function App() {
 
 // Renders children only when logged out; otherwise sends the user into the app
 // (or to setup when no users exist yet).
-function PublicOnly({ children }: { children: ReactElement }) {
+function PublicOnly() {
   const { user, needsSetup } = useAuth();
   if (needsSetup) return <Navigate to="/setup" replace />;
   if (user) return <Navigate to="/overview" replace />;
-  return children;
+  return <Outlet />;
 }
 
 function SetupRoute() {
@@ -289,6 +277,10 @@ function DashboardLayout() {
   }, []);
 
   useEffect(() => {
+    applyConnectionFavicon(connectionState(snap, error));
+  }, [snap, error]);
+
+  useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
@@ -315,12 +307,12 @@ function DashboardLayout() {
             aria-label={`${APP_NAME} — Overview`}
             onClick={() => setNavOpen(false)}
           >
-            <Logo />
+            <ConnectionMeter snap={snap} error={error} now={now} />
             <h1>{APP_NAME}</h1>
           </S.Brand>
           <S.MobileTopActions>
-            <StatusIndicator snap={snap} error={error} now={now} compact />
             <ThemeToggle />
+            <PaletteToggle />
             {canSetRecovery && (
               <Tooltip label="Recovery question">
                 <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
@@ -358,6 +350,7 @@ function DashboardLayout() {
                 <S.SidebarFooterDesktop>
                   <S.UserChipActions>
                     <ThemeToggle />
+                    <PaletteToggle />
                     {canSetRecovery && (
                       <Tooltip label="Recovery question">
                         <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
@@ -396,28 +389,82 @@ function DashboardLayout() {
             onClick={() => setNavOpen(false)}
           />
         )}
-        {!onTerminalRoute && canSetRecovery && user && !user.hasRecovery && (
-          <S.RecoveryNudge>
-            <span>
-              Set a recovery question so you can get back in if you forget your
-              username or password.
-            </span>
-            <button type="button" onClick={() => setRecoveryOpen(true)}>
-              Set up
-            </button>
-          </S.RecoveryNudge>
-        )}
-        <S.ContentLayer $active={!onTerminalRoute}>
-          <Outlet context={{ snap, error, now } satisfies DashboardContext} />
-        </S.ContentLayer>
-        {canUseTerminal && terminalMounted && (
-          <S.ContentLayer $active={onTerminalRoute}>
-            <Terminal active={onTerminalRoute} />
+        <S.ContentPad>
+          {!onTerminalRoute && canSetRecovery && user && !user.hasRecovery && (
+            <S.RecoveryNudge>
+              <span>
+                Set a recovery question so you can get back in if you forget your
+                username or password.
+              </span>
+              <button type="button" onClick={() => setRecoveryOpen(true)}>
+                Set up
+              </button>
+            </S.RecoveryNudge>
+          )}
+          <S.ContentLayer $active={!onTerminalRoute}>
+            <Outlet context={{ snap, error, now } satisfies DashboardContext} />
           </S.ContentLayer>
-        )}
+          {canUseTerminal && terminalMounted && (
+            <S.ContentLayer $active={onTerminalRoute}>
+              <Terminal active={onTerminalRoute} />
+            </S.ContentLayer>
+          )}
+        </S.ContentPad>
       </S.Content>
       {recoveryOpen && <RecoveryModal onClose={() => setRecoveryOpen(false)} />}
     </S.AppShell>
+  );
+}
+
+function AuthLoading() {
+  useEffect(() => {
+    applyConnectionFavicon("idle");
+  }, []);
+
+  return (
+    <AuthScreen>
+      <Loading>Loading…</Loading>
+    </AuthScreen>
+  );
+}
+
+function connectionState(snap: SystemSnapshot | null, error: string | null): "good" | "bad" | "idle" {
+  return error ? "bad" : snap ? "good" : "idle";
+}
+
+function ConnectionMeter({
+  snap,
+  error,
+  now,
+}: {
+  snap: SystemSnapshot | null;
+  error: string | null;
+  now: number;
+}) {
+  const state = connectionState(snap, error);
+  const label = error ? "disconnected" : snap ? "live" : "connecting…";
+  let title: string;
+  let detail: string | null = null;
+  if (snap) {
+    title = `Updated ${formatRelative(snap.timestamp, now)}`;
+    detail = `at ${formatClock(snap.timestamp)}`;
+    if (error) detail += " · reconnecting…";
+  } else if (error) {
+    title = "No data received yet";
+    detail = "reconnecting…";
+  } else {
+    title = "Waiting for first update…";
+  }
+
+  return (
+    <Tooltip label={`${label} — ${title}`} detail={detail ?? undefined}>
+      <S.Meter $state={state} aria-label={label}>
+        <i />
+        <i />
+        <i />
+        <i />
+      </S.Meter>
+    </Tooltip>
   );
 }
 
@@ -432,7 +479,7 @@ function StatusIndicator({
   now: number;
   compact?: boolean;
 }) {
-  const state = error ? "bad" : snap ? "good" : "idle";
+  const state = connectionState(snap, error);
   const label = error ? "disconnected" : snap ? "live" : "connecting…";
 
   let title: string;

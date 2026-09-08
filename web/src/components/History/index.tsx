@@ -60,7 +60,7 @@ const RANGES: RangePreset[] = [
 const COLORS = {
   blue: "#4f8cff",
   green: "#33c98e",
-  amber: "#d6a23f",
+  amber: "var(--warn)",
   red: "#e86a6f",
   purple: "#a78bfa",
   cyan: "#22d3ee",

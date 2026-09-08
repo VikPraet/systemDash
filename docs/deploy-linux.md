@@ -136,22 +136,23 @@ symlink and restart).
 3. Commit, tag, push:
 
    ```bash
-   git tag v0.2.1-beta
-   git push origin main --tags
+   git tag v0.3.0-beta
+   git push origin dev --tags
    ```
 
-   Stay on **beta** until 1.0. Use a patch bump plus `-beta` (`v0.2.1-beta`, `v0.2.2-beta`).
-   Do not stack `beta.1`, `beta.2` on the same version.
+   Stay on **beta** until 1.0. Small tries are a patch plus `-beta` (`v0.2.1-beta`,
+   `v0.2.2-beta`). A larger product change (rename, new major surfaces) is a minor
+   bump (`v0.3.0-beta`). Do not stack `beta.1`, `beta.2` on the same version.
    Every GitHub Release is a **pre-release** until there is a real 1.0. There is no
    stable Latest. Install a tag, or `latest` (newest pre-release):
 
    ```bash
-   bash install-release.sh YOUR_ORG/systemDash v0.2.1-beta
+   bash install-release.sh YOUR_ORG/systemDash v0.3.0-beta
    bash install-release.sh YOUR_ORG/systemDash latest
    ```
 
 4. GitHub Actions (`.github/workflows/release.yml`) builds
-   `systemdash-0.2.1-beta-linux-x64.tar.gz` and attaches it to the Release.
+   `systemdash-0.3.0-beta-linux-x64.tar.gz` and attaches it to the Release.
 
 Test the package locally before tagging:
 

@@ -43,8 +43,6 @@ export function RecoveryFields({
           placeholder="something only you would know"
           value={answer}
           onChange={(e) => onAnswer(e.target.value)}
-          required
-          minLength={4}
         />
       </A.AuthField>
     </>

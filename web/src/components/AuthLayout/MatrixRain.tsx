@@ -2,23 +2,189 @@ import { useEffect, useRef } from "react";
 import * as S from "./styles";
 
 const WORDS = [
-  "KERNEL",
-  "UPTIME",
-  "STORAGE",
-  "PROCESS",
-  "HOST",
-  "DISK",
+  "ACPI",
+  "ALERT",
+  "ARP",
+  "ASYNC",
+  "AUDIT",
+  "AUTH",
+  "BACKUP",
+  "BASH",
+  "BEACON",
+  "BIND",
+  "BIOS",
+  "BLOCK",
+  "BMC",
+  "BRANCH",
+  "BRIDGE",
+  "BTRFS",
+  "BUFFER",
+  "BUILD",
+  "CACHE",
+  "CERT",
+  "CGROUP",
+  "CHMOD",
+  "CHOWN",
+  "CHROOT",
+  "CLOCK",
+  "CLONE",
+  "CLUSTER",
+  "COMMIT",
   "CORE",
-  "LOAD",
   "CPU",
+  "CRON",
+  "DAEMON",
+  "DEPLOY",
+  "DHCP",
+  "DIMM",
+  "DIRTY",
+  "DISK",
+  "DNS",
+  "DOCKER",
+  "ECC",
+  "ELF",
+  "EPOLL",
+  "ETH",
+  "EVENT",
+  "EXEC",
+  "EXT4",
+  "FAN",
+  "FLUSH",
+  "FORK",
+  "FSCK",
+  "FSYNC",
+  "GIT",
+  "GPIO",
   "GPU",
+  "HASH",
+  "HEALTH",
+  "HOST",
+  "HTTP",
+  "HTTPS",
+  "ICMP",
+  "IMAGE",
+  "INIT",
+  "INODE",
+  "IPMI",
+  "IRQ",
+  "JOB",
+  "JOURNAL",
+  "JWT",
+  "KERNEL",
+  "KEY",
+  "KMOD",
+  "LATENCY",
+  "LAYER",
+  "LINK",
+  "LOAD",
+  "LOGS",
+  "LUKS",
+  "LVM",
+  "MAC",
+  "MDADM",
   "MEM",
+  "MERGE",
+  "METRIC",
+  "MIRROR",
+  "MOUNT",
+  "MQTT",
+  "MTU",
+  "NAT",
   "NET",
-  "SSH",
-  "TLS",
-  "SWAP",
+  "NFS",
+  "NIC",
+  "NODE",
+  "NTP",
+  "NUMA",
+  "NVME",
+  "OAUTH",
+  "OOM",
+  "OVERLAY",
+  "PACKET",
+  "PAGE",
+  "PARITY",
+  "PATCH",
+  "PCI",
+  "PID",
+  "PING",
+  "POD",
+  "POOL",
+  "PORT",
+  "POWER",
+  "PROCESS",
+  "PROXY",
+  "PSU",
+  "PTY",
+  "QUEUE",
+  "QUOTA",
   "RAID",
+  "RAM",
+  "REBOOT",
+  "REPLICA",
+  "ROOT",
+  "ROUTE",
+  "RSYNC",
+  "SALT",
+  "SATA",
+  "SCSI",
+  "SECTOR",
+  "SENSOR",
+  "SERVICE",
+  "SESSION",
+  "SFTP",
+  "SHELL",
+  "SLAB",
+  "SLEEP",
+  "SMART",
+  "SMB",
+  "SNAPSHOT",
+  "SNMP",
+  "SOCKET",
+  "SPAWN",
+  "SSD",
+  "SSH",
+  "STATUS",
+  "STORAGE",
+  "STRIPE",
+  "SUDO",
+  "SWAP",
+  "SYNC",
+  "SYSCALL",
+  "SYSFS",
+  "SYSLOG",
+  "SYSTEMD",
+  "SYSTEMDASH",
+  "TAR",
+  "TASK",
+  "TCP",
   "TEMP",
+  "THERMAL",
+  "THREAD",
+  "TIMER",
+  "TLS",
+  "TMPFS",
+  "TOKEN",
+  "TRACE",
+  "TRIM",
+  "TTY",
+  "UART",
+  "UDP",
+  "UNIT",
+  "UPDATE",
+  "UPTIME",
+  "USB",
+  "VLAN",
+  "VOLUME",
+  "VOLT",
+  "WAKE",
+  "WAL",
+  "WATTS",
+  "WIFI",
+  "WORKER",
+  "XATTR",
+  "XFS",
+  "ZFS",
+  "ZSTD",
 ] as const;
 
 const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -33,6 +199,9 @@ const COLOR_IN_MS = 1200;
 const COLOR_OUT_MS = 1200;
 const LETTER_FADE_MS = 280;
 const FRAME_MS = 20;
+const SPAWN_TRIES = 16;
+const ROW_PAD = 2;
+const COL_PAD = 2;
 
 const FIELD_RGB = [28, 36, 52] as const;
 const HIGHLIGHT_RGB = [79, 140, 255] as const;
@@ -100,8 +269,8 @@ function glitchToward(target: string, elapsed: number, duration: number): string
 }
 
 /**
- * Full-screen character field. Glyphs drift left-to-right; a run of them
- * occasionally glitches into a related word, then glitches back.
+ * Full-screen character field. Glyphs drift left-to-right; a few runs
+ * glitch into related words, then glitch back.
  */
 export function MatrixRain() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -153,6 +322,7 @@ export function MatrixRain() {
       words.length = 0;
       offsetX = 0;
       lastSpawn = 0;
+      seedWords(performance.now());
     }
 
     function shiftLeft() {
@@ -171,20 +341,58 @@ export function MatrixRain() {
       }
     }
 
-    function spawnWord(now: number) {
-      if (words.length >= 1) return;
-      const word = WORDS[(Math.random() * WORDS.length) | 0]!;
-      if (word.length + 2 >= cols) return;
-      const col = 1 + ((Math.random() * (cols - word.length - 2)) | 0);
-      const row = (Math.random() * rows) | 0;
-      words.push({
-        word,
-        rest: Array.from({ length: word.length }, pickGlyph).join(""),
-        col,
-        row,
-        born: now,
-      });
+    function wordCap(): number {
+      if (reduceMotion.matches) return 2;
+      return Math.max(4, Math.min(8, Math.floor(rows / 5)));
+    }
+
+    function pickWord(): string {
+      const live = new Set(words.map((w) => w.word));
+      const unused = WORDS.filter((w) => !live.has(w));
+      const pool = unused.length > 0 ? unused : WORDS;
+      return pool[(Math.random() * pool.length) | 0]!;
+    }
+
+    function overlaps(col: number, row: number, len: number): boolean {
+      for (const w of words) {
+        if (Math.abs(w.row - row) < ROW_PAD) {
+          const a0 = col - COL_PAD;
+          const a1 = col + len + COL_PAD;
+          const b0 = w.col;
+          const b1 = w.col + w.word.length;
+          if (a0 < b1 && b0 < a1) return true;
+        }
+      }
+      return false;
+    }
+
+    function spawnWord(now: number): boolean {
+      if (words.length >= wordCap()) return false;
+      const word = pickWord();
+      if (word.length + 2 >= cols) return false;
+      const maxCol = cols - word.length - 2;
+      if (maxCol < 1) return false;
+      for (let i = 0; i < SPAWN_TRIES; i++) {
+        const col = 1 + ((Math.random() * maxCol) | 0);
+        const row = (Math.random() * rows) | 0;
+        if (overlaps(col, row, word.length)) continue;
+        words.push({
+          word,
+          rest: Array.from({ length: word.length }, pickGlyph).join(""),
+          col,
+          row,
+          born: now,
+        });
+        lastSpawn = now;
+        return true;
+      }
       lastSpawn = now;
+      return false;
+    }
+
+    function seedWords(now: number) {
+      const n = Math.min(wordCap(), 5);
+      for (let i = 0; i < n; i++) spawnWord(now - i * 700);
     }
 
     function displayFor(fx: WordFx, now: number): string {
@@ -260,7 +468,7 @@ export function MatrixRain() {
         }
         words.splice(i, 1);
       }
-      const spawnGap = reduceMotion.matches ? 8000 : 4800;
+      const spawnGap = reduceMotion.matches ? 4200 : 1100;
       if (now - lastSpawn > spawnGap) spawnWord(now);
 
       ctx.clearRect(0, 0, width, height);
@@ -319,7 +527,6 @@ export function MatrixRain() {
     ro.observe(host);
     window.addEventListener("resize", fit);
     fit();
-    lastSpawn = performance.now() - 2500;
     raf = requestAnimationFrame(frame);
 
     return () => {

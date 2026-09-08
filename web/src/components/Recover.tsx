@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { KeyRound, User } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { recoverPasswordApi, recoverUsernameApi } from "../api";
 import type { RecoveryQuestionId } from "../auth/recoveryQuestions";
-import { AuthLayout } from "./AuthLayout";
 import { RecoveryFields } from "./AuthLayout/RecoveryFields";
 import * as A from "./AuthLayout/styles";
 import { AuthSubmit } from "./ui/styles";
@@ -12,6 +11,7 @@ type Mode = "password" | "username";
 
 export function Recover() {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
   const mode: Mode = params.get("for") === "username" ? "username" : "password";
 
   function setMode(next: Mode) {
@@ -21,18 +21,20 @@ export function Recover() {
     setParams(nextParams, { replace: true });
   }
 
-  return (
-    <AuthLayout>
-      {mode === "username" ? (
-        <UsernameForm onMode={setMode} />
-      ) : (
-        <PasswordForm onMode={setMode} />
-      )}
-    </AuthLayout>
+  return mode === "username" ? (
+    <UsernameForm onMode={setMode} backState={location.state} />
+  ) : (
+    <PasswordForm onMode={setMode} backState={location.state} />
   );
 }
 
-function UsernameForm({ onMode }: { onMode: (mode: Mode) => void }) {
+function UsernameForm({
+  onMode,
+  backState,
+}: {
+  onMode: (mode: Mode) => void;
+  backState: unknown;
+}) {
   const [question, setQuestion] = useState<RecoveryQuestionId | "">("");
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +43,15 @@ function UsernameForm({ onMode }: { onMode: (mode: Mode) => void }) {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!question) return;
+    if (busy) return;
+    if (!question) {
+      setError("Choose a recovery question.");
+      return;
+    }
+    if (answer.trim().length < 4) {
+      setError("Recovery answer must be at least 4 characters.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -61,9 +71,13 @@ function UsernameForm({ onMode }: { onMode: (mode: Mode) => void }) {
         <A.AuthSub>This is the account that matches your recovery answer.</A.AuthSub>
         <A.AuthUsernameReveal>{username}</A.AuthUsernameReveal>
         <A.AuthNav>
-          <Link to="/login">Back to sign in</Link>
+          <Link to="/login" state={backState}>
+            Back to sign in
+          </Link>
           {" · "}
-          <Link to="/recover">Reset password</Link>
+          <button type="button" onClick={() => onMode("password")}>
+            Reset password
+          </button>
         </A.AuthNav>
       </A.AuthForm>
     );
@@ -81,12 +95,18 @@ function UsernameForm({ onMode }: { onMode: (mode: Mode) => void }) {
       <RecoveryFields
         question={question}
         answer={answer}
-        onQuestion={setQuestion}
-        onAnswer={setAnswer}
+        onQuestion={(id) => {
+          setQuestion(id);
+          if (error) setError(null);
+        }}
+        onAnswer={(value) => {
+          setAnswer(value);
+          if (error) setError(null);
+        }}
         autoFocus
       />
       {error && <A.AuthError>{error}</A.AuthError>}
-      <AuthSubmit type="submit" disabled={busy || !question}>
+      <AuthSubmit type="submit" disabled={busy}>
         <User size={16} strokeWidth={1.8} />
         {busy ? "Checking…" : "Find username"}
       </AuthSubmit>
@@ -95,13 +115,21 @@ function UsernameForm({ onMode }: { onMode: (mode: Mode) => void }) {
         Users. If you are the only admin, you will need access to the host.
       </A.AuthHint>
       <A.AuthNav>
-        <Link to="/login">Back to sign in</Link>
+        <Link to="/login" state={backState}>
+          Back to sign in
+        </Link>
       </A.AuthNav>
     </A.AuthForm>
   );
 }
 
-function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
+function PasswordForm({
+  onMode,
+  backState,
+}: {
+  onMode: (mode: Mode) => void;
+  backState: unknown;
+}) {
   const [username, setUsername] = useState("");
   const [answer, setAnswer] = useState("");
   const [password, setPassword] = useState("");
@@ -112,14 +140,32 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy) return;
+    const name = username.trim();
+    if (!name) {
+      setError("Enter your username.");
+      return;
+    }
+    if (answer.trim().length < 4) {
+      setError("Recovery answer must be at least 4 characters.");
+      return;
+    }
+    if (!password) {
+      setError("Enter a new password.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Use at least 8 characters for the password.");
+      return;
+    }
     if (password !== confirm) {
-      setError("passwords do not match");
+      setError("Passwords do not match.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await recoverPasswordApi(username.trim(), answer, password);
+      await recoverPasswordApi(name, answer, password);
       setDone(true);
     } catch (err) {
       setError((err as Error).message);
@@ -137,7 +183,9 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
           Sign in with your new password. Existing sessions were signed out.
         </A.AuthOk>
         <A.AuthNav>
-          <Link to="/login">Back to sign in</Link>
+          <Link to="/login" state={backState}>
+          Back to sign in
+        </Link>
         </A.AuthNav>
       </A.AuthForm>
     );
@@ -157,9 +205,11 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
           type="text"
           autoComplete="username"
           value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          onChange={(e) => {
+            setUsername(e.target.value);
+            if (error) setError(null);
+          }}
           autoFocus
-          required
         />
       </A.AuthField>
       <A.AuthField>
@@ -169,9 +219,10 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
           autoComplete="off"
           spellCheck={false}
           value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          required
-          minLength={4}
+          onChange={(e) => {
+            setAnswer(e.target.value);
+            if (error) setError(null);
+          }}
         />
       </A.AuthField>
       <A.AuthField>
@@ -180,9 +231,10 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
           type="password"
           autoComplete="new-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (error) setError(null);
+          }}
         />
       </A.AuthField>
       <A.AuthField>
@@ -191,9 +243,10 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
           type="password"
           autoComplete="new-password"
           value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          required
-          minLength={8}
+          onChange={(e) => {
+            setConfirm(e.target.value);
+            if (error) setError(null);
+          }}
         />
       </A.AuthField>
       {error && <A.AuthError>{error}</A.AuthError>}
@@ -206,7 +259,9 @@ function PasswordForm({ onMode }: { onMode: (mode: Mode) => void }) {
         Users. If you are the only admin, you will need access to the host.
       </A.AuthHint>
       <A.AuthNav>
-        <Link to="/login">Back to sign in</Link>
+        <Link to="/login" state={backState}>
+          Back to sign in
+        </Link>
       </A.AuthNav>
     </A.AuthForm>
   );

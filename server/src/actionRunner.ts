@@ -160,7 +160,13 @@ function runCommand(
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd,
-      env: process.env,
+      env: {
+        ...process.env,
+        FORCE_COLOR: process.env.FORCE_COLOR || "1",
+        CLICOLOR_FORCE: "1",
+        npm_config_color: "always",
+        TERM: process.env.TERM && process.env.TERM !== "dumb" ? process.env.TERM : "xterm-256color",
+      },
       windowsHide: true,
     });
     let log = "";

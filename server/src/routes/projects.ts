@@ -25,14 +25,19 @@ import {
   sanitizePort,
   sanitizeRemoteUrl,
   sanitizeRunKind,
+  sanitizeServiceKind,
   sanitizeSiteUrl,
   sanitizeStartCommand,
+  sanitizeHealthPath,
+  sanitizeEmbedPreview,
+  sanitizeNotes,
   sanitizeRelPath,
   sanitizeUnitName,
   updateAction,
   updateProject,
   upsertAccount,
   type RunKind,
+  type ServiceKind,
   type StepInput,
 } from "../projects.js";
 import {
@@ -66,6 +71,7 @@ const mutate = requireRole("user");
 function parseRunProfile(body: Record<string, unknown>): {
   siteUrl?: string | null;
   runKind?: RunKind;
+  serviceKind?: ServiceKind;
   port?: number | null;
   boot?: boolean;
   container?: string | null;
@@ -74,10 +80,15 @@ function parseRunProfile(body: Record<string, unknown>): {
   publishFrom?: string | null;
   publishTo?: string | null;
   startCommand?: string | null;
+  healthPath?: string | null;
+  embedPreview?: boolean;
+  embedUrl?: string | null;
+  notes?: string | null;
 } {
   const profile: ReturnType<typeof parseRunProfile> = {};
   if (body.siteUrl !== undefined) profile.siteUrl = sanitizeSiteUrl(body.siteUrl);
   if (body.runKind !== undefined) profile.runKind = sanitizeRunKind(body.runKind);
+  if (body.serviceKind !== undefined) profile.serviceKind = sanitizeServiceKind(body.serviceKind);
   if (body.port !== undefined) profile.port = sanitizePort(body.port);
   if (body.boot !== undefined) profile.boot = sanitizeBoot(body.boot);
   if (body.container !== undefined) profile.container = sanitizeContainerName(body.container);
@@ -97,6 +108,12 @@ function parseRunProfile(body: Record<string, unknown>): {
   if (body.startCommand !== undefined) {
     profile.startCommand = sanitizeStartCommand(body.startCommand);
   }
+  if (body.healthPath !== undefined) profile.healthPath = sanitizeHealthPath(body.healthPath);
+  if (body.embedPreview !== undefined) {
+    profile.embedPreview = sanitizeEmbedPreview(body.embedPreview);
+  }
+  if (body.embedUrl !== undefined) profile.embedUrl = sanitizeSiteUrl(body.embedUrl);
+  if (body.notes !== undefined) profile.notes = sanitizeNotes(body.notes);
   return profile;
 }
 

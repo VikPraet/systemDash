@@ -224,6 +224,15 @@ export const CardTop = styled.div`
   width: 100%;
 `;
 
+export const CardBadges = styled.div`
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+`;
+
 export const HealthDot = styled.span<{ $state?: "up" | "degraded" | "down" | "unknown" }>`
   width: 8px;
   height: 8px;
@@ -416,6 +425,10 @@ export const DetailTitle = styled.div`
     margin: 0;
     font-size: 18px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
   }
 `;
 
@@ -468,6 +481,75 @@ export const SiteLink = styled.a`
   svg {
     flex-shrink: 0;
   }
+`;
+
+export const KindPill = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 2px 8px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  color: ${({ theme }) => theme.color.muted};
+  background: ${({ theme }) => theme.color.panel2};
+  flex-shrink: 0;
+`;
+
+export const NotesLine = styled.span`
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.text};
+  word-break: break-word;
+  line-clamp: 2;
+`;
+
+export const PreviewWrap = styled.div`
+  margin: 0 16px 16px;
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  overflow: hidden;
+  background: ${({ theme }) => theme.color.panel2};
+`;
+
+export const PreviewBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid ${({ theme }) => theme.color.border};
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const PreviewActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+export const PreviewFrame = styled.iframe`
+  display: block;
+  width: 100%;
+  height: min(62vh, 520px);
+  border: none;
+  background: ${({ theme }) => theme.color.bg};
+`;
+
+export const PreviewHint = styled.div`
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.muted};
+  line-height: 1.4;
 `;
 
 export const Switch = styled.span<{ $on?: boolean }>`
@@ -553,7 +635,14 @@ export const ActionName = styled.div`
 
 export const ActionBtns = styled.div`
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+
+  ${Btn} {
+    padding: 8px 12px;
+  }
 `;
 
 export const Steps = styled.ol`
@@ -574,7 +663,7 @@ export const Steps = styled.ol`
   }
 `;
 
-export const LogPanel = styled.pre`
+export const LogPanel = styled.pre<{ $full?: boolean }>`
   margin: 0;
   padding: 12px 16px;
   border-top: 1px solid ${({ theme }) => theme.color.border};
@@ -582,24 +671,99 @@ export const LogPanel = styled.pre`
   font-family: ${({ theme }) => theme.font.mono};
   font-size: 11px;
   line-height: 1.45;
-  color: ${({ theme }) => theme.color.muted};
+  color: ${({ theme }) => theme.color.text};
   max-height: 280px;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+
+  ${({ $full }) =>
+    $full &&
+    css`
+      flex: 1;
+      max-height: none;
+      min-height: 0;
+      font-size: 13px;
+      line-height: 1.5;
+    `}
 `;
 
-export const ProgressWrap = styled.div`
-  padding: 0 16px 12px;
+export const LogLine = styled.span<{ $tone?: "step" | "ok" | "warn" | "error" | "dim" | "meta" }>`
+  display: block;
+  color: ${({ $tone, theme }) =>
+    $tone === "step"
+      ? theme.color.accent
+      : $tone === "ok"
+        ? theme.color.good
+        : $tone === "warn"
+          ? theme.color.warn
+          : $tone === "error"
+            ? theme.color.bad
+            : $tone === "dim"
+              ? theme.color.muted
+              : $tone === "meta"
+                ? theme.color.text
+                : "inherit"};
+  font-weight: ${({ $tone }) => ($tone === "step" || $tone === "error" ? 600 : 400)};
+`;
+
+export const LogTok = styled.span<{ $kind?: "sha" | "url" }>`
+  color: ${({ theme }) => theme.color.accent};
+  font-weight: ${({ $kind }) => ($kind === "sha" ? 600 : 400)};
+`;
+
+export const ProgressWrap = styled.div<{ $overlay?: boolean }>`
+  padding: ${({ $overlay }) => ($overlay ? "14px 16px 12px" : "0 16px 12px")};
+  flex-shrink: 0;
 `;
 
 export const ProgressLabel = styled.div`
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   margin-bottom: 6px;
   font-size: 12px;
   color: ${({ theme }) => theme.color.muted};
+`;
+
+export const ProgressActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+`;
+
+export const LogFsOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  padding: 16px;
+  background: rgba(6, 9, 18, 0.72);
+  backdrop-filter: blur(6px);
+
+  @media ${mobile} {
+    padding: 0;
+  }
+`;
+
+export const LogFsPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: ${({ theme }) => theme.color.panel};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.base};
+  box-shadow: 0 24px 70px ${({ theme }) => theme.color.shadow};
+  overflow: hidden;
+
+  @media ${mobile} {
+    border-radius: 0;
+    border: none;
+  }
 `;
 
 export const ProgressTrack = styled.div`

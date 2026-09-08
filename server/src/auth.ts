@@ -513,7 +513,47 @@ export interface AuditEntry {
   ip: string | null;
 }
 
+export interface ActivitySettings {
+  /** Whether new actions are written to the activity log. */
+  enabled: boolean;
+  /** Drop entries older than this many days (0 = no age limit). */
+  retentionDays: number;
+  /** Cap on estimated audit-log size in MB (0 = no size limit). */
+  maxSizeMb: number;
+}
+
+export const ACTIVITY_DEFAULTS: ActivitySettings = {
+  enabled: true,
+  retentionDays: 30,
+  maxSizeMb: 50,
+};
+
+export interface ActivityStats {
+  enabled: boolean;
+  retentionDays: number;
+  maxSizeMb: number;
+  rowCount: number;
+  oldest: number | null;
+  newest: number | null;
+  dbBytes: number;
+  bytesPerEntry: number;
+  estimatedDaysToFull: number | null;
+}
+
+let activityCfg: ActivitySettings = { ...ACTIVITY_DEFAULTS };
+
+export function configureActivity(cfg: ActivitySettings): void {
+  activityCfg = cfg;
+}
+
 export function recordAudit(entry: AuditEntryInput): void {
+  if (
+    !activityCfg.enabled &&
+    !entry.action.startsWith("settings.") &&
+    entry.action !== "activity.clear"
+  ) {
+    return;
+  }
   try {
     authDb()
       .prepare(
@@ -534,22 +574,17 @@ export function recordAudit(entry: AuditEntryInput): void {
   }
 }
 
-/** Returns the most recent audit entries (newest first), capped by `limit`. */
-export function listAudit(limit = 200): AuditEntry[] {
-  const lim = Math.max(1, Math.min(2000, Math.round(limit)));
-  const rows = authDb()
-    .prepare("SELECT * FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?")
-    .all(lim) as unknown as Array<{
-    id: number;
-    ts: number;
-    user_id: number | null;
-    username: string | null;
-    action: string;
-    detail: string | null;
-    status: number | null;
-    ip: string | null;
-  }>;
-  return rows.map((r) => ({
+function mapAuditRow(r: {
+  id: number;
+  ts: number;
+  user_id: number | null;
+  username: string | null;
+  action: string;
+  detail: string | null;
+  status: number | null;
+  ip: string | null;
+}): AuditEntry {
+  return {
     id: r.id,
     ts: r.ts,
     userId: r.user_id,
@@ -558,21 +593,108 @@ export function listAudit(limit = 200): AuditEntry[] {
     detail: r.detail,
     status: r.status,
     ip: r.ip,
-  }));
+  };
 }
 
-/** Keeps the audit log bounded to the newest `maxRows` entries. */
-export function pruneAudit(maxRows = 5000): void {
+/** Returns the most recent audit entries (newest first), plus the stored total. */
+export function listAudit(limit = 2000): { entries: AuditEntry[]; total: number } {
+  const lim = Math.max(1, Math.min(10_000, Math.round(limit)));
+  const db = authDb();
+  const total = (
+    db.prepare("SELECT COUNT(*) AS c FROM audit_log").get() as { c: number }
+  ).c;
+  const rows = db
+    .prepare("SELECT * FROM audit_log ORDER BY ts DESC, id DESC LIMIT ?")
+    .all(lim) as unknown as Array<Parameters<typeof mapAuditRow>[0]>;
+  return { entries: rows.map(mapAuditRow), total };
+}
+
+function auditAgg(): { c: number; mn: number | null; mx: number | null; b: number } {
+  return authDb()
+    .prepare(
+      `SELECT COUNT(*) AS c,
+              MIN(ts) AS mn,
+              MAX(ts) AS mx,
+              COALESCE(SUM(
+                64
+                + LENGTH(action)
+                + LENGTH(COALESCE(detail, ''))
+                + LENGTH(COALESCE(username, ''))
+                + LENGTH(COALESCE(ip, ''))
+              ), 0) AS b
+       FROM audit_log`
+    )
+    .get() as { c: number; mn: number | null; mx: number | null; b: number };
+}
+
+/** Drops entries past the age/size caps so the log cannot grow unbounded. */
+export function pruneAudit(): void {
   try {
-    authDb()
-      .prepare(
-        `DELETE FROM audit_log
-         WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT ?)`
-      )
-      .run(maxRows);
+    const db = authDb();
+    if (activityCfg.retentionDays > 0) {
+      const cutoff = Date.now() - activityCfg.retentionDays * 86_400_000;
+      db.prepare("DELETE FROM audit_log WHERE ts < ?").run(cutoff);
+    }
+    if (activityCfg.maxSizeMb > 0) {
+      const cap = activityCfg.maxSizeMb * 1024 * 1024;
+      let guard = 0;
+      while (auditAgg().b > cap && guard++ < 100) {
+        const rows = (
+          db.prepare("SELECT COUNT(*) AS c FROM audit_log").get() as { c: number }
+        ).c;
+        if (rows <= 1) break;
+        const drop = Math.max(50, Math.floor(rows * 0.05));
+        const edge = db
+          .prepare("SELECT ts FROM audit_log ORDER BY ts ASC LIMIT 1 OFFSET ?")
+          .get(drop) as { ts: number } | undefined;
+        if (!edge) break;
+        db.prepare("DELETE FROM audit_log WHERE ts < ?").run(edge.ts);
+      }
+    }
   } catch (err) {
     console.error("failed to prune audit log:", err);
   }
+}
+
+export function auditStats(): ActivityStats {
+  const agg = auditAgg();
+  const rowCount = agg.c;
+  const dbBytes = agg.b;
+  const bytesPerEntry = rowCount > 0 ? dbBytes / rowCount : 0;
+  let estimatedDaysToFull: number | null = null;
+  if (activityCfg.maxSizeMb > 0 && bytesPerEntry > 0) {
+    const cap = activityCfg.maxSizeMb * 1024 * 1024;
+    const remaining = Math.max(0, cap - dbBytes);
+    let perDay = 0;
+    if (agg.mn != null && agg.mx != null && agg.mx > agg.mn && rowCount > 1) {
+      const days = Math.max((agg.mx - agg.mn) / 86_400_000, 1 / 24);
+      perDay = rowCount / days;
+    }
+    const daysFromSize = perDay > 0 ? remaining / bytesPerEntry / perDay : null;
+    estimatedDaysToFull =
+      activityCfg.retentionDays > 0
+        ? daysFromSize != null
+          ? Math.min(daysFromSize, activityCfg.retentionDays)
+          : activityCfg.retentionDays
+        : daysFromSize;
+  } else if (activityCfg.retentionDays > 0) {
+    estimatedDaysToFull = activityCfg.retentionDays;
+  }
+  return {
+    enabled: activityCfg.enabled,
+    retentionDays: activityCfg.retentionDays,
+    maxSizeMb: activityCfg.maxSizeMb,
+    rowCount,
+    oldest: agg.mn,
+    newest: agg.mx,
+    dbBytes,
+    bytesPerEntry,
+    estimatedDaysToFull,
+  };
+}
+
+export function clearAudit(): void {
+  authDb().exec("DELETE FROM audit_log;");
 }
 
 /** Extracts a best-effort client IP from an Express-like request. */

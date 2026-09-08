@@ -1,11 +1,17 @@
 import { promises as fsp } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import {
   configureHistory,
   HISTORY_DEFAULTS,
   type HistorySettings,
 } from "./history.js";
+import {
+  ACTIVITY_DEFAULTS,
+  configureActivity,
+  pruneAudit,
+  type ActivitySettings,
+} from "./auth.js";
+import { DATA_DIR } from "./paths.js";
 
 export interface FileManagerSettings {
   /** Show dotfiles / hidden entries in listings. */
@@ -19,6 +25,7 @@ export interface FileManagerSettings {
 }
 
 export type { HistorySettings } from "./history.js";
+export type { ActivitySettings } from "./auth.js";
 
 const USERNAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
@@ -44,6 +51,7 @@ export interface TerminalSettings {
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
+  activity: ActivitySettings;
   terminal: TerminalSettings;
 }
 
@@ -55,6 +63,7 @@ const DEFAULTS: Settings = {
     confirmDelete: true,
   },
   history: HISTORY_DEFAULTS,
+  activity: ACTIVITY_DEFAULTS,
   terminal: {
     osUser: "",
   },
@@ -67,10 +76,6 @@ const HISTORY_BOUNDS = {
   maxSizeMb: { min: 0, max: 1_048_576 },
 };
 
-// Persist under the user's home dir so it's writable regardless of where the
-// server was launched from. Override with SYSTEMDASH_DATA_DIR if desired.
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 let cached: Settings | null = null;
@@ -79,6 +84,7 @@ let cached: Settings | null = null;
 function sanitize(input: unknown): Settings {
   const files = (input as Settings)?.files ?? ({} as FileManagerSettings);
   const history = (input as Settings)?.history ?? ({} as HistorySettings);
+  const activity = (input as Settings)?.activity ?? ({} as ActivitySettings);
   const terminal = (input as Settings)?.terminal ?? ({} as TerminalSettings);
   const bool = (v: unknown, fallback: boolean) =>
     typeof v === "boolean" ? v : fallback;
@@ -119,6 +125,19 @@ function sanitize(input: unknown): Settings {
         HISTORY_BOUNDS.maxSizeMb
       ),
     },
+    activity: {
+      enabled: bool(activity.enabled, DEFAULTS.activity.enabled),
+      retentionDays: intIn(
+        activity.retentionDays,
+        DEFAULTS.activity.retentionDays,
+        HISTORY_BOUNDS.retentionDays
+      ),
+      maxSizeMb: intIn(
+        activity.maxSizeMb,
+        DEFAULTS.activity.maxSizeMb,
+        HISTORY_BOUNDS.maxSizeMb
+      ),
+    },
     terminal: {
       osUser: sanitizeOsUsername(terminal.osUser, DEFAULTS.terminal.osUser),
     },
@@ -143,6 +162,8 @@ export async function saveSettings(input: unknown): Promise<Settings> {
   await fsp.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), "utf8");
   cached = next;
   configureHistory(next.history);
+  configureActivity(next.activity);
+  pruneAudit();
   return next;
 }
 
@@ -150,6 +171,8 @@ export async function saveSettings(input: unknown): Promise<Settings> {
 export async function initSettings(): Promise<Settings> {
   const settings = await getSettings();
   configureHistory(settings.history);
+  configureActivity(settings.activity);
+  pruneAudit();
   return settings;
 }
 
@@ -159,6 +182,7 @@ export async function initSettings(): Promise<Settings> {
 const SECTION_LABELS: Record<string, string> = {
   files: "Files",
   history: "History",
+  activity: "Activity",
   terminal: "Terminal",
 };
 
@@ -172,6 +196,11 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
   history: {
     enabled: "Recording enabled",
     intervalSeconds: "Sample interval (s)",
+    retentionDays: "Retention (days)",
+    maxSizeMb: "Max size (MB)",
+  },
+  activity: {
+    enabled: "Recording enabled",
     retentionDays: "Retention (days)",
     maxSizeMb: "Max size (MB)",
   },

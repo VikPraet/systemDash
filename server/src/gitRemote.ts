@@ -112,6 +112,9 @@ function gitEnv(): NodeJS.ProcessEnv {
   // Fail instead of prompting: Windows GCM, Linux libsecret/ssh-askpass, etc.
   env.GIT_TERMINAL_PROMPT = "0";
   env.GCM_INTERACTIVE = "never";
+  env.FORCE_COLOR = env.FORCE_COLOR || "1";
+  env.CLICOLOR_FORCE = "1";
+  env.TERM = env.TERM && env.TERM !== "dumb" ? env.TERM : "xterm-256color";
   return env;
 }
 
@@ -129,6 +132,8 @@ function gitArgv(auth: GitAuth, args: string[]): string[] {
     // runs as another — Git 2.35+ then refuses them as "dubious ownership".
     "-c",
     "safe.directory=*",
+    "-c",
+    "color.ui=always",
   ];
   if (auth.token && auth.provider) {
     const user = auth.provider === "gitlab" ? "oauth2" : "x-access-token";

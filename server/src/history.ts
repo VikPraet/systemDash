@@ -1,9 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
 import { getSnapshot } from "./stats.js";
 import { getProcesses } from "./processes.js";
+import { DATA_DIR } from "./paths.js";
 
 export interface HistorySettings {
   /** Whether the backend records metrics to disk. */
@@ -23,10 +23,6 @@ export const HISTORY_DEFAULTS: HistorySettings = {
   maxSizeMb: 500,
 };
 
-// Same data dir convention as settings.ts so everything lives together and is
-// writable regardless of where the server was launched from.
-const DATA_DIR =
-  process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 const DB_FILE = path.join(DATA_DIR, "history.db");
 
 let db: DatabaseSync | null = null;
@@ -257,6 +253,31 @@ function restartTimer(): void {
 export function configureHistory(cfg: HistorySettings): void {
   current = cfg;
   restartTimer();
+}
+
+/** Flushes the WAL so a file copy of history.db is consistent. */
+export function checkpointHistory(): void {
+  if (!db && !fs.existsSync(DB_FILE)) return;
+  try {
+    open().exec("PRAGMA wal_checkpoint(TRUNCATE);");
+  } catch {
+    // Best-effort; the copy still includes -wal/-shm when present.
+  }
+}
+
+/** Stops the recorder and closes history.db so files can be replaced (restore). */
+export function closeHistory(): void {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+  if (!db) return;
+  try {
+    db.close();
+  } catch {
+    // Ignore close errors so restore can still swap files.
+  }
+  db = null;
 }
 
 export interface HistorySeries {
