@@ -156,10 +156,7 @@ function squarify(sizes: number[], rect: Rect): Rect[] {
     }
   }
   flush();
-  for (let p = 0; p < placed.length; p++) {
-    out.push(placed[p] ?? { x: rect.x, y: rect.y, w: 0, h: 0 });
-  }
-  return out;
+  return placed.map((r) => r ?? { x: rect.x, y: rect.y, w: 0, h: 0 });
 }
 
 const GAP = 1.25;
