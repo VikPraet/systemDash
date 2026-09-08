@@ -19,8 +19,10 @@ import {
   requireProject,
   sanitizeBoot,
   sanitizeBranch,
+  sanitizeOptionalBranch,
   sanitizeContainerName,
   sanitizeLocalPath,
+  sanitizeOptionalLocalPath,
   sanitizeName,
   sanitizePort,
   sanitizeRemoteUrl,
@@ -33,6 +35,7 @@ import {
   sanitizeNotes,
   sanitizeRelPath,
   sanitizeUnitName,
+  projectHasGit,
   updateAction,
   updateProject,
   upsertAccount,
@@ -350,25 +353,29 @@ projectsRouter.post("/ingress", mutate, async (req, res) => {
 
 projectsRouter.post("/", mutate, async (req, res) => {
   try {
-    if (!gitAvailable()) {
-      throw new ProjectsError(
-        503,
-        "git is not installed or not on PATH — install Git on this host first"
-      );
-    }
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = sanitizeName(body.name);
-    const localPath = sanitizeLocalPath(body.localPath);
-    const remoteUrl = sanitizeRemoteUrl(body.remoteUrl);
-    const branch = sanitizeBranch(body.branch);
     const profile = parseRunProfile(body);
+    const serviceKind = profile.serviceKind ?? "website";
+    const remoteUrl = sanitizeRemoteUrl(body.remoteUrl, { optional: serviceKind === "worker" });
+    const wantsGit = projectHasGit({ remoteUrl });
+    const localPath = sanitizeOptionalLocalPath(body.localPath);
+    const branch = wantsGit ? sanitizeBranch(body.branch) : sanitizeOptionalBranch(body.branch);
+    if (wantsGit || serviceKind !== "worker") {
+      if (!gitAvailable()) {
+        throw new ProjectsError(
+          503,
+          "git is not installed or not on PATH — install Git on this host first"
+        );
+      }
+    }
     let accountId: number | null = null;
     if (body.accountId !== undefined && body.accountId !== null && body.accountId !== "") {
       accountId = parseId(String(body.accountId));
       if (!getAccountById(accountId)) {
         throw new ProjectsError(400, "git account not found");
       }
-    } else {
+    } else if (wantsGit) {
       const provider = providerForUrl(remoteUrl);
       if (provider) {
         const acc = getAccountByProvider(provider);
@@ -376,13 +383,16 @@ projectsRouter.post("/", mutate, async (req, res) => {
       }
     }
     const account = accountId ? getAccountById(accountId) : null;
-    await ensureLocalRepo({ localPath, remoteUrl, branch, account });
+    if (wantsGit) {
+      if (!localPath) throw new ProjectsError(400, "local path is required");
+      await ensureLocalRepo({ localPath, remoteUrl, branch, account });
+    }
     const project = insertProject({
       name,
       localPath,
       remoteUrl,
       branch,
-      accountId,
+      accountId: wantsGit ? accountId : null,
       ...profile,
     });
     invalidateSiteStatus();
@@ -390,7 +400,7 @@ projectsRouter.post("/", mutate, async (req, res) => {
       userId: req.user!.id,
       username: req.user!.username,
       action: "project.create",
-      detail: `${project.name} (${project.localPath})`,
+      detail: project.localPath ? `${project.name} (${project.localPath})` : project.name,
       status: 200,
       ip: clientIp(req),
     });

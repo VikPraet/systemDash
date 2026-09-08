@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+﻿import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
   Activity as ActivityIcon,
   Box,
@@ -28,13 +28,11 @@ import {
 } from "react-router-dom";
 import {
   fetchSnapshot,
-  formatBytes,
   formatClock,
   formatRelative,
-  formatUptime,
 } from "./api";
 import type { Role, SystemSnapshot } from "./types";
-import { Card, Gauge, Bar, LabeledBar, Stat, TemperatureReading } from "./components/widgets";
+import { Overview } from "./components/Overview";
 import { Processes } from "./components/Processes";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
@@ -44,11 +42,7 @@ import { Activity } from "./components/Activity";
 import { Containers } from "./components/Containers";
 import { Projects } from "./components/Projects";
 import { SystemUpdates } from "./components/SystemUpdates";
-import { UpdatesOverview } from "./components/SystemUpdates/UpdatesOverview";
-import { AppUpdatesOverview } from "./components/SystemUpdates/AppUpdatesOverview";
 import { AppVersionLink } from "./components/SystemUpdates/AppVersionLink";
-import { PowerControl } from "./components/PowerControl";
-import { PublicAccess } from "./components/PublicAccess";
 import { Login } from "./components/Login";
 import { Recover } from "./components/Recover";
 import { RecoveryModal } from "./components/RecoveryModal";
@@ -57,15 +51,57 @@ import { useAuth, hasRole } from "./auth/AuthContext";
 import { cache } from "./cache";
 import { APP_NAME } from "./brand";
 import { applyConnectionFavicon } from "./connectionFavicon";
-import { Loading, RoleBadge } from "./components/ui/styles";
+import {
+  AuthSubmit,
+  GhostBtn,
+  Loading,
+  ModalActions,
+  ModalCard,
+  ModalClose,
+  ModalHead,
+  ModalOverlay,
+  ModalSub,
+  RoleBadge,
+} from "./components/ui/styles";
+import { ReconnectOverlay, useReconnectGate } from "./components/ui/ReconnectOverlay";
 import { Tooltip } from "./components/ui/Tooltip";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
-import { PaletteToggle } from "./components/ui/PaletteToggle";
+import { ThemePicker } from "./components/ui/ThemePicker";
+import { LayoutEditBar, LayoutToggle } from "./components/ui/LayoutToggle";
 import { AuthLayout } from "./components/AuthLayout";
 import { AuthScreen } from "./components/AuthLayout/styles";
 import * as S from "./App.styles";
 
 const POLL_MS = 1000;
+const SNAPSHOT_TIMEOUT_MS = 8000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RECOVERY_NUDGE_SNOOZE: { label: string; ms: number; primary?: boolean }[] = [
+  { label: "1 day", ms: DAY_MS },
+  { label: "1 week", ms: 7 * DAY_MS, primary: true },
+  { label: "1 month", ms: 30 * DAY_MS },
+];
+
+function recoveryNudgeSnoozeKey(userId: number) {
+  return `recoveryNudgeSnooze:${userId}`;
+}
+
+function readRecoveryNudgeSnooze(userId: number): number {
+  try {
+    const raw = localStorage.getItem(recoveryNudgeSnoozeKey(userId));
+    const until = raw ? Number(raw) : 0;
+    return Number.isFinite(until) ? until : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeRecoveryNudgeSnooze(userId: number, until: number) {
+  try {
+    localStorage.setItem(recoveryNudgeSnoozeKey(userId), String(until));
+  } catch {
+    // Private mode / quota — the banner just stays visible this session.
+  }
+}
 
 interface NavItem {
   path: string;
@@ -226,7 +262,21 @@ function DashboardLayout() {
   );
   const [navOpen, setNavOpen] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [hideRecoveryPromptOpen, setHideRecoveryPromptOpen] = useState(false);
+  const [recoveryNudgeSnoozeUntil, setRecoveryNudgeSnoozeUntil] = useState(() =>
+    user ? readRecoveryNudgeSnooze(user.id) : 0
+  );
   const canSetRecovery = typeof user?.hasRecovery === "boolean";
+  const showRecoveryNudge =
+    !onTerminalRoute &&
+    canSetRecovery &&
+    !!user &&
+    !user.hasRecovery &&
+    now >= recoveryNudgeSnoozeUntil;
+
+  useEffect(() => {
+    setRecoveryNudgeSnoozeUntil(user ? readRecoveryNudgeSnooze(user.id) : 0);
+  }, [user]);
 
   useEffect(() => {
     setNavOpen(false);
@@ -245,6 +295,8 @@ function DashboardLayout() {
     if (onTerminalRoute && canUseTerminal) setTerminalMounted(true);
   }, [onTerminalRoute, canUseTerminal]);
 
+  const reconnect = useReconnectGate(!!error);
+
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();
@@ -252,17 +304,27 @@ function DashboardLayout() {
     async function tick() {
       if (inFlight.current) return;
       inFlight.current = true;
+      const tickCtrl = new AbortController();
+      const timer = window.setTimeout(() => tickCtrl.abort(), SNAPSHOT_TIMEOUT_MS);
+      const onUnmount = () => tickCtrl.abort();
+      ctrl.signal.addEventListener("abort", onUnmount);
       try {
-        const data = await fetchSnapshot(ctrl.signal);
+        const data = await fetchSnapshot(tickCtrl.signal);
         if (!cancelled) {
           setSnap(data);
           setError(null);
         }
       } catch (e) {
-        if (!cancelled && (e as Error).name !== "AbortError") {
-          setError((e as Error).message);
-        }
+        if (cancelled) return;
+        if ((e as Error).name === "AbortError" && ctrl.signal.aborted) return;
+        setError(
+          (e as Error).name === "AbortError"
+            ? "Timed out waiting for the host"
+            : (e as Error).message
+        );
       } finally {
+        window.clearTimeout(timer);
+        ctrl.signal.removeEventListener("abort", onUnmount);
         inFlight.current = false;
       }
     }
@@ -311,8 +373,13 @@ function DashboardLayout() {
             <h1>{APP_NAME}</h1>
           </S.Brand>
           <S.MobileTopActions>
-            <ThemeToggle />
-            <PaletteToggle />
+            {isAdmin && (
+              <>
+                <ThemeToggle />
+                <ThemePicker />
+                <LayoutToggle />
+              </>
+            )}
             {canSetRecovery && (
               <Tooltip label="Recovery question">
                 <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
@@ -343,14 +410,20 @@ function DashboardLayout() {
             ))}
           </S.Tabs>
           <S.SidebarFooter>
+            {isAdmin && <LayoutEditBar />}
             <S.UserChip>
               <S.UserChipName>{user?.username}</S.UserChipName>
               <S.UserChipRow>
                 <RoleBadge $role={user?.role}>{user?.role}</RoleBadge>
                 <S.SidebarFooterDesktop>
                   <S.UserChipActions>
-                    <ThemeToggle />
-                    <PaletteToggle />
+                    {isAdmin && (
+                      <>
+                        <ThemeToggle />
+                        <ThemePicker />
+                        <LayoutToggle />
+                      </>
+                    )}
                     {canSetRecovery && (
                       <Tooltip label="Recovery question">
                         <S.LogoutBtn type="button" onClick={() => setRecoveryOpen(true)}>
@@ -390,15 +463,24 @@ function DashboardLayout() {
           />
         )}
         <S.ContentPad>
-          {!onTerminalRoute && canSetRecovery && user && !user.hasRecovery && (
+          {showRecoveryNudge && (
             <S.RecoveryNudge>
               <span>
                 Set a recovery question so you can get back in if you forget your
                 username or password.
               </span>
-              <button type="button" onClick={() => setRecoveryOpen(true)}>
-                Set up
-              </button>
+              <S.RecoveryNudgeActions>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setHideRecoveryPromptOpen(true)}
+                >
+                  Hide
+                </button>
+                <button type="button" onClick={() => setRecoveryOpen(true)}>
+                  Set up
+                </button>
+              </S.RecoveryNudgeActions>
             </S.RecoveryNudge>
           )}
           <S.ContentLayer $active={!onTerminalRoute}>
@@ -412,7 +494,69 @@ function DashboardLayout() {
         </S.ContentPad>
       </S.Content>
       {recoveryOpen && <RecoveryModal onClose={() => setRecoveryOpen(false)} />}
+      {hideRecoveryPromptOpen && user && (
+        <RecoveryHidePrompt
+          onClose={() => setHideRecoveryPromptOpen(false)}
+          onSnooze={(ms) => {
+            const until = Date.now() + ms;
+            writeRecoveryNudgeSnooze(user.id, until);
+            setRecoveryNudgeSnoozeUntil(until);
+            setHideRecoveryPromptOpen(false);
+          }}
+        />
+      )}
+      {reconnect.visible && reconnect.since != null && (
+        <ReconnectOverlay since={reconnect.since} lastSeen={snap?.timestamp ?? null} />
+      )}
     </S.AppShell>
+  );
+}
+
+function RecoveryHidePrompt({
+  onClose,
+  onSnooze,
+}: {
+  onClose: () => void;
+  onSnooze: (ms: number) => void;
+}) {
+  return (
+    <ModalOverlay onClick={onClose} role="presentation">
+      <ModalCard onClick={(e) => e.stopPropagation()}>
+        <ModalHead>
+          <h3>Hide reminder</h3>
+          <ModalClose type="button" onClick={onClose} aria-label="Close">
+            <X size={16} strokeWidth={1.8} />
+          </ModalClose>
+        </ModalHead>
+        <ModalSub>
+          We'll remind you again later. You can still set a recovery question
+          anytime from the key icon.
+        </ModalSub>
+        <S.RecoverySnoozeChoices>
+          {RECOVERY_NUDGE_SNOOZE.map(({ label, ms, primary }) =>
+            primary ? (
+              <AuthSubmit
+                key={label}
+                type="button"
+                $compact
+                onClick={() => onSnooze(ms)}
+              >
+                {label}
+              </AuthSubmit>
+            ) : (
+              <GhostBtn key={label} type="button" onClick={() => onSnooze(ms)}>
+                {label}
+              </GhostBtn>
+            )
+          )}
+        </S.RecoverySnoozeChoices>
+        <ModalActions>
+          <GhostBtn type="button" onClick={onClose}>
+            Cancel
+          </GhostBtn>
+        </ModalActions>
+      </ModalCard>
+    </ModalOverlay>
   );
 }
 
@@ -505,224 +649,3 @@ function StatusIndicator({
   );
 }
 
-function Overview({
-  snap,
-  error,
-  showUpdates,
-}: {
-  snap: SystemSnapshot | null;
-  error: string | null;
-  showUpdates?: boolean;
-}) {
-  if (!snap) {
-    return (
-      <Loading>
-        {error ? `Could not reach the backend: ${error}` : "Loading system stats…"}
-      </Loading>
-    );
-  }
-
-  const { host, cpu, memory, disks, gpus } = snap;
-
-  return (
-    <S.Grid>
-      <Card title="System" span={2}>
-        <S.Kv>
-          <Stat label="Host" value={host.hostname} />
-          <Stat label="OS" value={`${host.distro} ${host.release}`.trim()} />
-          <Stat label="Kernel" value={host.kernel || "—"} />
-          <Stat label="Architecture" value={host.arch} />
-          <Stat label="Platform" value={host.platform} />
-          <Stat
-            label="Machine"
-            value={
-              [host.systemManufacturer, host.systemModel]
-                .filter(Boolean)
-                .join(" ") || "—"
-            }
-          />
-          <Stat label="Uptime" value={formatUptime(host.uptimeSeconds)} />
-        </S.Kv>
-        {showUpdates && (
-          <>
-            <AppUpdatesOverview />
-            <UpdatesOverview />
-            <PublicAccess />
-            <PowerControl />
-          </>
-        )}
-      </Card>
-
-      <Card title="CPU">
-        <S.CardSplit>
-          <Gauge value={cpu.loadPercent} label="load" />
-          <S.Readouts>
-            <S.Readout>
-              <S.ReadoutValue>
-                {cpu.currentSpeedGHz.toFixed(2)}
-                <S.ReadoutUnit>GHz</S.ReadoutUnit>
-              </S.ReadoutValue>
-              <S.ReadoutLabel>current clock</S.ReadoutLabel>
-            </S.Readout>
-            <S.Readout>
-              <S.ReadoutValue $sm>
-                {cpu.baseSpeedGHz.toFixed(2)}
-                <S.ReadoutUnit>GHz</S.ReadoutUnit>
-              </S.ReadoutValue>
-              <S.ReadoutLabel>base clock</S.ReadoutLabel>
-            </S.Readout>
-          </S.Readouts>
-        </S.CardSplit>
-        <S.Kv $tight>
-          <Stat label="Model" value={`${cpu.manufacturer} ${cpu.brand}`} />
-          <Stat
-            label="Cores"
-            value={`${cpu.physicalCores} physical / ${cpu.cores} logical`}
-          />
-        </S.Kv>
-        {cpu.temperatureC !== null && (
-          <S.Bars>
-            <TemperatureReading value={cpu.temperatureC} />
-          </S.Bars>
-        )}
-        {cpu.perCoreLoad.length > 0 && (
-          <>
-            <S.Subhead>Per-core load</S.Subhead>
-            <S.Cores>
-              {cpu.perCoreLoad.map((load, i) => (
-                <S.Core
-                  key={i}
-                  title={`Core ${i}: ${load}%${
-                    cpu.perCoreSpeed[i]
-                      ? ` · ${cpu.perCoreSpeed[i].toFixed(2)} GHz`
-                      : ""
-                  }`}
-                >
-                  <S.CoreFill style={{ height: `${load}%` }} />
-                </S.Core>
-              ))}
-            </S.Cores>
-          </>
-        )}
-      </Card>
-
-      <Card title="Memory">
-        <S.CardSplit>
-          <Gauge value={memory.usedPercent} label="used" />
-          <S.Readouts>
-            <S.Readout>
-              <S.ReadoutValue>{formatBytes(memory.usedBytes)}</S.ReadoutValue>
-              <S.ReadoutLabel>of {formatBytes(memory.totalBytes)}</S.ReadoutLabel>
-            </S.Readout>
-          </S.Readouts>
-        </S.CardSplit>
-        <S.Bars>
-          <LabeledBar
-            label="RAM usage"
-            value={memory.usedBytes}
-            max={memory.totalBytes}
-            valueText={`${formatBytes(memory.usedBytes)} / ${formatBytes(
-              memory.totalBytes
-            )}`}
-          />
-          {memory.swapTotalBytes > 0 && (
-            <LabeledBar
-              label="Swap usage"
-              value={memory.swapUsedBytes}
-              max={memory.swapTotalBytes}
-              valueText={`${formatBytes(memory.swapUsedBytes)} / ${formatBytes(
-                memory.swapTotalBytes
-              )}`}
-            />
-          )}
-        </S.Bars>
-        <S.Kv $tight>
-          <Stat label="Available" value={formatBytes(memory.availableBytes)} />
-        </S.Kv>
-      </Card>
-
-      <Card title="Storage" span={2}>
-        <S.Disks>
-          {disks.length === 0 && <div className="muted">No volumes reported.</div>}
-          {disks.map((d) => (
-            <S.Disk key={`${d.fs}-${d.mount}`}>
-              <S.DiskHead>
-                <S.DiskMount>{d.mount || d.fs}</S.DiskMount>
-                <span className="muted">{d.type}</span>
-              </S.DiskHead>
-              <Bar value={d.usedPercent} />
-              <S.DiskFoot className="muted">
-                {formatBytes(d.usedBytes)} used · {formatBytes(d.availableBytes)} free
-                · {formatBytes(d.sizeBytes)} total
-              </S.DiskFoot>
-            </S.Disk>
-          ))}
-        </S.Disks>
-      </Card>
-
-      <Card title="GPU" span={2}>
-        <S.Gpus>
-          {gpus.length === 0 && <div className="muted">No GPU reported.</div>}
-          {gpus.map((g, i) => {
-            const hasBars =
-              g.utilizationPercent !== null ||
-              g.memoryTotalMb !== null ||
-              g.temperatureC !== null;
-            return (
-              <S.Gpu key={i}>
-                <S.GpuName>
-                  {g.vendor} {g.model}
-                </S.GpuName>
-                {hasBars && (
-                  <S.Bars>
-                    {g.utilizationPercent !== null && (
-                      <LabeledBar
-                        label="Utilization"
-                        value={g.utilizationPercent}
-                        max={100}
-                        valueText={`${g.utilizationPercent}%`}
-                      />
-                    )}
-                    {g.memoryTotalMb !== null && (
-                      <LabeledBar
-                        label="Memory"
-                        value={g.memoryUsedMb ?? 0}
-                        max={g.memoryTotalMb}
-                        valueText={`${g.memoryUsedMb ?? 0} / ${g.memoryTotalMb} MB`}
-                      />
-                    )}
-                    {g.temperatureC !== null && (
-                      <TemperatureReading value={g.temperatureC} />
-                    )}
-                  </S.Bars>
-                )}
-                <S.GpuMeta $tight>
-                  {g.vramMb ? <Stat label="VRAM" value={`${g.vramMb} MB`} /> : null}
-                  {g.clockCoreMhz !== null && (
-                    <Stat label="Core clock" value={`${g.clockCoreMhz} MHz`} />
-                  )}
-                  {g.clockMemoryMhz !== null && (
-                    <Stat label="Memory clock" value={`${g.clockMemoryMhz} MHz`} />
-                  )}
-                  {g.powerDrawW !== null && (
-                    <Stat
-                      label="Power"
-                      value={
-                        g.powerLimitW !== null
-                          ? `${g.powerDrawW} / ${g.powerLimitW} W`
-                          : `${g.powerDrawW} W`
-                      }
-                    />
-                  )}
-                  {g.fanPercent !== null && (
-                    <Stat label="Fan" value={`${g.fanPercent}%`} />
-                  )}
-                </S.GpuMeta>
-              </S.Gpu>
-            );
-          })}
-        </S.Gpus>
-      </Card>
-    </S.Grid>
-  );
-}

@@ -1,5 +1,6 @@
 import styled from "styled-components";
 import { mobile } from "../../theme/media";
+import type { GaugeStyle } from "../../theme/schema";
 
 /* ---- Card ---------------------------------------------------------------- */
 export const CardRoot = styled.section`
@@ -53,7 +54,7 @@ export const StatValue = styled.span`
 `;
 
 /* ---- Gauge --------------------------------------------------------------- */
-export const GaugeRoot = styled.div<{ $squircle?: boolean }>`
+export const GaugeRoot = styled.div<{ $shape?: GaugeStyle }>`
   position: relative;
   width: 120px;
   height: 120px;
@@ -63,7 +64,7 @@ export const GaugeRoot = styled.div<{ $squircle?: boolean }>`
   .gauge-svg {
     width: 100%;
     height: 100%;
-    transform: ${({ $squircle }) => ($squircle ? "none" : "rotate(-90deg)")};
+    transform: ${({ $shape }) => ($shape && $shape !== "circle" ? "none" : "rotate(-90deg)")};
   }
 
   .gauge-track {
@@ -76,7 +77,7 @@ export const GaugeRoot = styled.div<{ $squircle?: boolean }>`
     fill: none;
     stroke-width: 12;
     stroke-linecap: round;
-    stroke-linejoin: ${({ $squircle }) => ($squircle ? "round" : "miter")};
+    stroke-linejoin: ${({ $shape }) => ($shape === "square" ? "miter" : "round")};
     transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1),
       stroke-dasharray 0.8s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.8s ease;
   }
@@ -110,22 +111,14 @@ export const GaugeLabel = styled.span`
 export const BarTrack = styled.div`
   height: 10px;
   background: ${({ theme }) => theme.color.track};
-  border-radius: 999px;
+  border-radius: var(--bar-radius);
   overflow: hidden;
-
-  html[data-palette="lime"] & {
-    border-radius: var(--radius-sm);
-  }
 `;
 
 export const BarFill = styled.div`
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--bar-radius);
   transition: width 0.4s ease;
-
-  html[data-palette="lime"] & {
-    border-radius: var(--radius-sm);
-  }
 `;
 
 /* ---- LabeledBar ---------------------------------------------------------- */
@@ -211,57 +204,65 @@ export const ChartRoot = styled.div`
   .chart-dot-halo {
     opacity: 0.22;
   }
+`;
 
-  .chart-tooltip {
-    position: absolute;
-    top: 6px;
-    pointer-events: none;
-    background: ${({ theme }) => theme.color.panel2};
-    border: 1px solid ${({ theme }) => theme.color.border};
-    border-radius: 8px;
-    padding: 7px 9px;
-    font-size: 12px;
-    box-shadow: 0 6px 20px ${({ theme }) => theme.color.shadow};
-    z-index: 2;
-    min-width: 120px;
-  }
+// Portaled to document.body with position:fixed so parent overflow (chart
+// cards, dashboard tiles) can't clip it.
+export const ChartTooltip = styled.div`
+  position: fixed;
+  pointer-events: none;
+  background: ${({ theme }) => theme.color.panel2};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  box-shadow: 0 6px 20px ${({ theme }) => theme.color.shadow};
+  z-index: 10000;
+  min-width: 120px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+`;
 
-  .chart-tooltip-time {
-    color: ${({ theme }) => theme.color.muted};
-    font-size: 11px;
-    margin-bottom: 5px;
-  }
+export const ChartTooltipTime = styled.div`
+  color: ${({ theme }) => theme.color.muted};
+  font-size: 11px;
+  margin-bottom: 5px;
+`;
 
-  .chart-tooltip-row {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-  }
+export const ChartTooltipRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 7px;
 
-  .chart-tooltip-row + .chart-tooltip-row {
+  & + & {
     margin-top: 2px;
   }
+`;
 
-  .chart-tooltip-swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
+export const ChartTooltipSwatch = styled.span`
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+`;
 
-  .chart-tooltip-label {
-    color: ${({ theme }) => theme.color.muted};
-    margin-right: auto;
-  }
+export const ChartTooltipLabel = styled.span`
+  color: ${({ theme }) => theme.color.muted};
+  margin-right: auto;
+`;
 
-  .chart-tooltip-value {
-    color: ${({ theme }) => theme.color.text};
-    font-variant-numeric: tabular-nums;
-  }
+export const ChartTooltipValue = styled.span`
+  color: ${({ theme }) => theme.color.text};
+  font-variant-numeric: tabular-nums;
 `;
 
 /* ---- ChartCard ----------------------------------------------------------- */
 export const ChartCardRoot = styled(CardRoot)`
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+
   ${CardTitle} {
     margin: 0;
   }

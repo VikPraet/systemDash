@@ -1,3 +1,5 @@
+import { createElement, forwardRef, type ComponentPropsWithoutRef } from "react";
+import { createPortal } from "react-dom";
 import styled, { css } from "styled-components";
 import { mobile } from "../../theme/media";
 
@@ -9,12 +11,10 @@ import { mobile } from "../../theme/media";
    global stylesheet, including the trailing "EDITORIAL THEME" overrides.
    ------------------------------------------------------------------------- */
 
-// Backdrop shared by both modal families (the old `.modal-overlay`, whose two
-// definitions cascaded into these final values).
-export const ModalOverlay = styled.div`
+const OverlayRoot = styled.div`
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 6000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,6 +30,15 @@ export const ModalOverlay = styled.div`
     align-items: flex-end;
   }
 `;
+
+// Portal to document.body so a parent panel's opacity/overflow/transform
+// (edit-mode fade, clipped widgets) cannot wash out or trap the dialog.
+export const ModalOverlay = forwardRef<
+  HTMLDivElement,
+  ComponentPropsWithoutRef<typeof OverlayRoot>
+>(function ModalOverlay(props, ref) {
+  return createPortal(createElement(OverlayRoot, { ...props, ref }), document.body);
+});
 
 /* ---- Modal family A: plain panel card (Files / Processes / Editor) -------- */
 export const Modal = styled.div<{ $wide?: boolean }>`
@@ -262,6 +271,12 @@ export const GhostBtn = styled.button<{ $danger?: boolean }>`
       $danger ? theme.color.bad : theme.color.accent};
     color: ${({ theme }) => theme.color.onAccent};
   }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+    pointer-events: none;
+  }
 `;
 
 export const IconBtn = styled.button`
@@ -285,6 +300,12 @@ export const IconBtn = styled.button`
     color: ${({ theme }) => theme.color.text};
     border-color: ${({ theme }) => theme.color.accent};
     background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 10%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+    pointer-events: none;
   }
 `;
 
@@ -361,14 +382,7 @@ export const procTableBase = css`
 `;
 
 /* ---- Shared status surfaces --------------------------------------------- */
-export const Loading = styled.div`
-  background: ${({ theme }) => theme.color.panel};
-  border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.base};
-  padding: 40px;
-  text-align: center;
-  color: ${({ theme }) => theme.color.muted};
-`;
+export { Loading } from "./Skeleton";
 
 export const Placeholder = styled.div`
   background: ${({ theme }) => theme.color.panel};

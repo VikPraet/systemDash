@@ -1,3 +1,4 @@
+import type { DashTheme, ThemeSummary } from "./theme/schema";
 import type {
   AuditEntry,
   ActivityStats,
@@ -255,6 +256,11 @@ export const DEFAULT_SETTINGS: Settings = {
   terminal: {
     osUser: "",
   },
+  dashboard: {
+    themeId: "classic",
+    appearance: "dark",
+    layouts: {},
+  },
 };
 
 export async function fetchSettings(signal?: AbortSignal): Promise<Settings> {
@@ -274,6 +280,82 @@ export async function saveSettings(settings: Settings): Promise<Settings> {
     throw new Error(data.error ?? `Request failed: ${res.status}`);
   }
   return (await res.json()) as Settings;
+}
+
+export interface LayoutEditLock {
+  editing: boolean;
+  mine: boolean;
+  username: string | null;
+  acquiredAt: number | null;
+  lastActionAt: number | null;
+  idleMs: number;
+  expiresInMs: number | null;
+}
+
+async function layoutLockResponse(res: Response): Promise<LayoutEditLock> {
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    lock?: LayoutEditLock;
+  } & Partial<LayoutEditLock>;
+  if (!res.ok) {
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return data as LayoutEditLock;
+}
+
+export async function fetchLayoutEditLock(): Promise<LayoutEditLock> {
+  const res = await fetch("/api/dashboard/edit-lock");
+  return layoutLockResponse(res);
+}
+
+export async function acquireLayoutEditLock(): Promise<LayoutEditLock> {
+  const res = await fetch("/api/dashboard/edit-lock", { method: "POST" });
+  return layoutLockResponse(res);
+}
+
+export async function heartbeatLayoutEditLock(active: boolean): Promise<LayoutEditLock> {
+  const res = await fetch("/api/dashboard/edit-lock/heartbeat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ active }),
+  });
+  return layoutLockResponse(res);
+}
+
+export async function releaseLayoutEditLock(): Promise<void> {
+  const res = await fetch("/api/dashboard/edit-lock", { method: "DELETE" });
+  if (!res.ok && res.status !== 409) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+}
+
+export async function fetchThemes(signal?: AbortSignal): Promise<ThemeSummary[]> {
+  const res = await fetch("/api/themes", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  const data = (await res.json()) as { themes?: ThemeSummary[] };
+  return data.themes ?? [];
+}
+
+export async function importThemeApi(theme: unknown): Promise<DashTheme> {
+  const res = await fetch("/api/themes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(theme),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
+  return (await res.json()) as DashTheme;
+}
+
+export async function deleteThemeApi(id: string): Promise<void> {
+  const res = await fetch(`/api/themes/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(data.error ?? `Request failed: ${res.status}`);
+  }
 }
 
 export async function fetchSnapshot(signal?: AbortSignal): Promise<SystemSnapshot> {
@@ -732,9 +814,9 @@ export async function fetchProject(id: number): Promise<ProjectDetail> {
 
 export function createProjectApi(input: {
   name: string;
-  localPath: string;
-  remoteUrl: string;
-  branch: string;
+  localPath?: string | null;
+  remoteUrl?: string;
+  branch?: string;
   accountId?: number | null;
   siteUrl?: string | null;
   runKind?: RunKind;

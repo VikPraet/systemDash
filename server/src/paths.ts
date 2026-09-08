@@ -6,6 +6,7 @@ export const DATA_DIR =
   process.env.SYSTEMDASH_DATA_DIR ?? path.join(os.homedir(), ".systemdash");
 
 export const BACKUPS_DIR = path.join(DATA_DIR, "backups");
+export const THEMES_DIR = path.join(DATA_DIR, "themes");
 export const TRASH_DIR = path.join(DATA_DIR, "trash");
 export const MOUNTS_DIR = path.join(DATA_DIR, "mounts");
 export const CREDS_DIR = path.join(DATA_DIR, "share-creds");

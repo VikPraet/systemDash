@@ -239,7 +239,7 @@ export const OverviewTeaser = styled.button<{ $accent?: boolean }>`
   align-items: center;
   gap: 12px;
   width: 100%;
-  margin-top: 16px;
+  margin-top: 0;
   padding: 12px 14px;
   text-align: left;
   background: ${({ $accent, theme }) =>
@@ -266,7 +266,7 @@ export const OverviewTeaser = styled.button<{ $accent?: boolean }>`
 
   &:disabled {
     cursor: default;
-    opacity: 0.85;
+    opacity: 1;
   }
 
   .chevron {
@@ -276,6 +276,12 @@ export const OverviewTeaser = styled.button<{ $accent?: boolean }>`
 
   .spin {
     animation: spin 1s linear infinite;
+  }
+
+  & + &,
+  & + [data-skel-teaser],
+  [data-skel-teaser] + & {
+    margin-top: 10px;
   }
 
   @keyframes spin {

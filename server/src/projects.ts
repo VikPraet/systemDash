@@ -131,6 +131,61 @@ const STEP_TYPES = new Set<ActionStepType>([
 const RUN_KINDS = new Set<RunKind>(["none", "docker", "compose", "systemd", "static"]);
 const SERVICE_KINDS = new Set<ServiceKind>(["website", "api", "worker"]);
 
+function migrateOptionalProjectSource(fresh: DatabaseSync): void {
+  const cols = fresh.prepare("PRAGMA table_info(projects)").all() as Array<{
+    name: string;
+    notnull: number;
+  }>;
+  const local = cols.find((c) => c.name === "local_path");
+  if (!local || local.notnull === 0) return;
+
+  fresh.exec("PRAGMA foreign_keys = OFF;");
+  fresh.exec(`
+    CREATE TABLE projects_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      local_path TEXT UNIQUE,
+      remote_url TEXT NOT NULL DEFAULT '',
+      branch TEXT NOT NULL DEFAULT '',
+      account_id INTEGER,
+      created_at INTEGER NOT NULL,
+      site_url TEXT,
+      run_kind TEXT NOT NULL DEFAULT 'none',
+      port INTEGER,
+      boot INTEGER NOT NULL DEFAULT 0,
+      container TEXT,
+      compose_file TEXT,
+      unit TEXT,
+      publish_from TEXT,
+      publish_to TEXT,
+      start_command TEXT,
+      service_kind TEXT NOT NULL DEFAULT 'website',
+      health_path TEXT,
+      embed_preview INTEGER NOT NULL DEFAULT 0,
+      embed_url TEXT,
+      notes TEXT,
+      FOREIGN KEY (account_id) REFERENCES git_accounts(id) ON DELETE SET NULL
+    );
+  `);
+  fresh.exec(`
+    INSERT INTO projects_new (
+      id, name, local_path, remote_url, branch, account_id, created_at,
+      site_url, run_kind, port, boot, container, compose_file, unit,
+      publish_from, publish_to, start_command, service_kind, health_path,
+      embed_preview, embed_url, notes
+    )
+    SELECT
+      id, name, local_path, remote_url, branch, account_id, created_at,
+      site_url, run_kind, port, boot, container, compose_file, unit,
+      publish_from, publish_to, start_command, service_kind, health_path,
+      embed_preview, embed_url, notes
+    FROM projects;
+  `);
+  fresh.exec("DROP TABLE projects;");
+  fresh.exec("ALTER TABLE projects_new RENAME TO projects;");
+  fresh.exec("PRAGMA foreign_keys = ON;");
+}
+
 let db: DatabaseSync | null = null;
 
 export function projectsDb(): DatabaseSync {
@@ -159,9 +214,9 @@ export function projectsDb(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS projects (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT NOT NULL,
-      local_path TEXT NOT NULL UNIQUE,
-      remote_url TEXT NOT NULL,
-      branch     TEXT NOT NULL,
+      local_path TEXT UNIQUE,
+      remote_url TEXT NOT NULL DEFAULT '',
+      branch     TEXT NOT NULL DEFAULT '',
       account_id INTEGER,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (account_id) REFERENCES git_accounts(id) ON DELETE SET NULL
@@ -230,6 +285,7 @@ export function projectsDb(): DatabaseSync {
       // already present
     }
   }
+  migrateOptionalProjectSource(fresh);
   // Interrupted runs from a previous process — mark them failed so the UI
   // never sits on a stuck "running" row.
   fresh
@@ -403,6 +459,13 @@ export function sanitizeBranch(raw: unknown, fallback = "main"): string {
   return b;
 }
 
+export function sanitizeOptionalBranch(raw: unknown): string {
+  if (raw === undefined || raw === null || (typeof raw === "string" && !raw.trim())) {
+    return "";
+  }
+  return sanitizeBranch(raw, "");
+}
+
 export function sanitizeName(raw: unknown): string {
   if (typeof raw !== "string") throw new ProjectsError(400, "name is required");
   const n = raw.trim();
@@ -425,6 +488,13 @@ export function sanitizeLocalPath(raw: unknown): string {
   }
   if (p.length > 500) throw new ProjectsError(400, "local path is too long");
   return p;
+}
+
+export function sanitizeOptionalLocalPath(raw: unknown): string | null {
+  if (raw === undefined || raw === null || (typeof raw === "string" && !raw.trim())) {
+    return null;
+  }
+  return sanitizeLocalPath(raw);
 }
 
 export function sanitizeSiteUrl(raw: unknown): string | null {
@@ -549,7 +619,10 @@ export function sanitizeStartCommand(raw: unknown): string | null {
   return c;
 }
 
-export function sanitizeRemoteUrl(raw: unknown): string {
+export function sanitizeRemoteUrl(raw: unknown, opts?: { optional?: boolean }): string {
+  if (opts?.optional && (raw === undefined || raw === null || (typeof raw === "string" && !raw.trim()))) {
+    return "";
+  }
   if (typeof raw !== "string") throw new ProjectsError(400, "repo URL is required");
   const url = normalizeRemoteUrl(raw.trim());
   if (!url) throw new ProjectsError(400, "repo URL is required");
@@ -561,6 +634,50 @@ export function sanitizeRemoteUrl(raw: unknown): string {
     );
   }
   return url;
+}
+
+export function projectHasGit(p: { remoteUrl?: string | null }): boolean {
+  return !!(p.remoteUrl && p.remoteUrl.trim());
+}
+
+export function projectHasFolder(p: { localPath?: string | null }): boolean {
+  return !!(p.localPath && p.localPath.trim());
+}
+
+export function validateProjectShape(p: {
+  serviceKind: ServiceKind;
+  remoteUrl: string;
+  localPath: string | null;
+  runKind: RunKind;
+  container: string | null;
+  unit: string | null;
+}): void {
+  const git = projectHasGit(p);
+  const folder = projectHasFolder({ localPath: p.localPath });
+  if (p.serviceKind === "website" || p.serviceKind === "api") {
+    if (!git) throw new ProjectsError(400, "websites and APIs need a git repo");
+    if (!folder) throw new ProjectsError(400, "local path is required");
+  }
+  if (p.serviceKind === "worker") {
+    if (p.runKind === "static") {
+      throw new ProjectsError(400, "workers do not publish a static site");
+    }
+    if (p.runKind === "none") {
+      throw new ProjectsError(400, "pick how this worker runs (Docker, Compose, or systemd)");
+    }
+    if (git && !folder) {
+      throw new ProjectsError(400, "local folder is required to clone the repo");
+    }
+    if (p.runKind === "compose" && !folder) {
+      throw new ProjectsError(400, "Compose needs a folder for the compose file");
+    }
+    if (p.runKind === "docker" && !p.container) {
+      throw new ProjectsError(400, "container name is required");
+    }
+    if (p.runKind === "systemd" && !p.unit) {
+      throw new ProjectsError(400, "systemd unit is required");
+    }
+  }
 }
 
 /** Converts git@host:path and ssh:// URLs to https://, strips trailing slashes. */
@@ -653,7 +770,7 @@ export function getLatestRun(projectId: number): ActionRun | null {
 type ProjectRow = {
   id: number;
   name: string;
-  local_path: string;
+  local_path: string | null;
   remote_url: string;
   branch: string;
   account_id: number | null;
@@ -686,9 +803,9 @@ function mapProject(row: ProjectRow): ProjectSummary {
   return {
     id: row.id,
     name: row.name,
-    localPath: row.local_path,
-    remoteUrl: row.remote_url,
-    branch: row.branch,
+    localPath: row.local_path || "",
+    remoteUrl: row.remote_url || "",
+    branch: row.branch || "",
     accountId: row.account_id,
     createdAt: row.created_at,
     siteUrl: row.site_url || null,
@@ -838,7 +955,7 @@ export function resolveAccountForProject(project: ProjectSummary): GitAccountRec
 
 export function insertProject(input: {
   name: string;
-  localPath: string;
+  localPath: string | null;
   remoteUrl: string;
   branch: string;
   accountId: number | null;
@@ -858,11 +975,13 @@ export function insertProject(input: {
   embedUrl?: string | null;
   notes?: string | null;
 }): ProjectSummary {
-  const existing = projectsDb()
-    .prepare("SELECT id FROM projects WHERE local_path = ?")
-    .get(input.localPath) as { id: number } | undefined;
-  if (existing) {
-    throw new ProjectsError(409, "a project already uses that folder");
+  if (input.localPath) {
+    const existing = projectsDb()
+      .prepare("SELECT id FROM projects WHERE local_path = ?")
+      .get(input.localPath) as { id: number } | undefined;
+    if (existing) {
+      throw new ProjectsError(409, "a project already uses that folder");
+    }
   }
   if (input.accountId !== null && !getAccountById(input.accountId)) {
     throw new ProjectsError(400, "git account not found");
@@ -871,6 +990,14 @@ export function insertProject(input: {
   const serviceKind = input.serviceKind ?? "website";
   const embedPreview =
     input.embedPreview !== undefined ? input.embedPreview : serviceKind === "website";
+  validateProjectShape({
+    serviceKind,
+    remoteUrl: input.remoteUrl,
+    localPath: input.localPath,
+    runKind,
+    container: input.container ?? null,
+    unit: input.unit ?? null,
+  });
   const info = projectsDb()
     .prepare(
       `INSERT INTO projects (
@@ -933,6 +1060,14 @@ export function updateProject(
   }
 ): ProjectSummary {
   const prev = requireProject(id);
+  validateProjectShape({
+    serviceKind: patch.serviceKind ?? prev.serviceKind,
+    remoteUrl: patch.remoteUrl ?? prev.remoteUrl,
+    localPath: prev.localPath || null,
+    runKind: patch.runKind ?? prev.runKind,
+    container: patch.container !== undefined ? patch.container : prev.container,
+    unit: patch.unit !== undefined ? patch.unit : prev.unit,
+  });
   if (patch.name !== undefined) {
     projectsDb().prepare("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
   }
@@ -1095,39 +1230,40 @@ export function validateSteps(steps: StepInput[]): StepInput[] {
 }
 
 function defaultActionSteps(project: ProjectSummary): StepInput[] | null {
+  const pull: StepInput[] = projectHasGit(project) ? [{ type: "git_pull" }] : [];
   switch (project.runKind) {
     case "docker":
-      if (!project.container) return [{ type: "git_pull" }];
-      return [{ type: "git_pull" }, { type: "docker_ensure", container: project.container }];
+      if (!project.container) return pull.length ? pull : null;
+      return [...pull, { type: "docker_ensure", container: project.container }];
     case "compose":
       return [
-        { type: "git_pull" },
+        ...pull,
         { type: "compose_up", source: project.composeFile || "compose.yaml" },
       ];
     case "systemd":
-      if (!project.unit) return [{ type: "git_pull" }];
+      if (!project.unit) return pull.length ? pull : null;
       if (project.startCommand) {
         return [
-          { type: "git_pull" },
+          ...pull,
           { type: "systemd_apply", unit: project.unit, command: project.startCommand },
         ];
       }
-      return [{ type: "git_pull" }, { type: "systemd_enable", unit: project.unit }];
+      return [...pull, { type: "systemd_enable", unit: project.unit }];
     case "static":
-      if (!project.publishFrom || !project.publishTo) return [{ type: "git_pull" }];
+      if (!project.publishFrom || !project.publishTo) return pull.length ? pull : null;
       return [
-        { type: "git_pull" },
+        ...pull,
         { type: "publish", source: project.publishFrom, dest: project.publishTo },
       ];
     default:
-      return null;
+      return pull.length ? pull : null;
   }
 }
 
 function seedDefaultAction(project: ProjectSummary): void {
   const steps = defaultActionSteps(project);
   if (!steps) return;
-  createAction(project.id, "Pull", steps);
+  createAction(project.id, projectHasGit(project) ? "Pull" : "Start", steps);
 }
 
 function replaceSteps(actionId: number, steps: StepInput[]): void {

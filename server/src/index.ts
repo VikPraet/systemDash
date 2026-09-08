@@ -60,6 +60,14 @@ import { powerRouter } from "./routes/power.js";
 import { projectsRouter } from "./routes/projects.js";
 import { accessRouter } from "./routes/access.js";
 import { backupRouter } from "./routes/backup.js";
+import { themesRouter } from "./routes/themes.js";
+import { dashboardRouter } from "./routes/dashboard.js";
+import {
+  DashboardLockError,
+  holdsLayoutLock,
+  layoutsDiffer,
+  touchLayoutLock,
+} from "./dashboardLock.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -92,6 +100,8 @@ app.use("/api/app-update", appUpdateRouter);
 app.use("/api/projects", projectsRouter);
 app.use("/api/access", accessRouter);
 app.use("/api/backup", backupRouter);
+app.use("/api/themes", themesRouter);
+app.use("/api/dashboard", dashboardRouter);
 
 // Host power control (reboot / shutdown). Admin-only; explicit audit before the
 // generic middleware. Must respond before the OS command runs.
@@ -161,6 +171,15 @@ app.use("/api", (req, res, next) => {
     if (req.path.startsWith("/api/backup") || req.path.startsWith("/backup")) {
       if (res.statusCode < 400) return;
     }
+    if (req.path.startsWith("/api/themes") && res.statusCode < 400) {
+      return;
+    }
+    if (
+      (req.path.startsWith("/api/dashboard") || req.path.startsWith("/dashboard")) &&
+      res.statusCode < 400
+    ) {
+      return;
+    }
     if (
       (req.path.startsWith("/api/fs/trash") || req.path.startsWith("/fs/trash")) &&
       res.statusCode < 400
@@ -196,7 +215,7 @@ function numParam(value: unknown, fallback: number): number {
 
 /** Sends a thrown error as an HTTP response, mapping HttpError to its status. */
 function sendError(res: express.Response, err: unknown, fallback: string): void {
-  if (err instanceof HttpError || err instanceof ShareError) {
+  if (err instanceof HttpError || err instanceof ShareError || err instanceof DashboardLockError) {
     res.status(err.status).json({ error: err.message });
   } else {
     console.error(`${fallback}:`, err);
@@ -456,7 +475,25 @@ app.put("/api/settings", requireRole("user"), async (req, res) => {
     }
 
     const prev = await getSettings();
-    const next = await saveSettings(req.body);
+    const incoming = req.body as { dashboard?: { layouts?: unknown } };
+    const body =
+      req.user?.role === "admin"
+        ? req.body
+        : { ...(req.body as object), dashboard: prev.dashboard };
+    if (
+      req.user?.role === "admin" &&
+      layoutsDiffer(prev.dashboard?.layouts, incoming?.dashboard?.layouts)
+    ) {
+      if (!holdsLayoutLock(req.user.id)) {
+        res.status(409).json({
+          error: "Acquire the layout edit lock before saving dashboard layouts.",
+          lock: null,
+        });
+        return;
+      }
+      touchLayoutLock(req.user.id);
+    }
+    const next = await saveSettings(body);
     // Log exactly which fields changed (grouped by section) instead of a bare
     // "changed settings". A no-op save records nothing. Denied attempts are
     // still captured by the generic middleware (see its /api/settings note).

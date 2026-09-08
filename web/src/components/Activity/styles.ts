@@ -108,7 +108,7 @@ export const SessionGrid = styled.div`
   gap: 10px;
 `;
 
-export const SessionCard = styled.div<{ $current?: boolean }>`
+export const SessionCard = styled.div<{ $current?: boolean; $editing?: boolean }>`
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -123,6 +123,13 @@ export const SessionCard = styled.div<{ $current?: boolean }>`
     css`
       border-color: color-mix(in srgb, ${theme.color.accent} 50%, ${theme.color.border});
       background: color-mix(in srgb, ${theme.color.accent} 8%, ${theme.color.panel2});
+    `}
+
+  ${({ $editing, $current, theme }) =>
+    $editing &&
+    !$current &&
+    css`
+      border-color: color-mix(in srgb, ${theme.color.accent} 35%, ${theme.color.border});
     `}
 `;
 
@@ -190,6 +197,23 @@ export const SelfBadge = styled.span`
   border-radius: ${({ theme }) => theme.radius.sm};
   background: ${({ theme }) => theme.color.track};
   color: ${({ theme }) => theme.color.muted};
+`;
+
+export const EditBadge = styled.span`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 18%, transparent);
+  color: ${({ theme }) => theme.color.accent};
+
+  > svg {
+    flex: none;
+  }
 `;
 
 export const LocLine = styled.span`

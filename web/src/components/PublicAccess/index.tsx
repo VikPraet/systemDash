@@ -3,7 +3,8 @@ import { ExternalLink, Globe, RefreshCw } from "lucide-react";
 import { APP_NAME } from "../../brand";
 import { fetchPublicAccess, setPublicAccessHostname } from "../../api";
 import type { IngressRoute, PublicAccessStatus } from "../../types";
-import { AuthError, GhostBtn, Loading } from "../ui/styles";
+import { AuthError, GhostBtn } from "../ui/styles";
+import { PanelSkeleton } from "../ui/Skeleton";
 import { Tooltip } from "../ui/Tooltip";
 import { TunnelDnsHint } from "../TunnelDns";
 import * as S from "./styles";
@@ -117,10 +118,7 @@ export function PublicAccess() {
   if (loading && !data) {
     return (
       <S.Root>
-        <S.Head>
-          <h3>Public access</h3>
-        </S.Head>
-        <Loading>Checking cloudflared…</Loading>
+        <PanelSkeleton label="Checking public access…" variant="lines" />
       </S.Root>
     );
   }

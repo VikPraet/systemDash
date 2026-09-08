@@ -4,12 +4,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { useAppearance } from "../../theme/AppearanceContext";
+import type { GaugeStyle } from "../../theme/schema";
 import * as S from "./styles";
 
 export function Card({
@@ -44,61 +47,77 @@ function colorFor(value: number): string {
   return "var(--good)";
 }
 
+const GAUGE_RX: Record<Exclude<GaugeStyle, "circle">, number> = {
+  squircle: 36,
+  square: 10,
+};
+
+/** Rounded rect whose stroke starts at the top-center, going clockwise. */
+function roundedRectPath(x: number, y: number, w: number, h: number, r: number): string {
+  const rx = Math.min(r, w / 2, h / 2);
+  const mx = x + w / 2;
+  const right = x + w;
+  const bottom = y + h;
+  return [
+    `M ${mx} ${y}`,
+    `H ${right - rx}`,
+    `A ${rx} ${rx} 0 0 1 ${right} ${y + rx}`,
+    `V ${bottom - rx}`,
+    `A ${rx} ${rx} 0 0 1 ${right - rx} ${bottom}`,
+    `H ${x + rx}`,
+    `A ${rx} ${rx} 0 0 1 ${x} ${bottom - rx}`,
+    `V ${y + rx}`,
+    `A ${rx} ${rx} 0 0 1 ${x + rx} ${y}`,
+    `H ${mx}`,
+    "Z",
+  ].join(" ");
+}
+
 export function Gauge({ value, label }: { value: number; label: string }) {
-  const { palette } = useAppearance();
+  const { effects } = useAppearance();
   const gradId = `gauge-grad-${useId().replace(/:/g, "")}`;
   const clamped = Math.max(0, Math.min(100, value));
   const color = colorFor(clamped);
-  const squircle = palette === "lime";
+  const shape = effects.gauge;
 
-  if (squircle) {
+  if (shape === "squircle" || shape === "square") {
     const inset = 10;
     const size = 100;
-    const rx = 36;
+    const rx = GAUGE_RX[shape];
+    const d = roundedRectPath(inset, inset, size, size, rx);
+    const gradient = shape === "squircle";
     return (
-      <S.GaugeRoot $squircle>
+      <S.GaugeRoot $shape={shape}>
         <svg className="gauge-svg" viewBox="0 0 120 120">
-          <defs>
-            <linearGradient
-              id={gradId}
-              x1="18"
-              y1="18"
-              x2="102"
-              y2="102"
-              gradientUnits="userSpaceOnUse"
-            >
-              <stop
-                offset="0%"
-                stopColor={`color-mix(in srgb, ${color} 42%, white)`}
-              />
-              <stop offset="55%" stopColor={color} />
-              <stop
-                offset="100%"
-                stopColor={`color-mix(in srgb, ${color} 72%, var(--accent))`}
-              />
-            </linearGradient>
-          </defs>
-          <rect
-            className="gauge-track"
-            x={inset}
-            y={inset}
-            width={size}
-            height={size}
-            rx={rx}
-            ry={rx}
-            pathLength={100}
-          />
-          <rect
+          {gradient && (
+            <defs>
+              <linearGradient
+                id={gradId}
+                x1="18"
+                y1="18"
+                x2="102"
+                y2="102"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop
+                  offset="0%"
+                  stopColor={`color-mix(in srgb, ${color} 42%, white)`}
+                />
+                <stop offset="55%" stopColor={color} />
+                <stop
+                  offset="100%"
+                  stopColor={`color-mix(in srgb, ${color} 72%, var(--accent))`}
+                />
+              </linearGradient>
+            </defs>
+          )}
+          <path className="gauge-track" d={d} pathLength={100} />
+          <path
             className="gauge-arc"
-            x={inset}
-            y={inset}
-            width={size}
-            height={size}
-            rx={rx}
-            ry={rx}
+            d={d}
             pathLength={100}
             style={{
-              stroke: `url(#${gradId})`,
+              stroke: gradient ? `url(#${gradId})` : color,
               strokeDasharray: `${clamped} ${100 - clamped}`,
             }}
           />
@@ -115,7 +134,7 @@ export function Gauge({ value, label }: { value: number; label: string }) {
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - clamped / 100);
   return (
-    <S.GaugeRoot>
+    <S.GaugeRoot $shape="circle">
       <svg className="gauge-svg" viewBox="0 0 120 120">
         <circle className="gauge-track" cx="60" cy="60" r={radius} />
         <circle
@@ -205,6 +224,7 @@ export function TimeSeriesChart({
 }) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
+  const [tipPos, setTipPos] = useState<CSSProperties | null>(null);
   const uid = useId().replace(/:/g, "");
 
   const padR = 12;
@@ -315,12 +335,39 @@ export function TimeSeriesChart({
     return { lines, areas, dots };
   }
 
+  const hoverX = hover != null ? xFor(hover) : 0;
+
+  function placeTip(surface: HTMLElement, index: number) {
+    const rect = surface.getBoundingClientRect();
+    const hx = xFor(index);
+    const x = rect.left + hx;
+    const gap = 8;
+    const estWidth = 180;
+    const flip =
+      hx > padL + plotW * 0.6 || x + gap + estWidth > window.innerWidth - 8;
+    const top = Math.max(8, rect.top + 6);
+    setTipPos(
+      flip
+        ? {
+            top,
+            right: Math.max(8, window.innerWidth - x + gap),
+            maxHeight: window.innerHeight - top - 8,
+          }
+        : {
+            top,
+            left: x + gap,
+            maxHeight: window.innerHeight - top - 8,
+          }
+    );
+  }
+
   function onMove(e: ReactMouseEvent<HTMLDivElement>) {
     if (!hasData) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     if (tN === t0) {
       setHover(0);
+      placeTip(e.currentTarget, 0);
       return;
     }
     const frac = Math.max(0, Math.min(1, (x - padL) / plotW));
@@ -335,10 +382,8 @@ export function TimeSeriesChart({
       }
     }
     setHover(best);
+    placeTip(e.currentTarget, best);
   }
-
-  const hoverX = hover != null ? xFor(hover) : 0;
-  const tooltipRight = hover != null && hoverX > padL + plotW * 0.6;
 
   return (
     <S.ChartRoot ref={ref} style={{ height }}>
@@ -347,7 +392,10 @@ export function TimeSeriesChart({
         <div
           className="chart-surface"
           onMouseMove={onMove}
-          onMouseLeave={() => setHover(null)}
+          onMouseLeave={() => {
+            setHover(null);
+            setTipPos(null);
+          }}
         >
           <svg width={w} height={height} role="img">
             <defs>
@@ -456,31 +504,26 @@ export function TimeSeriesChart({
             )}
           </svg>
 
-          {hover != null && (
-            <div
-              className="chart-tooltip"
-              style={
-                tooltipRight ? { right: w - hoverX + 8 } : { left: hoverX + 8 }
-              }
-            >
-              <div className="chart-tooltip-time">{formatTime(t[hover])}</div>
-              {series.map((s) => {
-                const v = s.data[hover];
-                return (
-                  <div key={s.label} className="chart-tooltip-row">
-                    <span
-                      className="chart-tooltip-swatch"
-                      style={{ background: s.color }}
-                    />
-                    <span className="chart-tooltip-label">{s.label}</span>
-                    <span className="chart-tooltip-value">
-                      {v == null ? "—" : fmt(v)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {hover != null &&
+            tipPos &&
+            createPortal(
+              <S.ChartTooltip style={tipPos}>
+                <S.ChartTooltipTime>{formatTime(t[hover])}</S.ChartTooltipTime>
+                {series.map((s) => {
+                  const v = s.data[hover];
+                  return (
+                    <S.ChartTooltipRow key={s.label}>
+                      <S.ChartTooltipSwatch style={{ background: s.color }} />
+                      <S.ChartTooltipLabel>{s.label}</S.ChartTooltipLabel>
+                      <S.ChartTooltipValue>
+                        {v == null ? "—" : fmt(v)}
+                      </S.ChartTooltipValue>
+                    </S.ChartTooltipRow>
+                  );
+                })}
+              </S.ChartTooltip>,
+              document.body
+            )}
         </div>
       )}
     </S.ChartRoot>

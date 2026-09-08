@@ -21,6 +21,7 @@ import {
   SESSION_COOKIE,
   setUserRecovery,
 } from "../auth.js";
+import { releaseLayoutLock } from "../dashboardLock.js";
 
 export const authRouter = Router();
 
@@ -114,6 +115,7 @@ authRouter.post("/logout", (req, res) => {
   const user = currentUser(req);
   const token = parseCookies(req.headers.cookie)[SESSION_COOKIE];
   destroySession(token);
+  if (user) releaseLayoutLock(user.id);
   res.setHeader("Set-Cookie", clearSessionCookie(isSecure(req)));
   if (user) {
     recordAudit({

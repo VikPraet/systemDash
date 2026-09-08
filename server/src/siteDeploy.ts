@@ -157,8 +157,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${project.localPath}
-ExecStart=${exec}
+${project.localPath ? `WorkingDirectory=${project.localPath}\n` : ""}ExecStart=${exec}
 Restart=${restart}
 RestartSec=3
 

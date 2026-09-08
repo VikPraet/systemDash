@@ -1,8 +1,20 @@
 import styled from "styled-components";
 
-export const TooltipWrap = styled.div`
+export const TooltipWrap = styled.div<{ $fill?: boolean }>`
   position: relative;
   display: inline-flex;
+  ${({ $fill }) =>
+    $fill &&
+    `
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    > * {
+      flex: 1;
+      min-width: 0;
+      justify-content: center;
+    }
+  `}
 `;
 
 export const TooltipBox = styled.div<{ $below?: boolean }>`
@@ -32,6 +44,7 @@ export const TooltipDetail = styled.span`
   font-size: 11px;
   color: ${({ theme }) => theme.color.muted};
   font-variant-numeric: tabular-nums;
+  white-space: pre-line;
 `;
 
 export const TooltipArrow = styled.span<{ $below?: boolean }>`

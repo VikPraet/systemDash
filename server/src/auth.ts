@@ -438,6 +438,7 @@ export interface SessionInfo {
   ip: string | null;
   userAgent: string | null;
   current: boolean; // true for the caller's own session
+  layoutEditing?: boolean;
 }
 
 /** The opaque session id (token hash) for the caller's cookie, if logged in. */

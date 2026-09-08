@@ -12,6 +12,7 @@ import {
   clearAudit,
 } from "../auth.js";
 import { resolveLocations, normalizeForLookup, type GeoLocation } from "../geo.js";
+import { layoutLockHolder, releaseLayoutLock } from "../dashboardLock.js";
 
 // Attaches a resolved `location` to each row that carries an `ip`, looking up
 // every distinct address once. Never throws — on failure rows just get a null
@@ -48,9 +49,29 @@ function sendError(res: import("express").Response, err: unknown): void {
   }
 }
 
+function withLayoutEditing<T extends { id: string; userId: number }>(
+  sessions: T[]
+): Array<T & { layoutEditing: boolean }> {
+  const holder = layoutLockHolder();
+  if (!holder) {
+    return sessions.map((s) => ({ ...s, layoutEditing: false }));
+  }
+  const matchSession = holder.sessionHash
+    ? sessions.some((s) => s.id === holder.sessionHash)
+    : false;
+  return sessions.map((s) => ({
+    ...s,
+    layoutEditing: matchSession
+      ? s.id === holder.sessionHash
+      : s.userId === holder.userId,
+  }));
+}
+
 activityRouter.get("/sessions", adminOnly, async (req, res) => {
   try {
-    const sessions = await withLocations(listSessions(currentSessionId(req)));
+    const sessions = withLayoutEditing(
+      await withLocations(listSessions(currentSessionId(req)))
+    );
     res.json({ sessions });
   } catch (err) {
     sendError(res, err);
@@ -61,7 +82,11 @@ activityRouter.post("/sessions/revoke", adminOnly, (req, res) => {
   try {
     const { id } = req.body ?? {};
     if (typeof id !== "string" || !id) throw new AuthError(400, "missing session id");
+    const holder = layoutLockHolder();
     revokeSession(id);
+    if (holder?.sessionHash === id) {
+      releaseLayoutLock(holder.userId);
+    }
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,

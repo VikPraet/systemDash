@@ -188,27 +188,77 @@ export const Banner = styled.div<{ $bad?: boolean }>`
 export const Grid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-auto-flow: dense;
   gap: 12px;
 `;
 
-export const Card = styled.button`
+export const Card = styled.div<{ $wide?: boolean }>`
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 16px;
+  align-items: stretch;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0;
   text-align: left;
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
   box-shadow: ${({ theme }) => theme.elev};
   color: inherit;
+  overflow: hidden;
   cursor: pointer;
   transition: border-color 0.15s ease;
+
+  ${({ $wide }) =>
+    $wide &&
+    css`
+      min-height: 160px;
+    `}
 
   &:hover {
     border-color: ${({ theme }) => theme.color.accent};
   }
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.color.accent};
+    outline-offset: 2px;
+  }
+`;
+
+export const CardPreview = styled.div`
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 220px;
+  max-height: 360px;
+  overflow: hidden;
+  background: ${({ theme }) => theme.color.bg};
+  border-bottom: 1px solid ${({ theme }) => theme.color.border};
+  pointer-events: none;
+`;
+
+export const CardFrame = styled.iframe`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 200%;
+  border: none;
+  transform: scale(0.5);
+  transform-origin: top left;
+  background: ${({ theme }) => theme.color.bg};
+  pointer-events: none;
+`;
+
+export const CardBody = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 export const CardTitle = styled.div`
@@ -510,7 +560,7 @@ export const NotesLine = styled.span`
 `;
 
 export const PreviewWrap = styled.div`
-  margin: 0 16px 16px;
+  margin: 12px 16px 16px;
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   overflow: hidden;
@@ -1032,7 +1082,7 @@ export const PathRow = styled.div`
 `;
 
 export const PickerOverlay = styled(ModalOverlay)`
-  z-index: 110;
+  z-index: 6100;
 `;
 
 export const PickerNav = styled.div`

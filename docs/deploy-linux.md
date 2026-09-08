@@ -136,7 +136,7 @@ symlink and restart).
 3. Commit, tag, push:
 
    ```bash
-   git tag v0.3.0-beta
+   git tag v0.4.0-beta
    git push origin dev --tags
    ```
 
@@ -147,12 +147,12 @@ symlink and restart).
    stable Latest. Install a tag, or `latest` (newest pre-release):
 
    ```bash
-   bash install-release.sh YOUR_ORG/systemDash v0.3.0-beta
+   bash install-release.sh YOUR_ORG/systemDash v0.4.0-beta
    bash install-release.sh YOUR_ORG/systemDash latest
    ```
 
 4. GitHub Actions (`.github/workflows/release.yml`) builds
-   `systemdash-0.3.0-beta-linux-x64.tar.gz` and attaches it to the Release.
+   `systemdash-0.4.0-beta-linux-x64.tar.gz` and attaches it to the Release.
 
 Test the package locally before tagging:
 

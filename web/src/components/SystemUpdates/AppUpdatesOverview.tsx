@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Loader2, Sparkles } from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { fetchAppUpdateStatus } from "../../api";
 import type { AppUpdateStatus } from "../../types";
 import { APP_NAME } from "../../brand";
+import { TeaserSkeleton } from "../ui/Skeleton";
 import * as S from "./styles";
 
 const POLL_MS = 5 * 60_000;
@@ -35,17 +36,7 @@ export function AppUpdatesOverview() {
   }
 
   if (loading && !status) {
-    return (
-      <S.OverviewTeaser type="button" disabled>
-        <S.OverviewIcon>
-          <Loader2 size={16} className="spin" />
-        </S.OverviewIcon>
-        <S.OverviewBody>
-          <S.OverviewTitle>{APP_NAME} update</S.OverviewTitle>
-          <S.OverviewMeta>Checking GitHub releases…</S.OverviewMeta>
-        </S.OverviewBody>
-      </S.OverviewTeaser>
-    );
+    return <TeaserSkeleton title={`${APP_NAME} update`} />;
   }
 
   const accent = status?.updateAvailable ?? false;

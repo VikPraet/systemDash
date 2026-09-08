@@ -7,7 +7,6 @@ import {
   AuthError,
   DangerBtn,
   GhostBtn,
-  Loading,
   ModalActions,
   ModalCard,
   ModalClose,
@@ -16,6 +15,7 @@ import {
   ModalSub,
   RevokeWarn,
 } from "../ui/styles";
+import { PanelSkeleton } from "../ui/Skeleton";
 import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
 
@@ -72,7 +72,7 @@ export function PowerControl() {
   if (loading && !caps) {
     return (
       <S.PowerRoot>
-        <Loading>Checking power controls…</Loading>
+        <PanelSkeleton label="Checking power controls…" variant="buttons" />
       </S.PowerRoot>
     );
   }

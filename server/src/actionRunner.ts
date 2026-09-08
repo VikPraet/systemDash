@@ -7,6 +7,8 @@ import {
   requireAction,
   requireProject,
   resolveAccountForProject,
+  projectHasGit,
+  projectHasFolder,
   type ActionRun,
   type ActionStep,
   type ProjectSummary,
@@ -210,6 +212,9 @@ async function runStep(
 
   switch (step.type) {
     case "git_pull":
+      if (!projectHasGit(project) || !projectHasFolder(project)) {
+        throw new ProjectsError(400, "this project has no git checkout");
+      }
       await gitPull({
         localPath,
         branch,
@@ -220,6 +225,9 @@ async function runStep(
       return;
     case "command":
       if (!step.command) throw new ProjectsError(400, "command is empty");
+      if (!projectHasFolder(project)) {
+        throw new ProjectsError(400, "this project has no folder to run commands in");
+      }
       await runCommand(localPath, step.command, onChunk);
       return;
     case "docker_restart":
@@ -252,6 +260,9 @@ async function runStep(
       return;
     }
     case "compose_up": {
+      if (!projectHasFolder(project)) {
+        throw new ProjectsError(400, "Compose needs a project folder");
+      }
       const file = step.source || project.composeFile || "compose.yaml";
       await composeUp(localPath, file, onChunk);
       return;
@@ -361,6 +372,9 @@ export async function checkProjectRemote(projectId: number): Promise<GitCheckRes
     throw new ProjectsError(409, "an action is already running for this project");
   }
   const project = requireProject(projectId);
+  if (!projectHasGit(project) || !projectHasFolder(project)) {
+    throw new ProjectsError(400, "this project has no git remote");
+  }
   const account = resolveAccountForProject(project);
   return checkRemote({
     localPath: project.localPath,

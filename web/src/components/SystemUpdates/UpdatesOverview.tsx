@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Download, Loader2 } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { fetchUpdatesJob, fetchUpdatesStatus } from "../../api";
 import type { UpdatesStatus } from "../../types";
+import { TeaserSkeleton } from "../ui/Skeleton";
 import * as S from "./styles";
 
 export function UpdatesOverview() {
@@ -38,17 +39,7 @@ export function UpdatesOverview() {
   }
 
   if (loading && !status) {
-    return (
-      <S.OverviewTeaser type="button" disabled>
-        <S.OverviewIcon>
-          <Loader2 size={16} className="spin" />
-        </S.OverviewIcon>
-        <S.OverviewBody>
-          <S.OverviewTitle>Package updates</S.OverviewTitle>
-          <S.OverviewMeta>Checking for updates…</S.OverviewMeta>
-        </S.OverviewBody>
-      </S.OverviewTeaser>
-    );
+    return <TeaserSkeleton title="Package updates" />;
   }
 
   if (!status?.available) {

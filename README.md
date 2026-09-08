@@ -1,40 +1,67 @@
 # Beacon
 
-A self-hosted, cross-platform (Windows / Linux / macOS) host console. It exposes
-live OS stats through a web UI: CPU model & load & clock speed, memory, storage, GPU,
-and OS/host info. Files, terminal, containers, projects, and power control live in
-the same console.
+A self-hosted host console for Windows, Linux, and macOS. Open it in a browser
+and you get live CPU, memory, storage, GPU, and host stats, plus files, a real
+terminal, Docker, project deploys, and power control — all behind accounts and
+roles on that machine.
 
-Install paths, the `systemdash` systemd unit, and `SYSTEMDASH_*` environment variables
-keep their existing names so upgrades stay compatible.
+The UI is **Beacon**. Install paths, the `systemdash` systemd unit, release
+tarballs, and `SYSTEMDASH_*` environment variables keep those names so upgrades
+stay compatible.
 
 ## Screenshots
 
-**Overview** — live CPU, memory, storage, and GPU stats at a glance:
+**Sign in**
+
+![Login](docs/screenshots/login.png)
+
+**Themes** — Classic, Lime, Phosphor, Ember, and Midnight, each with dark and
+light. Admins can duplicate, edit, import, and export custom themes.
+
+| Classic | Lime | Phosphor | Ember | Midnight |
+|:---:|:---:|:---:|:---:|:---:|
+| <img src="docs/screenshots/themes/classic-dark.png" alt="Classic dark" width="180"> | <img src="docs/screenshots/themes/lime-dark.png" alt="Lime dark" width="180"> | <img src="docs/screenshots/themes/phosphor-dark.png" alt="Phosphor dark" width="180"> | <img src="docs/screenshots/themes/ember-dark.png" alt="Ember dark" width="180"> | <img src="docs/screenshots/themes/midnight-dark.png" alt="Midnight dark" width="180"> |
+| <img src="docs/screenshots/themes/classic-light.png" alt="Classic light" width="180"> | <img src="docs/screenshots/themes/lime-light.png" alt="Lime light" width="180"> | <img src="docs/screenshots/themes/phosphor-light.png" alt="Phosphor light" width="180"> | <img src="docs/screenshots/themes/ember-light.png" alt="Ember light" width="180"> | <img src="docs/screenshots/themes/midnight-light.png" alt="Midnight light" width="180"> |
+
+**Overview** — live gauges and a layout you can rearrange (drag, resize, add,
+hide, group). Panels can be limited to viewer, user, or admin.
 
 ![Overview](docs/screenshots/overview.png)
 
-**History** — time-series charts of CPU, memory, and GPU metrics over selectable ranges:
+**History** — CPU, memory, and GPU charts over a range, same grid as Overview.
 
 ![History](docs/screenshots/history.png)
 
-**Processes** — sortable, filterable process list grouped into apps and background tasks:
+**Processes** — sortable list grouped into apps and background tasks; end or
+force-kill from the UI.
 
 ![Processes](docs/screenshots/processes.png)
 
-**Containers** — Docker status, container list, logs, and start/stop controls:
+**Containers** — Docker status, logs, and start/stop/restart.
 
 ![Containers](docs/screenshots/containers.png)
 
-**Files** — browse drives, navigate folders, and manage files:
+**Projects** — git repos, site deploys, health, and optional live preview.
+
+![Projects](docs/screenshots/projects.png)
+
+**Files** — browse drives, network shares, trash, and a disk-usage map.
 
 ![Files](docs/screenshots/files.png)
 
-**Terminal** — multi-tab local shell with scrollback kept per tab:
+**Terminal** — multi-tab local shell with per-tab scrollback.
 
 ![Terminal](docs/screenshots/terminal.png)
 
-**Activity** — active sessions and audit log (admin):
+**Users** — accounts, roles, and recovery (admin).
+
+![Users](docs/screenshots/users.png)
+
+**Updates** — host packages, Beacon releases, and backups.
+
+![Updates](docs/screenshots/updates.png)
+
+**Activity** — sessions and the audit log (admin).
 
 ![Activity](docs/screenshots/activity.png)
 
@@ -59,6 +86,12 @@ yarn dev
 - Web UI (with hot reload): http://localhost:5273
 - API server: http://localhost:3001 (the web dev server proxies `/api` to it)
 
+Refresh README screenshots from a running dev server:
+
+```bash
+node scripts/capture-screenshots.mjs
+```
+
 ## Production / single-host
 
 ```bash
@@ -70,8 +103,8 @@ Set a custom port with the `PORT` env var.
 
 **Linux server (releases):** push a tag → CI builds
 `systemdash-<version>-linux-x64.tar.gz` → server installs with
-[docs/deploy-linux.md](docs/deploy-linux.md). No build tools on the server. In-app
-**Update** button (download latest release) is planned next.
+[docs/deploy-linux.md](docs/deploy-linux.md). No build tools on the server.
+Admins can also install a release from **Updates → Beacon** in the app.
 
 ## API
 
@@ -80,10 +113,14 @@ Read:
 - `GET /api/health` → `{ ok: true }`
 - `GET /api/system` → full system snapshot (host, cpu, memory, disks, gpus)
 - `GET /api/processes` → running processes
+- `GET /api/history` / `GET /api/history/stats` → time-series metrics
 - `GET /api/fs/roots` → drives / home
 - `GET /api/fs/list?path=…` → directory listing
 - `GET /api/fs/dirsize?path=…` → recursive folder size
+- `GET /api/fs/usage?path=…` → disk-map usage tree
 - `GET /api/fs/download?path=…` → download a file
+- `GET /api/fs/shares` → persisted network mounts
+- `GET /api/fs/trash` → recoverable trash
 
 Write (file management):
 
@@ -92,18 +129,23 @@ Write (file management):
 - `POST /api/fs/rename` `{ path, newName }` → rename
 - `POST /api/fs/move` `{ path, dest }` → move into directory `dest`
 - `POST /api/fs/copy` `{ path, dest }` → copy into directory `dest`
-- `POST /api/fs/delete` `{ path }` → delete a file or folder (recursive)
+- `POST /api/fs/delete` `{ path }` → move to trash (or delete)
 - `POST /api/fs/upload?dir=…&name=…` (raw body) → stream a file to disk
+- `POST /api/fs/shares` / `POST /api/fs/shares/:id/connect` → add / reconnect a share
+- `POST /api/fs/trash/:id/restore` / `POST /api/fs/trash/empty` → restore or empty trash
 
 Editor:
 
 - `GET /api/fs/read?path=…` → read a text file (rejects directories, >5 MB, or binary)
 - `POST /api/fs/write` `{ path, content }` → save text content to a file
 
-Settings:
+Settings & appearance:
 
-- `GET /api/settings` / `PUT /api/settings` → file-manager preferences, persisted to
-  `~/.systemdash/settings.json` (override dir with `SYSTEMDASH_DATA_DIR`)
+- `GET /api/settings` / `PUT /api/settings` → file-manager prefs, dashboard layouts,
+  persisted to `~/.systemdash/settings.json` (override dir with `SYSTEMDASH_DATA_DIR`)
+- `GET /api/themes` → builtin + custom themes
+- `POST /api/themes` / `DELETE /api/themes/:id` → import or delete a custom theme (admin)
+- `GET|POST|DELETE /api/dashboard/edit-lock` → single-admin layout edit lock
 
 Authentication & users:
 
@@ -128,6 +170,9 @@ native, not containerised):
 - `GET /api/docker/containers` → list all containers
 - `GET /api/docker/containers/:id/logs?tail=300` → recent log output
 - `POST /api/docker/containers/:id/start|stop|restart` → control (`user`/`admin`)
+
+Projects, public access, updates, backups, and power live under `/api/projects`,
+`/api/access`, `/api/updates`, `/api/app-update`, `/api/backup`, and `/api/power`.
 
 ### Testing the Containers tab
 
@@ -159,12 +204,12 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   into / modify protected system locations, launch the server elevated (Run as
   Administrator on Windows, `sudo` on Linux/macOS).
 - **Authentication & roles:** every `/api` endpoint (except `/api/health`) and the
-  terminal WebSocket now require a signed-in user. On first launch the UI shows a
+  terminal WebSocket require a signed-in user. On first launch the UI shows a
   one-time setup screen to create the admin account (no default password is shipped).
   Users have one of three roles:
   - `viewer` — read-only (overview, history, process list, browse/read/download files)
-  - `user` — viewer plus write actions (file create/edit/upload/delete, terminal)
-  - `admin` — everything plus user management
+  - `user` — viewer plus write actions (file create/edit/upload/delete, terminal, projects)
+  - `admin` — everything plus user management, themes, layout, updates, and activity
   Accounts and sessions are stored in a local SQLite file at `~/.systemdash/auth.db`
   (override the dir with `SYSTEMDASH_DATA_DIR`). Passwords are hashed with scrypt;
   sessions are opaque tokens kept in an HttpOnly, SameSite=Lax cookie (marked `Secure`
@@ -184,17 +229,12 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   the interface from inside itself. Every termination is recorded in the activity log.
 - **Terminal:** it allocates a real PTY (via `node-pty`), so the shell behaves like a
   native terminal — arrow-key history, `Ctrl+C` to interrupt the foreground process,
-  `clear`/`cls`, and full-screen TUI programs (vim, htop, less) all work. SSH to remote
-  hosts can be added later.
+  `clear`/`cls`, and full-screen TUI programs (vim, htop, less) all work.
+- **Layout editing:** only one admin can customize the shared dashboard at a time. The
+  lock expires after a few minutes idle.
 
 ## Roadmap
 
-- **Code editor** — replace the plain textarea with a proper editor (syntax highlighting,
-  line numbers, bracket matching; Monaco or CodeMirror). Keep the existing read/write API;
-  broaden supported file types beyond plain `.txt` where the server already allows edits.
-- **Docker** — container overview and control (list/start/stop/restart, logs) via the
-  Docker CLI on the host. Detect whether Docker is installed; gate mutating actions
-  behind `user`/`admin`. Compose stacks and image creation remain future work.
 - **Scheduled jobs** — in-app cron-style tasks (e.g. restart a container nightly, run a
   backup script). Not a replacement for OS autostart (`systemd` / Task Scheduler); those
   remain the way to boot Beacon itself.
@@ -204,9 +244,6 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   SMTP or an email API (Resend, SendGrid, etc.). Start with security-focused events;
   terminal-command alerts opt-in and filterable to avoid noise.
 - **SSH** — connect to remote hosts from the built-in terminal.
-- **Deployment helpers** — GitHub Actions release builds (precompiled linux-x64 tarball);
-  server install via `scripts/install-release.sh` (Node.js only, no on-host build).
-  Planned: in-app update check + one-click install from latest GitHub Release.
 - **Security** — TOTP 2FA (authenticator apps); CSRF hardening when exposed beyond a
   trusted LAN. Optional OAuth (Google / Apple) later for sign-in convenience once a
   public HTTPS callback URL is available (e.g. via Cloudflare Tunnel).

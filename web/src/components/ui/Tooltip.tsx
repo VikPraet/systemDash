@@ -20,10 +20,12 @@ interface TooltipPos {
 export function Tooltip({
   label,
   detail,
+  fill,
   children,
 }: {
   label?: string;
   detail?: string;
+  fill?: boolean;
   children: ReactElement;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -70,6 +72,7 @@ export function Tooltip({
     <>
       <S.TooltipWrap
         ref={wrapRef}
+        $fill={fill}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocusCapture={show}

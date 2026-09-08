@@ -222,11 +222,35 @@ export interface TerminalSettings {
   osUser: string;
 }
 
+export type DashRole = "viewer" | "user" | "admin";
+
+export interface DashboardLayoutItem {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Widget kind; omitted for built-in panels where id is the kind. */
+  widget?: string;
+  hidden?: boolean;
+  /** Who can see this panel. Omitted means everyone. */
+  roles?: DashRole[];
+  /** Same group id = one visual container. */
+  group?: string;
+}
+
+export interface DashboardSettings {
+  themeId: string;
+  appearance: "dark" | "light";
+  layouts: Record<string, DashboardLayoutItem[]>;
+}
+
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
   activity: ActivitySettings;
   terminal: TerminalSettings;
+  dashboard: DashboardSettings;
 }
 
 export interface HistoryGpuSeries {
@@ -328,6 +352,7 @@ export interface SessionInfo {
   userAgent: string | null;
   location: GeoLocation | null;
   current: boolean;
+  layoutEditing?: boolean;
 }
 
 export interface AuditEntry {

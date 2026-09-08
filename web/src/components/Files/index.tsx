@@ -51,6 +51,8 @@ import {
 } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
 import { DiskMap, type DiskMapHandle } from "./DiskMap";
+import { DashboardGrid } from "../dashboard/DashboardGrid";
+import { packDefaults } from "../dashboard/grid";
 import * as S from "./styles";
 
 // `null` path = the "This PC" overview that lists drives.
@@ -912,44 +914,97 @@ function ThisPc({
   if (drives.length === 0 && network.length === 0 && trash.length === 0 && !canWrite) {
     return <S.FilesMessage className="muted">Loading drives…</S.FilesMessage>;
   }
+
+  const driveIds = drives.map((d) => `drive:${d.path}`);
+  const driveDefaults = packDefaults(driveIds, { x: 0, y: 0, w: 4, h: 3 });
+  const netItems = [
+    ...network.map((d) => d.shareId ?? d.path),
+    ...(canWrite ? ["add-network"] : []),
+  ];
+  const netIds = netItems.map((id) => (id === "add-network" ? id : `net:${id}`));
+  const netDefaults = packDefaults(netIds, { x: 0, y: 0, w: 4, h: 3 });
+  const trashIds = trash.map((d) => `trash:${d.path}`);
+  const trashDefaults = packDefaults(trashIds, { x: 0, y: 0, w: 4, h: 3 });
+
   return (
     <>
-      <S.DriveSection>
-        <S.Drives>
-          {drives.map((d) => (
-            <DriveCardView key={d.path} d={d} onOpen={() => onOpen(d)} />
-          ))}
-        </S.Drives>
-      </S.DriveSection>
+      {drives.length > 0 && (
+        <S.DriveSection>
+          <S.DriveGridWrap>
+            <DashboardGrid
+              pageId="files-drives"
+              items={drives.map((d) => ({
+                id: `drive:${d.path}`,
+                label: d.name || d.label || d.path,
+                minW: 3,
+                minH: 2,
+                default: driveDefaults[`drive:${d.path}`] ?? { x: 0, y: 0, w: 4, h: 3 },
+                node: <DriveCardView d={d} onOpen={() => onOpen(d)} />,
+              }))}
+            />
+          </S.DriveGridWrap>
+        </S.DriveSection>
+      )}
       <S.DriveSection>
         <S.DriveSectionTitle>Network</S.DriveSectionTitle>
-        <S.Drives>
-          {network.map((d) => (
-            <DriveCardView
-              key={d.shareId ?? d.path}
-              d={d}
-              onOpen={() => onOpen(d)}
-              onRemove={
-                canWrite && d.shareId ? () => onRemove(d) : undefined
-              }
-            />
-          ))}
-          {canWrite && (
-            <S.AddDriveCard type="button" onClick={onAdd}>
-              <PlusIcon />
-              Add network drive
-            </S.AddDriveCard>
-          )}
-        </S.Drives>
+        <S.DriveGridWrap>
+          <DashboardGrid
+          pageId="files-network"
+          items={[
+            ...network.map((d) => ({
+              id: `net:${d.shareId ?? d.path}`,
+              label: d.name || d.label || d.path,
+              minW: 3,
+              minH: 2,
+              default:
+                netDefaults[`net:${d.shareId ?? d.path}`] ?? { x: 0, y: 0, w: 4, h: 3 },
+              node: (
+                <DriveCardView
+                  d={d}
+                  onOpen={() => onOpen(d)}
+                  onRemove={
+                    canWrite && d.shareId ? () => onRemove(d) : undefined
+                  }
+                />
+              ),
+            })),
+            ...(canWrite
+              ? [
+                  {
+                    id: "add-network",
+                    label: "Add network drive",
+                    minW: 3,
+                    minH: 2,
+                    default: netDefaults["add-network"] ?? { x: 0, y: 0, w: 4, h: 3 },
+                    node: (
+                      <S.AddDriveCard type="button" onClick={onAdd}>
+                        <PlusIcon />
+                        Add network drive
+                      </S.AddDriveCard>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
+        </S.DriveGridWrap>
       </S.DriveSection>
       {trash.length > 0 && (
         <S.DriveSection>
           <S.DriveSectionTitle>Trash</S.DriveSectionTitle>
-          <S.Drives>
-            {trash.map((d) => (
-              <DriveCardView key={d.path} d={d} onOpen={() => onOpen(d)} />
-            ))}
-          </S.Drives>
+          <S.DriveGridWrap>
+          <DashboardGrid
+            pageId="files-trash"
+            items={trash.map((d) => ({
+              id: `trash:${d.path}`,
+              label: d.name || d.label || d.path,
+              minW: 3,
+              minH: 2,
+              default: trashDefaults[`trash:${d.path}`] ?? { x: 0, y: 0, w: 4, h: 3 },
+              node: <DriveCardView d={d} onOpen={() => onOpen(d)} />,
+            }))}
+          />
+          </S.DriveGridWrap>
         </S.DriveSection>
       )}
     </>

@@ -26,6 +26,7 @@ export const Sidebar = styled.aside`
   height: 100dvh;
   position: sticky;
   top: 0;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -209,6 +210,13 @@ export const RecoveryNudge = styled.div`
   border-radius: ${({ theme }) => theme.radius.sm};
   font-size: 13px;
   color: ${({ theme }) => theme.color.text};
+`;
+
+export const RecoveryNudgeActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 
   button {
     flex-shrink: 0;
@@ -227,6 +235,29 @@ export const RecoveryNudge = styled.div`
   button:hover {
     background: ${({ theme }) => theme.color.accent};
     color: ${({ theme }) => theme.color.onAccent};
+  }
+
+  button.ghost {
+    border-color: ${({ theme }) => theme.color.hairline};
+    color: ${({ theme }) => theme.color.muted};
+  }
+
+  button.ghost:hover {
+    background: transparent;
+    border-color: ${({ theme }) => theme.color.text};
+    color: ${({ theme }) => theme.color.text};
+  }
+`;
+
+export const RecoverySnoozeChoices = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  button {
+    flex: 1 1 auto;
+    min-width: 88px;
+    justify-content: center;
   }
 `;
 
@@ -329,6 +360,9 @@ export const Tabs = styled.nav`
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 
   a {
     position: relative;
@@ -545,7 +579,7 @@ export const Meter = styled.span<{ $state: "good" | "bad" | "idle" }>`
     width: 3px;
     border-radius: 1px;
     background: ${({ theme }) => theme.color.track};
-    html[data-palette="lime"] & {
+    html[data-bars="square"] & {
       border-radius: 2px;
     }
   }
@@ -576,8 +610,17 @@ export const Meter = styled.span<{ $state: "good" | "bad" | "idle" }>`
   ${({ $state, theme }) =>
     $state === "bad" &&
     css`
-      i:nth-child(1) {
-        background: ${theme.color.bad};
+      i:nth-child(1),
+      i:nth-child(2),
+      i:nth-child(3) {
+        background: ${theme.color.warn};
+        animation: meter-reconnect 1.15s ease-in-out infinite;
+      }
+      i:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+      i:nth-child(3) {
+        animation-delay: 0.36s;
       }
     `}
 `;

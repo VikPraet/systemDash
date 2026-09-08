@@ -12,6 +12,7 @@ import {
   type ActivitySettings,
 } from "./auth.js";
 import { DATA_DIR } from "./paths.js";
+import { sanitizeThemeId } from "./themes.js";
 
 export interface FileManagerSettings {
   /** Show dotfiles / hidden entries in listings. */
@@ -48,11 +49,32 @@ export interface TerminalSettings {
   osUser: string;
 }
 
+export type DashRole = "viewer" | "user" | "admin";
+
+export interface DashboardLayoutItem {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  widget?: string;
+  hidden?: boolean;
+  roles?: DashRole[];
+  group?: string;
+}
+
+export interface DashboardSettings {
+  themeId: string;
+  appearance: "dark" | "light";
+  layouts: Record<string, DashboardLayoutItem[]>;
+}
+
 export interface Settings {
   files: FileManagerSettings;
   history: HistorySettings;
   activity: ActivitySettings;
   terminal: TerminalSettings;
+  dashboard: DashboardSettings;
 }
 
 const DEFAULTS: Settings = {
@@ -66,6 +88,11 @@ const DEFAULTS: Settings = {
   activity: ACTIVITY_DEFAULTS,
   terminal: {
     osUser: "",
+  },
+  dashboard: {
+    themeId: "classic",
+    appearance: "dark",
+    layouts: {},
   },
 };
 
@@ -81,11 +108,16 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 let cached: Settings | null = null;
 
 /** Coerces unknown input into a valid Settings object, falling back to defaults. */
-function sanitize(input: unknown): Settings {
+function sanitize(input: unknown, previous?: Settings): Settings {
   const files = (input as Settings)?.files ?? ({} as FileManagerSettings);
   const history = (input as Settings)?.history ?? ({} as HistorySettings);
   const activity = (input as Settings)?.activity ?? ({} as ActivitySettings);
   const terminal = (input as Settings)?.terminal ?? ({} as TerminalSettings);
+  const dashboardIn = (input as Settings)?.dashboard;
+  const dashboard =
+    dashboardIn && typeof dashboardIn === "object"
+      ? dashboardIn
+      : (previous?.dashboard ?? DEFAULTS.dashboard);
   const bool = (v: unknown, fallback: boolean) =>
     typeof v === "boolean" ? v : fallback;
   const intIn = (
@@ -141,7 +173,73 @@ function sanitize(input: unknown): Settings {
     terminal: {
       osUser: sanitizeOsUsername(terminal.osUser, DEFAULTS.terminal.osUser),
     },
+    dashboard: sanitizeDashboard(dashboard, previous?.dashboard ?? DEFAULTS.dashboard),
   };
+}
+
+function sanitizeDashboard(
+  input: DashboardSettings,
+  fallback: DashboardSettings
+): DashboardSettings {
+  const appearance = input.appearance === "light" || input.appearance === "dark"
+    ? input.appearance
+    : fallback.appearance;
+  const themeId = sanitizeThemeId(input.themeId) ?? fallback.themeId;
+  const layoutsIn = input.layouts && typeof input.layouts === "object" ? input.layouts : {};
+  const layouts: Record<string, DashboardLayoutItem[]> = {};
+  for (const [pageId, items] of Object.entries(layoutsIn)) {
+    if (typeof pageId !== "string" || pageId.length > 64) continue;
+    if (!Array.isArray(items)) continue;
+    layouts[pageId] = items
+      .slice(0, 160)
+      .map((raw, i) => sanitizeLayoutItem(raw, i))
+      .filter((item): item is DashboardLayoutItem => item != null);
+  }
+  return { themeId, appearance, layouts };
+}
+
+function sanitizeLayoutItem(raw: unknown, index: number): DashboardLayoutItem | null {
+  if (!raw || typeof raw !== "object") return null;
+  const src = raw as Record<string, unknown>;
+  const id =
+    typeof src.id === "string" && src.id.trim()
+      ? src.id.trim().slice(0, 120)
+      : `item-${index}`;
+  const w = Math.round(Number(src.w));
+  const h = Math.round(Number(src.h));
+  const x = Math.round(Number(src.x));
+  const y = Math.round(Number(src.y));
+  if (![w, h, x, y].every(Number.isFinite)) return null;
+  const roles = sanitizeRoles(src.roles);
+  const widget =
+    typeof src.widget === "string" && src.widget.trim()
+      ? src.widget.trim().slice(0, 120)
+      : undefined;
+  const group =
+    typeof src.group === "string" && src.group.trim()
+      ? src.group.trim().slice(0, 64)
+      : undefined;
+  return {
+    id,
+    w: Math.max(1, Math.min(12, w)),
+    h: Math.max(1, Math.min(48, h)),
+    x: Math.max(0, Math.min(11, x)),
+    y: Math.max(0, Math.min(400, y)),
+    ...(src.hidden === true ? { hidden: true } : {}),
+    ...(roles ? { roles } : {}),
+    ...(widget ? { widget } : {}),
+    ...(group ? { group } : {}),
+  };
+}
+
+const DASH_ROLES: DashRole[] = ["viewer", "user", "admin"];
+
+function sanitizeRoles(raw: unknown): DashRole[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const roles = DASH_ROLES.filter((role) => raw.includes(role));
+  if (roles.length === 0) return undefined;
+  if (!roles.includes("admin")) roles.push("admin");
+  return roles;
 }
 
 export async function getSettings(): Promise<Settings> {
@@ -157,7 +255,8 @@ export async function getSettings(): Promise<Settings> {
 }
 
 export async function saveSettings(input: unknown): Promise<Settings> {
-  const next = sanitize(input);
+  const prev = await getSettings();
+  const next = sanitize(input, prev);
   await fsp.mkdir(DATA_DIR, { recursive: true });
   await fsp.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2), "utf8");
   cached = next;
@@ -184,6 +283,7 @@ const SECTION_LABELS: Record<string, string> = {
   history: "History",
   activity: "Activity",
   terminal: "Terminal",
+  dashboard: "Dashboard",
 };
 
 const FIELD_LABELS: Record<string, Record<string, string>> = {
@@ -206,6 +306,11 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
   },
   terminal: {
     osUser: "Default OS user",
+  },
+  dashboard: {
+    themeId: "Theme",
+    appearance: "Appearance",
+    layouts: "Layouts",
   },
 };
 
@@ -242,13 +347,21 @@ export function diffSettings(prev: Settings, next: Settings): SettingsDiff {
 
     const changes: string[] = [];
     for (const key of Object.keys(after)) {
-      if (before[key] !== after[key]) {
+      const same =
+        key === "layouts"
+          ? JSON.stringify(before[key]) === JSON.stringify(after[key])
+          : before[key] === after[key];
+      if (!same) {
         const label = FIELD_LABELS[section]?.[key] ?? key;
-        changes.push(
-          `${label}: ${formatSettingValue(before[key])} → ${formatSettingValue(
-            after[key]
-          )}`
-        );
+        if (key === "layouts") {
+          changes.push("Layouts updated");
+        } else {
+          changes.push(
+            `${label}: ${formatSettingValue(before[key])} → ${formatSettingValue(
+              after[key]
+            )}`
+          );
+        }
         count++;
       }
     }

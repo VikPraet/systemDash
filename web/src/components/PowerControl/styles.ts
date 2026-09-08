@@ -2,9 +2,10 @@ import styled from "styled-components";
 import { mobile } from "../../theme/media";
 
 export const PowerRoot = styled.div`
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid ${({ theme }) => theme.color.border};
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 `;
 
 export const PowerHead = styled.div`

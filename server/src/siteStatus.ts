@@ -207,6 +207,9 @@ async function runtimeFor(project: ProjectSummary): Promise<RuntimeStatus> {
       }
     }
     case "compose": {
+      if (!project.localPath) {
+        return { kind: "compose", state: "unknown", detail: "no project folder" };
+      }
       if (!dockerComposeAvailable()) {
         return { kind: "compose", state: "unknown", detail: "docker compose is not available" };
       }
@@ -269,14 +272,14 @@ async function statusFor(project: ProjectSummary): Promise<ProjectSiteStatus> {
   let pub: SiteProbe | null = null;
   let origin: SiteProbe | null = null;
 
-  if (project.siteUrl) {
+  if (project.serviceKind !== "worker" && project.siteUrl) {
     probes.push(
       probeHttp(withHealthPath(project.siteUrl, project.healthPath)).then((v) => {
         pub = v;
       })
     );
   }
-  if (project.port != null && project.port > 0) {
+  if (project.serviceKind !== "worker" && project.port != null && project.port > 0) {
     probes.push(
       probeHttp(originUrl(project.port, project.siteUrl, project.healthPath)).then((v) => {
         origin = v;
@@ -288,7 +291,7 @@ async function statusFor(project: ProjectSummary): Promise<ProjectSiteStatus> {
 
   const host = hostnameFromSiteUrl(project.siteUrl);
   let traffic: SiteTraffic | null = null;
-  if (host) {
+  if (host && project.serviceKind !== "worker") {
     traffic = await trafficForHostname(host);
   }
 

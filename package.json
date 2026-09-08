@@ -1,8 +1,8 @@
 {
   "name": "systemdash",
-  "version": "0.3.0-beta",
+  "version": "0.4.0-beta",
   "private": true,
-  "description": "Self-hosted host console — CPU, GPU, memory, storage, files, terminal, containers.",
+  "description": "Beacon — self-hosted host console. Live stats, customizable dashboard, themes, files, terminal, containers, and deploys.",
   "workspaces": [
     "server",
     "web"
@@ -24,6 +24,7 @@
     "@lezer/highlight": "1.2.3"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "playwright": "1.55.1"
   }
 }

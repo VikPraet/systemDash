@@ -510,6 +510,14 @@ export const DriveSectionTitle = styled.h3`
   color: ${({ theme }) => theme.color.muted};
 `;
 
+export const DriveGridWrap = styled.div`
+  padding: 18px;
+
+  @media ${mobile} {
+    padding: 12px;
+  }
+`;
+
 export const Drives = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -526,6 +534,9 @@ export const Drives = styled.div`
 export const DriveCard = styled.button<{ $offline?: boolean }>`
   position: relative;
   text-align: left;
+  width: 100%;
+  height: 100%;
+  min-height: 108px;
   background: ${({ theme }) => theme.color.bg};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
@@ -565,6 +576,8 @@ export const DriveCardRemove = styled.button`
 
 export const AddDriveCard = styled.button`
   text-align: left;
+  width: 100%;
+  height: 100%;
   background: transparent;
   border: 1px dashed ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};

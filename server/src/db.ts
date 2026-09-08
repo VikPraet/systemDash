@@ -80,6 +80,18 @@ export function authDb(): DatabaseSync {
     );
   `);
   fresh.exec("CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log (ts DESC);");
+  // One-row lease: which admin is customizing the dashboard layout.
+  fresh.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_edit_lock (
+      id           INTEGER PRIMARY KEY CHECK (id = 1),
+      user_id      INTEGER NOT NULL,
+      username     TEXT NOT NULL,
+      session_hash TEXT,
+      acquired_at  INTEGER NOT NULL,
+      last_action  INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
   // Geo cache: maps an IP to its resolved location so we only hit the external
   // geolocation service once per address. Local/private IPs are stored too (with
   // status 'local') so they never trigger a lookup.

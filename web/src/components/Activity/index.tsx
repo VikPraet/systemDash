@@ -38,6 +38,7 @@ import {
   Archive,
   HelpCircle,
   KeyRound,
+  LayoutGrid,
   MapPin,
   Network,
 } from "lucide-react";
@@ -468,11 +469,17 @@ export function Activity() {
               const device = parseUserAgent(s.userAgent);
               const DeviceIcon = DEVICE_ICON[device.kind];
               return (
-                <S.SessionCard $current={s.current} key={s.id}>
+                <S.SessionCard $current={s.current} $editing={s.layoutEditing} key={s.id}>
                   <S.SessUser>
                     {s.username}
                     {s.current && <S.SelfBadge>you</S.SelfBadge>}
                     <RoleBadge $role={s.role}>{s.role}</RoleBadge>
+                    {s.layoutEditing && (
+                      <S.EditBadge>
+                        <LayoutGrid size={10} strokeWidth={2.2} />
+                        customizing layout
+                      </S.EditBadge>
+                    )}
                   </S.SessUser>
                   <S.SessDevice title={device.raw ?? "No device information"}>
                     <DeviceIcon size={14} strokeWidth={1.8} />
@@ -963,6 +970,14 @@ function RevokeModal({
             </dd>
           </div>
         </RevokeDetails>
+
+        {session.layoutEditing && (
+          <RevokeWarn>
+            <LayoutGrid size={15} strokeWidth={1.8} />
+            This session is customizing the dashboard layout. Revoking it will
+            end that edit session.
+          </RevokeWarn>
+        )}
 
         {session.current && (
           <RevokeWarn>

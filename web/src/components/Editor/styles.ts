@@ -165,7 +165,7 @@ export const EditorMessage = styled.div`
 
 /** Sits above the editor overlay when confirming unsaved changes. */
 export const EditorDiscardOverlay = styled(ModalOverlay)`
-  z-index: 120;
+  z-index: 6300;
 `;
 
 export const MarkdownToggle = styled.div`
