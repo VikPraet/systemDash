@@ -3,7 +3,7 @@
  * Usage: node scripts/capture-screenshots.mjs
  * Requires: npx playwright (chromium)
  *
- * Pages (classic dark): docs/screenshots/{page}.png
+ * Pages (classic dark): docs/screenshots/pages/{page}.png
  * Themes (overview):    docs/screenshots/themes/{id}-{dark|light}.png
  */
 import { chromium } from "playwright";
@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "../docs/screenshots");
+const PAGE_OUT = path.join(OUT, "pages");
 const THEME_OUT = path.join(OUT, "themes");
 const BASE = process.env.SCREENSHOT_BASE ?? "http://localhost:5273";
 const USER = process.env.SCREENSHOT_USER ?? "admin";
@@ -115,6 +116,7 @@ async function login(page) {
 }
 
 async function main() {
+  fs.mkdirSync(PAGE_OUT, { recursive: true });
   fs.mkdirSync(THEME_OUT, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
@@ -129,7 +131,7 @@ async function main() {
   await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded", timeout: 30000 });
   await page.waitForTimeout(2500);
   if (page.url().includes("/login")) {
-    await shot(page, path.join(OUT, "login.png"));
+    await shot(page, path.join(PAGE_OUT, "login.png"));
   } else {
     console.log("  (already signed in — skipping login shot)");
   }
@@ -142,7 +144,7 @@ async function main() {
   for (const { name, path: route, wait } of PAGES) {
     console.log(`Capturing ${name} (${route})…`);
     await gotoAndWait(page, route, wait);
-    await shot(page, path.join(OUT, `${name}.png`));
+    await shot(page, path.join(PAGE_OUT, `${name}.png`));
   }
 
   for (const themeId of THEMES) {

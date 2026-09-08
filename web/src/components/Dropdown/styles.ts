@@ -87,7 +87,8 @@ export const DropdownValue = styled.span<{ $placeholder?: boolean }>`
 // Portalled to <body>, so this must be a standalone styled component.
 export const DropdownMenu = styled.ul`
   position: fixed;
-  z-index: 5000;
+  /* Above ModalOverlay (6000) so menus in dialogs are visible. */
+  z-index: 7000;
   margin: 0;
   padding: 5px;
   list-style: none;

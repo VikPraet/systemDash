@@ -13,7 +13,7 @@ stay compatible.
 
 **Sign in**
 
-![Login](docs/screenshots/login.png)
+![Login](docs/screenshots/pages/login.png)
 
 **Themes** — Classic, Lime, Phosphor, Ember, and Midnight, each with dark and
 light. Admins can duplicate, edit, import, and export custom themes.
@@ -26,44 +26,44 @@ light. Admins can duplicate, edit, import, and export custom themes.
 **Overview** — live gauges and a layout you can rearrange (drag, resize, add,
 hide, group). Panels can be limited to viewer, user, or admin.
 
-![Overview](docs/screenshots/overview.png)
+![Overview](docs/screenshots/pages/overview.png)
 
 **History** — CPU, memory, and GPU charts over a range, same grid as Overview.
 
-![History](docs/screenshots/history.png)
+![History](docs/screenshots/pages/history.png)
 
 **Processes** — sortable list grouped into apps and background tasks; end or
 force-kill from the UI.
 
-![Processes](docs/screenshots/processes.png)
+![Processes](docs/screenshots/pages/processes.png)
 
 **Containers** — Docker status, logs, and start/stop/restart.
 
-![Containers](docs/screenshots/containers.png)
+![Containers](docs/screenshots/pages/containers.png)
 
 **Projects** — git repos, site deploys, health, and optional live preview.
 
-![Projects](docs/screenshots/projects.png)
+![Projects](docs/screenshots/pages/projects.png)
 
 **Files** — browse drives, network shares, trash, and a disk-usage map.
 
-![Files](docs/screenshots/files.png)
+![Files](docs/screenshots/pages/files.png)
 
 **Terminal** — multi-tab local shell with per-tab scrollback.
 
-![Terminal](docs/screenshots/terminal.png)
+![Terminal](docs/screenshots/pages/terminal.png)
 
 **Users** — accounts, roles, and recovery (admin).
 
-![Users](docs/screenshots/users.png)
+![Users](docs/screenshots/pages/users.png)
 
 **Updates** — host packages, Beacon releases, and backups.
 
-![Updates](docs/screenshots/updates.png)
+![Updates](docs/screenshots/pages/updates.png)
 
 **Activity** — sessions and the audit log (admin).
 
-![Activity](docs/screenshots/activity.png)
+![Activity](docs/screenshots/pages/activity.png)
 
 ## Stack
 
