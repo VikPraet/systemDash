@@ -28,6 +28,10 @@ export function applyAppearance(appearance: Appearance): void {
   const root = document.documentElement;
   root.dataset.theme = appearance;
   root.style.colorScheme = appearance;
+  const themeColor = document.querySelector('meta[name="theme-color"]');
+  if (themeColor) {
+    themeColor.setAttribute("content", appearance === "light" ? "#e7eef7" : "#060a12");
+  }
   requestAnimationFrame(() => {
     window.dispatchEvent(new Event("systemdash-appearance"));
   });

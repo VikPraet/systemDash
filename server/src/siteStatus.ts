@@ -3,6 +3,7 @@ import { composeServices, dockerComposeAvailable, findContainer } from "./docker
 import { type ProjectSummary, type RunKind } from "./projects.js";
 import { resolveUnderProject } from "./siteDeploy.js";
 import { trafficForHostname, type SiteTraffic } from "./cloudflareAnalytics.js";
+import { APP_USER_AGENT_HEALTH } from "./brand.js";
 
 const CACHE_MS = 20_000;
 const PROBE_MS = 4_000;
@@ -79,7 +80,7 @@ async function probeHttp(url: string): Promise<SiteProbe> {
       redirect: "follow",
       signal: AbortSignal.timeout(PROBE_MS),
       headers: {
-        "User-Agent": "SystemDash-health",
+        "User-Agent": APP_USER_AGENT_HEALTH,
         Accept: "*/*",
       },
     });

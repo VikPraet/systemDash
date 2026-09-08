@@ -125,12 +125,40 @@ export interface DirListing {
 export interface FsRoot {
   name: string;
   path: string;
-  kind: "home" | "drive" | "root";
+  kind: "home" | "drive" | "root" | "network";
   label: string | null;
   sizeBytes: number | null;
   usedBytes: number | null;
   freeBytes: number | null;
   usedPercent: number | null;
+  shareId?: string;
+  protocol?: "smb" | "nfs";
+  connected?: boolean;
+  error?: string | null;
+}
+
+export type ShareProtocol = "smb" | "nfs";
+
+export interface NetworkShare {
+  id: string;
+  name: string;
+  protocol: ShareProtocol;
+  host: string;
+  share: string;
+  username: string;
+  domain: string;
+  hasPassword: boolean;
+  path: string;
+  remote: string;
+  connected: boolean;
+  error: string | null;
+}
+
+export interface SharesStatus {
+  shares: NetworkShare[];
+  platform: string;
+  protocols: ShareProtocol[];
+  hint: string | null;
 }
 
 export interface FileManagerSettings {

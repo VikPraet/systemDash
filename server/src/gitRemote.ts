@@ -12,6 +12,7 @@ import {
   type GitAccountRecord,
   type GitProvider,
 } from "./projects.js";
+import { APP_USER_AGENT } from "./brand.js";
 
 export interface GitRepoInfo {
   name: string;
@@ -294,7 +295,7 @@ export async function verifyGitToken(
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${trimmed}`,
-        "User-Agent": "SystemDash",
+        "User-Agent": APP_USER_AGENT,
       },
     });
     if (res.status === 401 || res.status === 403) {
@@ -311,7 +312,7 @@ export async function verifyGitToken(
   const res = await fetch(`https://${h}/api/v4/user`, {
     headers: {
       "PRIVATE-TOKEN": trimmed,
-      "User-Agent": "SystemDash",
+      "User-Agent": APP_USER_AGENT,
     },
   });
   if (res.status === 401 || res.status === 403) {
@@ -434,7 +435,7 @@ async function loadAccountDetails(accountId: number): Promise<GitAccountDetails>
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Bearer ${acc.token}`,
-          "User-Agent": "SystemDash",
+          "User-Agent": APP_USER_AGENT,
         },
       });
       const scopes = (header(res, "x-oauth-scopes") ?? "")
@@ -494,7 +495,7 @@ async function loadAccountDetails(accountId: number): Promise<GitAccountDetails>
     const res = await fetch(`https://${acc.host}/api/v4/user`, {
       headers: {
         "PRIVATE-TOKEN": acc.token,
-        "User-Agent": "SystemDash",
+        "User-Agent": APP_USER_AGENT,
       },
     });
     if (res.status === 401 || res.status === 403) {
@@ -533,7 +534,7 @@ async function loadAccountDetails(accountId: number): Promise<GitAccountDetails>
       const tok = await fetch(`https://${acc.host}/api/v4/personal_access_tokens/self`, {
         headers: {
           "PRIVATE-TOKEN": acc.token,
-          "User-Agent": "SystemDash",
+          "User-Agent": APP_USER_AGENT,
         },
       });
       if (tok.ok) {
@@ -592,7 +593,7 @@ async function loadRemoteRepos(provider: GitProvider): Promise<GitRepoInfo[]> {
           headers: {
             Accept: "application/vnd.github+json",
             Authorization: `Bearer ${acc.token}`,
-            "User-Agent": "SystemDash",
+            "User-Agent": APP_USER_AGENT,
           },
         }
       );
@@ -632,7 +633,7 @@ async function loadRemoteRepos(provider: GitProvider): Promise<GitRepoInfo[]> {
       {
         headers: {
           "PRIVATE-TOKEN": acc.token,
-          "User-Agent": "SystemDash",
+          "User-Agent": APP_USER_AGENT,
         },
       }
     );

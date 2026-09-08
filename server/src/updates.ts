@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
+import { APP_NAME } from "./brand.js";
 
 export type UpdateScope = "packages" | "all";
 export type UpdatePhase = "refresh" | "apply";
@@ -136,7 +137,7 @@ function rejectCommandError(
   if (elevate && /sudo: a password is required|sudo: no tty present/i.test(out)) {
     throw new UpdatesError(
       403,
-      "root privileges required — configure passwordless sudo for apt, or run SystemDash as root"
+      `root privileges required — configure passwordless sudo for apt, or run ${APP_NAME} as root`
     );
   }
   const lower = out.toLowerCase();
@@ -370,7 +371,7 @@ async function getUpdatesStatusInner(opts?: {
     } catch {
       base.canInstall = false;
       base.hint =
-        "Configure passwordless sudo for apt (e.g. visudo), or run SystemDash as root.";
+        `Configure passwordless sudo for apt (e.g. visudo), or run ${APP_NAME} as root.`;
     }
   }
 

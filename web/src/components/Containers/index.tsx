@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { APP_NAME } from "../../brand";
 import {
   dockerContainerAction,
   fetchDockerContainers,
@@ -240,7 +241,7 @@ export function Containers() {
       {status.available && containers.length === 0 && !error && (
         <S.DockerBanner>
           No containers found. Game panels such as Pterodactyl run servers as Docker containers —
-          they show up here once SystemDash can run <code>docker ps</code> on the host.
+          they show up here once {APP_NAME} can run <code>docker ps</code> on the host.
         </S.DockerBanner>
       )}
 

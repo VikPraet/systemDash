@@ -9,6 +9,9 @@ import { GlobalStyle } from "./theme/GlobalStyle";
 import { theme } from "./theme/theme";
 import { cache } from "./cache";
 import { getDefaultTerminalLayout, initTerminalCache } from "./components/Terminal/terminalPersist";
+import { APP_NAME } from "./brand";
+
+document.title = APP_NAME;
 
 initTerminalCache();
 if (!cache.terminal.tabs.length) {

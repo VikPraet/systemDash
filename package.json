@@ -2,7 +2,7 @@
   "name": "systemdash",
   "version": "0.2.2-beta",
   "private": true,
-  "description": "Self-hosted, cross-platform system dashboard (CPU, GPU, memory, storage, OS info).",
+  "description": "Self-hosted host console — CPU, GPU, memory, storage, files, terminal, containers.",
   "workspaces": [
     "server",
     "web"

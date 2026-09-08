@@ -1,8 +1,12 @@
-# SystemDash
+# Beacon
 
-A self-hosted, cross-platform (Windows / Linux / macOS) system dashboard. It exposes
+A self-hosted, cross-platform (Windows / Linux / macOS) host console. It exposes
 live OS stats through a web UI: CPU model & load & clock speed, memory, storage, GPU,
-and OS/host info.
+and OS/host info. Files, terminal, containers, projects, and power control live in
+the same console.
+
+Install paths, the `systemdash` systemd unit, and `SYSTEMDASH_*` environment variables
+keep their existing names so upgrades stay compatible.
 
 ## Screenshots
 
@@ -117,7 +121,7 @@ Terminal:
 - `WS /api/terminal` → interactive shell session (PowerShell on Windows, `$SHELL`
   elsewhere). Keystrokes stream to the shell; output streams back.
 
-Docker (requires Docker Engine / Docker Desktop on the host; SystemDash itself stays
+Docker (requires Docker Engine / Docker Desktop on the host; Beacon itself stays
 native, not containerised):
 
 - `GET /api/docker/status` → `{ available, version, error }`
@@ -129,7 +133,7 @@ native, not containerised):
 
 1. Install and start [Docker Desktop](https://www.docker.com/products/docker-desktop/)
    (Windows/macOS) or Docker Engine (Linux).
-2. In a terminal (or the SystemDash **Terminal** tab), run a throwaway container:
+2. In a terminal (or the Beacon **Terminal** tab), run a throwaway container:
 
    ```bash
    docker run -d --name systemdash-test -p 8080:80 nginx:alpine
@@ -141,7 +145,7 @@ native, not containerised):
 5. Clean up when done: `docker rm -f systemdash-test`
 
 If Docker is installed but the tab says “not available”, ensure Docker Desktop is
-running and that the account starting SystemDash can access the Docker socket (on Linux,
+running and that the account starting Beacon can access the Docker socket (on Linux,
 add your user to the `docker` group or run elevated). Override the CLI path with
 `DOCKER_BIN` if needed.
 
@@ -166,7 +170,7 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   sessions are opaque tokens kept in an HttpOnly, SameSite=Lax cookie (marked `Secure`
   automatically over HTTPS). Run behind HTTPS (e.g. a reverse proxy) when exposing it
   beyond localhost.
-- **Privilege model — the dashboard runs with full host clearance:** SystemDash is the
+- **Privilege model — the dashboard runs with full host clearance:** Beacon is the
   server's control interface and never drops privileges. It reads/writes the disk, runs
   the terminal, and ends/kills processes **as the OS account that started it**. Launch it
   as a normal user and it's confined to that user; launch it elevated (Administrator on
@@ -193,7 +197,7 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   behind `user`/`admin`. Compose stacks and image creation remain future work.
 - **Scheduled jobs** — in-app cron-style tasks (e.g. restart a container nightly, run a
   backup script). Not a replacement for OS autostart (`systemd` / Task Scheduler); those
-  remain the way to boot SystemDash itself.
+  remain the way to boot Beacon itself.
 - **Email & alerts** — optional verified email per user; per-user notification
   preferences (e.g. login/logout, failed login, new session/IP, terminal connect,
   file delete, process kill). Dispatch from the existing audit log via admin-configured

@@ -55,7 +55,9 @@ import { RecoveryModal } from "./components/RecoveryModal";
 import { Setup } from "./components/Setup";
 import { useAuth, hasRole } from "./auth/AuthContext";
 import { cache } from "./cache";
-import { BrandDot, Loading, RoleBadge } from "./components/ui/styles";
+import { APP_NAME } from "./brand";
+import { Loading, RoleBadge } from "./components/ui/styles";
+import { Logo } from "./components/ui/Logo";
 import { Tooltip } from "./components/ui/Tooltip";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
 import { AuthScreen } from "./components/AuthLayout/styles";
@@ -308,9 +310,13 @@ function DashboardLayout() {
           >
             {navOpen ? <X size={18} /> : <Menu size={18} />}
           </S.MenuBtn>
-          <S.Brand>
-            <BrandDot />
-            <h1>SystemDash</h1>
+          <S.Brand
+            to="/overview"
+            aria-label={`${APP_NAME} — Overview`}
+            onClick={() => setNavOpen(false)}
+          >
+            <Logo />
+            <h1>{APP_NAME}</h1>
           </S.Brand>
           <S.MobileTopActions>
             <StatusIndicator snap={snap} error={error} now={now} compact />

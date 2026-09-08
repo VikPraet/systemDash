@@ -32,9 +32,11 @@ export const ModalOverlay = styled.div`
 `;
 
 /* ---- Modal family A: plain panel card (Files / Processes / Editor) -------- */
-export const Modal = styled.div`
+export const Modal = styled.div<{ $wide?: boolean }>`
   width: 100%;
-  max-width: 420px;
+  max-width: ${({ $wide }) => ($wide ? "480px" : "420px")};
+  max-height: min(90vh, 740px);
+  overflow: auto;
   background: ${({ theme }) => theme.color.panel};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: 14px;
@@ -452,21 +454,6 @@ export const RevokeWarn = styled.div`
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.warn};
   font-size: 12.5px;
-`;
-
-/* ---- Brand dot (sidebar + auth screens) --------------------------------- */
-export const BrandDot = styled.span`
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: linear-gradient(
-    135deg,
-    ${({ theme }) => theme.color.accent},
-    ${({ theme }) => theme.color.good}
-  );
-  box-shadow: 0 0 14px ${({ theme }) => theme.color.accent};
-  animation: pulse 2.4s ease-in-out infinite;
 `;
 
 /* ---- Role badge (sidebar chip + sessions/audit) ------------------------- */

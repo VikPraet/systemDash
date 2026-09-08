@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Power, RefreshCw, Skull, X } from "lucide-react";
+import { APP_NAME } from "../../brand";
 import { fetchPowerCapabilities, runPowerAction } from "../../api";
 import type { PowerAction, PowerCapabilities } from "../../types";
 import {
@@ -182,7 +183,7 @@ function PowerConfirmModal({
         <ModalSub>{meta.detail}</ModalSub>
         <RevokeWarn>
           <AlertTriangle size={15} strokeWidth={1.8} />
-          This affects the entire machine, not just SystemDash. You will lose access
+          This affects the entire machine, not just {APP_NAME}. You will lose access
           until the host is back online.
         </RevokeWarn>
         <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or upgrade SystemDash from a pre-built GitHub Release tarball.
+# Install or upgrade Beacon from a pre-built GitHub Release tarball.
 # Usage: install-release.sh <github-owner/repo> [tag|latest]
 #
 # Example:
@@ -87,7 +87,7 @@ tar -xzf "$TMP/$ASSET" -C "$TARGET"
 
 ln -sfn "$TARGET" "$CURRENT"
 
-echo "==> Installed SystemDash $VERSION → $CURRENT"
+echo "==> Installed Beacon $VERSION → $CURRENT"
 echo "    Start: cd $CURRENT && node server/dist/index.js"
 echo "    Or configure systemd (see docs/deploy-linux.md)"
 if [[ -x "$CURRENT/scripts/configure-service-user.sh" ]]; then

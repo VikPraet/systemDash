@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { inspectContainer, listContainers } from "./docker.js";
 import { ProjectsError } from "./projects.js";
+import { APP_NAME } from "./brand.js";
 
 const CACHE_MS = 20_000;
 
@@ -600,7 +601,7 @@ function writeConfigFile(file: string, text: string): void {
   } catch {
     throw new ProjectsError(
       400,
-      `cannot write ${file} — allow passwordless sudo tee for this file, or chown it to the SystemDash user`
+      `cannot write ${file} — allow passwordless sudo tee for this file, or chown it to the ${APP_NAME} user`
     );
   }
 }

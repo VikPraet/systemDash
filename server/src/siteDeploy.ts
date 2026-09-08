@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { ProjectsError, projectsDataDir, type ProjectSummary } from "./projects.js";
 import { dockerBinPath } from "./docker.js";
+import { APP_NAME } from "./brand.js";
 
 const SYSTEMD_TIMEOUT_MS = 60_000;
 const COMPOSE_TIMEOUT_MS = 20 * 60_000;
@@ -146,7 +147,7 @@ export function renderSystemdUnit(project: ProjectSummary, startCommand: string)
   const restart = project.boot ? "always" : "no";
   const desc = project.name.replace(/[\n\r]/g, " ").slice(0, 80);
   return `[Unit]
-Description=SystemDash: ${desc}
+Description=${APP_NAME}: ${desc}
 After=network.target
 
 [Service]
@@ -228,7 +229,7 @@ export async function runSystemctl(
     if (elevate && /sudo: a password is required|sudo: no tty present/i.test(msg)) {
       throw new ProjectsError(
         403,
-        "root privileges required — configure passwordless sudo for systemctl, or run SystemDash as root"
+        `root privileges required — configure passwordless sudo for systemctl, or run ${APP_NAME} as root`
       );
     }
     throw err;

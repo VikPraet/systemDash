@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare a normal user (default: vadmin) to run SystemDash via systemd.
+# Prepare a normal user (default: vadmin) to run Beacon via systemd.
 # - docker group (container tab)
 # - passwordless sudo for apt + systemctl restart systemdash (updates UI)
 #
@@ -23,7 +23,7 @@ if ! id "$USER_NAME" &>/dev/null; then
   exit 1
 fi
 
-echo "==> Configuring $USER_NAME for SystemDash"
+echo "==> Configuring $USER_NAME for Beacon"
 
 SD_HOME="${SYSTEMDASH_HOME:-/home/${USER_NAME}/systemdash}"
 if [[ -d "$SD_HOME" ]]; then
@@ -40,9 +40,10 @@ fi
 
 SUDOERS="/etc/sudoers.d/systemdash-${USER_NAME}"
 run tee "$SUDOERS" >/dev/null <<EOF
-# SystemDash — passwordless apt updates and service restart for ${USER_NAME}
+# Beacon — passwordless apt updates, service restart, and NAS mounts for ${USER_NAME}
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart systemdash
+${USER_NAME} ALL=(ALL) NOPASSWD: /bin/mount, /usr/bin/mount, /bin/umount, /usr/bin/umount
 EOF
 run chmod 440 "$SUDOERS"
 run visudo -cf "$SUDOERS"

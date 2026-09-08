@@ -3,6 +3,7 @@ import { ChevronRight, Loader2, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { fetchAppUpdateStatus } from "../../api";
 import type { AppUpdateStatus } from "../../types";
+import { APP_NAME } from "../../brand";
 import * as S from "./styles";
 
 const POLL_MS = 5 * 60_000;
@@ -40,7 +41,7 @@ export function AppUpdatesOverview() {
           <Loader2 size={16} className="spin" />
         </S.OverviewIcon>
         <S.OverviewBody>
-          <S.OverviewTitle>SystemDash update</S.OverviewTitle>
+          <S.OverviewTitle>{APP_NAME} update</S.OverviewTitle>
           <S.OverviewMeta>Checking GitHub releases…</S.OverviewMeta>
         </S.OverviewBody>
       </S.OverviewTeaser>
@@ -48,7 +49,7 @@ export function AppUpdatesOverview() {
   }
 
   const accent = status?.updateAvailable ?? false;
-  let meta = "SystemDash is up to date";
+  let meta = `${APP_NAME} is up to date`;
 
   if (status?.hint && !status.updateAvailable) {
     meta = status.hint;
@@ -64,7 +65,7 @@ export function AppUpdatesOverview() {
         <Sparkles size={16} />
       </S.OverviewIcon>
       <S.OverviewBody>
-        <S.OverviewTitle>SystemDash update</S.OverviewTitle>
+        <S.OverviewTitle>{APP_NAME} update</S.OverviewTitle>
         <S.OverviewMeta $good={accent}>{meta}</S.OverviewMeta>
       </S.OverviewBody>
       <ChevronRight size={16} className="chevron" />

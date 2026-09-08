@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_NAME, APP_USER_AGENT } from "./brand.js";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -213,7 +214,7 @@ function resolveRepo(): string | null {
 function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
-    "User-Agent": "SystemDash",
+    "User-Agent": APP_USER_AGENT,
   };
   const token = process.env.GITHUB_TOKEN?.trim();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -378,7 +379,7 @@ export async function getAppUpdateStatus(opts?: {
   if (process.platform !== "linux") {
     return {
       ...base,
-      hint: "In-app SystemDash updates are only supported on Linux release installs.",
+      hint: `In-app ${APP_NAME} updates are only supported on Linux release installs.`,
     };
   }
 
@@ -447,7 +448,7 @@ export async function getAppUpdateStatus(opts?: {
 
 export function startAppUpdate(targetVersion?: string | null): void {
   if (appUpdateJob.running) {
-    throw new AppUpdateError(409, "A SystemDash update is already running");
+    throw new AppUpdateError(409, `A ${APP_NAME} update is already running`);
   }
 
   const requested = targetVersion?.replace(/^v/i, "").trim() || null;
@@ -487,7 +488,7 @@ export function startAppUpdate(targetVersion?: string | null): void {
 
       const version = releaseVersion(release.tag_name);
       if (version === status.currentVersion) {
-        throw new AppUpdateError(400, `SystemDash v${version} is already installed`);
+        throw new AppUpdateError(400, `${APP_NAME} v${version} is already installed`);
       }
 
       const asset = findAsset(release, status.platform);
@@ -522,10 +523,10 @@ export function startAppUpdate(targetVersion?: string | null): void {
 
       appUpdateJob.phase = "restart";
       appUpdateJob.progress = 99;
-      appendLog(`Installed SystemDash ${version}`);
+      appendLog(`Installed ${APP_NAME} ${version}`);
       appUpdateJob.phase = "done";
       appUpdateJob.progress = 100;
-      appendLog("Restarting SystemDash…");
+      appendLog(`Restarting ${APP_NAME}…`);
 
       setTimeout(() => {
         void restartService().finally(() => {

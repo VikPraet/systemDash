@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { APP_NAME } from "./brand.js";
 
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,255}$/;
 
@@ -101,7 +102,7 @@ function execDocker(
             reject(
               new DockerError(
                 503,
-                "Docker is not installed or not on PATH — restart SystemDash after installing Docker, or set DOCKER_BIN"
+                `Docker is not installed or not on PATH — restart ${APP_NAME} after installing Docker, or set DOCKER_BIN`
               )
             );
             return;
@@ -121,7 +122,7 @@ function execDocker(
               new DockerError(
                 403,
                 process.platform === "linux"
-                  ? "permission denied accessing Docker (is the SystemDash user in the docker group?)"
+                  ? `permission denied accessing Docker (is the ${APP_NAME} user in the docker group?)`
                   : "permission denied accessing Docker — run elevated or use Docker Desktop"
               )
             );
@@ -149,8 +150,8 @@ function dockerHint(message: string): string | null {
   if (process.platform === "linux") {
     if (lower.includes("permission denied")) {
       return (
-        "Fix: sudo usermod -aG docker $(whoami) — then log out/in or restart the SystemDash " +
-        "service (sudo systemctl restart systemdash). Pterodactyl/Wings containers use the same daemon."
+        "Fix: sudo usermod -aG docker $(whoami) — then log out/in or restart the " +
+        `${APP_NAME} service (sudo systemctl restart systemdash). Pterodactyl/Wings containers use the same daemon.`
       );
     }
     if (lower.includes("not installed") || lower.includes("not on path")) {
@@ -159,13 +160,13 @@ function dockerHint(message: string): string | null {
     if (lower.includes("daemon") || lower.includes("cannot connect")) {
       return "Start Docker: sudo systemctl start docker";
     }
-    return "On the server, run docker ps as the same user that runs SystemDash to verify access.";
+    return `On the server, run docker ps as the same user that runs ${APP_NAME} to verify access.`;
   }
   if (lower.includes("permission denied")) {
-    return "Run SystemDash as Administrator, or ensure Docker Desktop is running for your user.";
+    return `Run ${APP_NAME} as Administrator, or ensure Docker Desktop is running for your user.`;
   }
   if (lower.includes("not installed") || lower.includes("not on path")) {
-    return "Install Docker Desktop and restart SystemDash after installation.";
+    return `Install Docker Desktop and restart ${APP_NAME} after installation.`;
   }
   if (lower.includes("daemon") || lower.includes("cannot connect")) {
     return "Start Docker Desktop and wait until the engine is ready.";

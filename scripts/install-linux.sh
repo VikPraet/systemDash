@@ -43,6 +43,6 @@ cat >"$INSTALL_FILE" <<EOF
 }
 EOF
 
-echo "==> Installed SystemDash $VERSION ($COMMIT on $BRANCH)"
+echo "==> Installed Beacon $VERSION ($COMMIT on $BRANCH)"
 echo "    Metadata: $INSTALL_FILE"
 echo "    Start with: yarn start   (or systemd — see docs/deploy-linux.md)"

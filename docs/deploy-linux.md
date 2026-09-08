@@ -1,6 +1,6 @@
 # Linux deployment (release-based)
 
-SystemDash is distributed as a **pre-built product**: you push a git tag, CI compiles
+Beacon is distributed as a **pre-built product**: you push a git tag, CI compiles
 everything and attaches a tarball to a GitHub Release. The server only needs **Node.js**
 — no yarn, git, or build tools on the machine.
 
@@ -61,7 +61,7 @@ when running the install script.
 
 ```ini
 [Unit]
-Description=SystemDash
+Description=Beacon
 After=network.target
 
 [Service]
@@ -90,7 +90,7 @@ Data (users, settings, history) lives in `~/.systemdash/` by default, or
 ### Run as a normal user (recommended)
 
 Do **not** run the service as root. Use your login user (e.g. `vadmin`) so the in-app
-terminal opens as that user, and grant only the privileges SystemDash needs:
+terminal opens as that user, and grant only the privileges Beacon needs:
 
 ```bash
 # On the server (once)
@@ -106,7 +106,7 @@ sudo systemctl enable --now systemdash
 
 1. Adds the user to the **`docker`** group (Containers tab)
 2. **`/etc/sudoers.d/systemdash-<user>`** — passwordless `apt-get` / `apt` (OS updates UI)
-3. Same file — passwordless **`systemctl restart systemdash`** (in-app SystemDash upgrade)
+3. Same file — passwordless **`systemctl restart systemdash`** (in-app Beacon upgrade)
 
 Verify:
 
@@ -161,7 +161,7 @@ bash scripts/package-release.sh linux-x64
 # cd /tmp/sd-test && node server/dist/index.js
 ```
 
-## In-app SystemDash updates
+## In-app Beacon updates
 
 Admins can check GitHub Releases from **Updates** in the UI (Overview teasers and the
 sidebar version badge). The server compares installed `VERSION.json` to the latest
@@ -198,7 +198,8 @@ Production servers should use **releases**, not this path.
   (`bash scripts/configure-service-user.sh vadmin`, then restart the service). Works with
   Pterodactyl/Wings — same containers as `docker ps` on the host.
 - **OS / app updates:** service user needs the sudoers rules from `configure-service-user.sh`
-  (apt + `systemctl restart systemdash`). Running as root is not required.
+  (apt + `systemctl restart systemdash` + `mount`/`umount` for Files → network drives). Running as root is not required.
+- **Network drives:** Files → This PC → Add network drive (SMB username/password, or NFS). On Linux the dashboard installs `cifs-utils` / `nfs-common` and attempts mount sudo when you connect — same apt sudo as OS updates.
 - **Terminal:** opens as the systemd `User=`, not the web login name. Optional: set a Linux username in **Terminal → settings** (or `SYSTEMDASH_OS_USER`) so that when the service is still root, new shells `su -` into that account.
 - **HTTPS:** put Caddy/nginx in front when not on a trusted LAN.
 

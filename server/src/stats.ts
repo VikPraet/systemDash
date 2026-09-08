@@ -1,4 +1,5 @@
 import si from "systeminformation";
+import { APP_NAME } from "./brand.js";
 import { readAppVersion } from "./version.js";
 import { spawn } from "node:child_process";
 
@@ -78,7 +79,6 @@ function readCpuTemperatureC(
   return round(Math.max(...candidates));
 }
 
-const APP_NAME = "SystemDash";
 const APP_VERSION = readAppVersion();
 
 // On Windows, systeminformation reports the rated/base clock and never the live

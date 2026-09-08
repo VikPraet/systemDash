@@ -12,6 +12,7 @@ import {
   Unplug,
   X,
 } from "lucide-react";
+import { APP_NAME } from "../../brand";
 import {
   checkProjectRemoteApi,
   connectGitAccountApi,
@@ -356,7 +357,7 @@ export function Projects() {
 
   async function onDeleteProject(): Promise<void> {
     if (selectedId == null) return;
-    if (!window.confirm("Remove this project from SystemDash? Files on disk are not deleted.")) {
+    if (!window.confirm(`Remove this project from ${APP_NAME}? Files on disk are not deleted.`)) {
       return;
     }
     setBusy(true);
@@ -1668,7 +1669,7 @@ function ConnectGitModal({
           </ModalClose>
         </ModalHead>
         <ModalSub>
-          Paste a personal access token with repo read access. SystemDash stores it on
+          Paste a personal access token with repo read access. {APP_NAME} stores it on
           this machine and uses it for clone/pull so git never prompts in the terminal.
         </ModalSub>
         <form onSubmit={(e) => void submit(e)}>
@@ -1761,7 +1762,7 @@ function ConnectCloudflareModal({
         </ModalHead>
         <ModalSub>
           Paste an API token with Zone · Zone · Read and Zone · Analytics · Read.
-          SystemDash uses it to show visits and requests for the last 24 hours on each
+          {APP_NAME} uses it to show visits and requests for the last 24 hours on each
           public hostname. Create one at dash.cloudflare.com/profile/api-tokens.
           {connected?.source === "env" &&
             " This host already has CLOUDFLARE_API_TOKEN set — connecting here stores a token instead."}

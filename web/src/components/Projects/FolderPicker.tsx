@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronUp, Folder, HardDrive, Monitor, X } from "lucide-react";
+import { ChevronUp, Folder, HardDrive, Monitor, Network, X } from "lucide-react";
 import { fetchListing, fetchRoots } from "../../api";
 import type { DirListing, FsRoot } from "../../types";
 import { AuthError, ModalActions, ModalBtn, ModalClose, ModalHead, ModalSub } from "../ui/styles";
@@ -105,7 +105,11 @@ export function FolderPicker({
   const atRoots = path === null;
   const atDriveRoot =
     !!path &&
-    roots.some((r) => r.path === path && (r.kind === "drive" || r.kind === "root"));
+    roots.some(
+      (r) =>
+        r.path === path &&
+        (r.kind === "drive" || r.kind === "root" || r.kind === "network")
+    );
 
   return createPortal(
     <S.PickerOverlay onClick={onClose}>
@@ -148,10 +152,14 @@ export function FolderPicker({
             <S.PickerEmpty>Loading drives…</S.PickerEmpty>
           ) : atRoots ? (
             roots.map((r) => (
-              <S.PickerRow key={r.path} type="button" onClick={() => setPath(r.path)}>
-                <HardDrive size={16} />
+              <S.PickerRow key={r.shareId ?? r.path} type="button" onClick={() => setPath(r.path)}>
+                {r.kind === "network" ? <Network size={16} /> : <HardDrive size={16} />}
                 <span>{r.label ? `${r.name} (${r.label})` : r.name}</span>
-                <span className="muted">{r.path}</span>
+                <span className="muted">
+                  {r.kind === "network" && r.connected === false
+                    ? r.error ?? "Offline"
+                    : r.path}
+                </span>
               </S.PickerRow>
             ))
           ) : loading && !listing ? (

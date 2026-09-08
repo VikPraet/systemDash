@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import styled from "styled-components";
 import { mobile } from "./theme/media";
 
@@ -216,17 +217,37 @@ export const RecoveryNudge = styled.div`
   }
 `;
 
-export const Brand = styled.div`
+export const Brand = styled(Link)`
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 4px 8px 0;
   min-width: 0;
+  text-decoration: none;
+  color: inherit;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  cursor: pointer;
 
   @media ${mobile} {
     padding: 0;
     flex: 1;
     min-width: 0;
+  }
+
+  &:hover h1 {
+    background: linear-gradient(
+      120deg,
+      ${({ theme }) => theme.color.accent},
+      ${({ theme }) => theme.color.good}
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${({ theme }) => theme.color.accent};
+    outline-offset: 3px;
   }
 
   h1 {
@@ -235,6 +256,9 @@ export const Brand = styled.div`
     font-weight: 700;
     letter-spacing: 1px;
     text-transform: uppercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     background: linear-gradient(
       120deg,
       ${({ theme }) => theme.color.text},

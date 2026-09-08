@@ -3,6 +3,12 @@ import path from "node:path";
 import os from "node:os";
 import si from "systeminformation";
 import { resolveOsUser } from "./osUser.js";
+import {
+  isNetworkShareRoot,
+  isShareMountsPath,
+  listShares,
+  pathsEqual,
+} from "./shares.js";
 
 export interface FsEntry {
   name: string;
@@ -22,12 +28,16 @@ export interface DirListing {
 export interface FsRoot {
   name: string;
   path: string;
-  kind: "home" | "drive" | "root";
+  kind: "home" | "drive" | "root" | "network";
   label: string | null;
   sizeBytes: number | null;
   usedBytes: number | null;
   freeBytes: number | null;
   usedPercent: number | null;
+  shareId?: string;
+  protocol?: "smb" | "nfs";
+  connected?: boolean;
+  error?: string | null;
 }
 
 /** Normalize user-supplied paths, fixing bare Windows drives like "C:" -> "C:\". */
@@ -42,6 +52,11 @@ function normalizeInput(input: string): string {
 
 function isFilesystemRoot(p: string): boolean {
   return path.parse(p).root === p;
+}
+
+async function isProtectedRoot(p: string): Promise<boolean> {
+  if (isFilesystemRoot(p)) return true;
+  return isNetworkShareRoot(p);
 }
 
 export class HttpError extends Error {
@@ -88,8 +103,14 @@ export async function getRoots(): Promise<FsRoot[]> {
     }
   } else {
     // List real mounted filesystems as "drives"; ensure "/" is present.
+    // Skip SystemDash NAS mountpoints — those show up as network roots below.
     const mounts = sizes
-      .filter((s) => s.mount && (s.mount === "/" || s.mount.startsWith("/")))
+      .filter(
+        (s) =>
+          s.mount &&
+          (s.mount === "/" || s.mount.startsWith("/")) &&
+          !isShareMountsPath(s.mount)
+      )
       .sort((a, b) => (a.mount === "/" ? -1 : a.mount.localeCompare(b.mount)));
     for (const m of mounts) {
       roots.push({
@@ -115,6 +136,25 @@ export async function getRoots(): Promise<FsRoot[]> {
         usedPercent: null,
       });
     }
+  }
+
+  const { shares } = await listShares().catch(() => ({ shares: [] }));
+  for (const share of shares) {
+    const info = findSize((m) => pathsEqual(m, share.path));
+    roots.push({
+      name: share.name,
+      path: share.path,
+      kind: "network",
+      label: share.remote,
+      sizeBytes: info?.size ?? null,
+      usedBytes: info?.used ?? null,
+      freeBytes: info?.available ?? null,
+      usedPercent: info ? round(info.use) : null,
+      shareId: share.id,
+      protocol: share.protocol,
+      connected: share.connected,
+      error: share.error,
+    });
   }
 
   return roots;
@@ -172,7 +212,7 @@ export async function listDirectory(input: string): Promise<DirListing> {
 
   return {
     path: dir,
-    parent: isFilesystemRoot(dir) ? null : path.dirname(dir),
+    parent: (await isProtectedRoot(dir)) ? null : path.dirname(dir),
     entries,
   };
 }
@@ -384,7 +424,7 @@ export async function renameEntry(
 ): Promise<FsEntry> {
   const target = normalizeInput(targetInput);
   const newName = validateName(newNameInput);
-  if (isFilesystemRoot(target))
+  if (await isProtectedRoot(target))
     throw new HttpError(400, "cannot rename a drive root");
   const dest = path.join(path.dirname(target), newName);
   if (dest === target) return describe(target);
@@ -404,7 +444,7 @@ export async function moveEntry(
 ): Promise<FsEntry> {
   const source = normalizeInput(sourceInput);
   const destDir = normalizeInput(destDirInput);
-  if (isFilesystemRoot(source))
+  if (await isProtectedRoot(source))
     throw new HttpError(400, "cannot move a drive root");
   await assertDirectory(destDir);
   const dest = path.join(destDir, path.basename(source));
@@ -455,7 +495,7 @@ export async function copyEntry(
 
 export async function deleteEntry(targetInput: string): Promise<void> {
   const target = normalizeInput(targetInput);
-  if (isFilesystemRoot(target))
+  if (await isProtectedRoot(target))
     throw new HttpError(400, "refusing to delete a drive root");
   if (!existsSync(target)) throw new HttpError(404, "path not found");
   try {

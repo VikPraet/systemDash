@@ -40,6 +40,9 @@ import type {
   SitesStatusResponse,
   RunKind,
   StepInput,
+  SharesStatus,
+  NetworkShare,
+  ShareProtocol,
 } from "./types";
 
 // When a gated /api call comes back 401 with "authentication required", the
@@ -516,6 +519,34 @@ export async function fetchRoots(signal?: AbortSignal): Promise<FsRoot[]> {
   const res = await fetch("/api/fs/roots", { signal });
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
   return ((await res.json()) as { roots: FsRoot[] }).roots;
+}
+
+export async function fetchShares(signal?: AbortSignal): Promise<SharesStatus> {
+  const res = await fetch("/api/fs/shares", { signal });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as SharesStatus;
+}
+
+export function addNetworkShare(input: {
+  name: string;
+  protocol: ShareProtocol;
+  host: string;
+  share: string;
+  username?: string;
+  password?: string;
+  domain?: string;
+}): Promise<{ share: NetworkShare }> {
+  return postJson("/api/fs/shares", input);
+}
+
+export function connectNetworkShare(
+  id: string
+): Promise<{ share: NetworkShare }> {
+  return postJson(`/api/fs/shares/${encodeURIComponent(id)}/connect`, {});
+}
+
+export function removeNetworkShare(id: string): Promise<void> {
+  return deleteJson(`/api/fs/shares/${encodeURIComponent(id)}`);
 }
 
 export async function fetchListing(

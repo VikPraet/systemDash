@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { APP_NAME } from "../../brand";
+import { Logo } from "../ui/Logo";
 import { MatrixRain } from "./MatrixRain";
 import { ThemeToggle } from "../ui/ThemeToggle";
 import * as S from "./styles";
@@ -18,16 +20,29 @@ export function AuthLayout({ children }: AuthLayoutProps) {
       </S.AuthBackdrop>
       <S.AuthShell>
         <S.AuthPanelForm>
+          <S.AuthBrand>
+            <Logo size={22} />
+            <span>{APP_NAME}</span>
+          </S.AuthBrand>
           {children}
           <S.AuthPanelFoot>
             <ThemeToggle />
             <S.AuthFootMeta>
               <span>encrypted session</span>
-              <span>local host</span>
+              <S.AuthFootHost title={window.location.origin}>{authHostLabel()}</S.AuthFootHost>
             </S.AuthFootMeta>
           </S.AuthPanelFoot>
         </S.AuthPanelForm>
       </S.AuthShell>
     </S.AuthScreen>
   );
+}
+
+function authHostLabel(): string {
+  const { hostname, port, protocol } = window.location;
+  const defaultPort =
+    port === "" ||
+    (protocol === "https:" && port === "443") ||
+    (protocol === "http:" && port === "80");
+  return defaultPort ? hostname : `${hostname}:${port}`;
 }

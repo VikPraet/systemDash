@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { getSnapshot } from "./stats.js";
+import { APP_NAME } from "./brand.js";
 import { getProcesses, killProcess, ProcessError, type KillMode } from "./processes.js";
 import {
   getRoots,
@@ -21,6 +22,14 @@ import {
   writeTextFile,
   HttpError,
 } from "./files.js";
+import {
+  addShare,
+  initShares,
+  listShares,
+  reconnectShare,
+  removeShare,
+  ShareError,
+} from "./shares.js";
 import { getSettings, saveSettings, initSettings, diffSettings, sanitizeOsUsername } from "./settings.js";
 import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
@@ -136,6 +145,9 @@ app.use("/api", (req, res, next) => {
     ) {
       return;
     }
+    if (req.path.startsWith("/api/fs/shares") && res.statusCode < 400) {
+      return;
+    }
     const action =
       req.path.replace(/^\/api\//, "").replace(/\/+$/, "").replace(/\//g, ".") ||
       "request";
@@ -165,7 +177,7 @@ function numParam(value: unknown, fallback: number): number {
 
 /** Sends a thrown error as an HTTP response, mapping HttpError to its status. */
 function sendError(res: express.Response, err: unknown, fallback: string): void {
-  if (err instanceof HttpError) {
+  if (err instanceof HttpError || err instanceof ShareError) {
     res.status(err.status).json({ error: err.message });
   } else {
     console.error(`${fallback}:`, err);
@@ -199,6 +211,68 @@ app.get("/api/fs/roots", async (_req, res) => {
   } catch (err) {
     console.error("Failed to list roots:", err);
     res.status(500).json({ error: "failed to list roots" });
+  }
+});
+
+app.get("/api/fs/shares", async (_req, res) => {
+  try {
+    res.json(await listShares());
+  } catch (err) {
+    sendError(res, err, "failed to list network shares");
+  }
+});
+
+app.post("/api/fs/shares", requireRole("user"), async (req, res) => {
+  try {
+    const share = await addShare(req.body ?? {});
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.shares.add",
+      detail: `${share.name} (${share.remote})`,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ share });
+  } catch (err) {
+    sendError(res, err, "failed to add network share");
+  }
+});
+
+app.post("/api/fs/shares/:id/connect", requireRole("user"), async (req, res) => {
+  try {
+    const share = await reconnectShare(String(req.params.id ?? ""));
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.shares.connect",
+      detail: `${share.name} (${share.remote})`,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ share });
+  } catch (err) {
+    sendError(res, err, "failed to connect network share");
+  }
+});
+
+app.delete("/api/fs/shares/:id", requireRole("user"), async (req, res) => {
+  const id = String(req.params.id ?? "");
+  try {
+    const before = await listShares();
+    const existing = before.shares.find((s) => s.id === id);
+    await removeShare(id);
+    recordAudit({
+      userId: req.user?.id ?? null,
+      username: req.user?.username ?? null,
+      action: "fs.shares.remove",
+      detail: existing ? `${existing.name} (${existing.remote})` : id,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err, "failed to remove network share");
   }
 });
 
@@ -489,6 +563,10 @@ initSettings().catch((err) => {
   console.error("Failed to initialise settings/history recorder:", err);
 });
 
+initShares().catch((err) => {
+  console.error("Failed to reconnect network shares:", err);
+});
+
 // Periodically drop expired sessions and trim the audit log so the auth DB
 // doesn't grow unbounded.
 pruneSessions();
@@ -499,5 +577,5 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref?.();
 
 server.listen(PORT, () => {
-  console.log(`SystemDash server listening on http://localhost:${PORT}`);
+  console.log(`${APP_NAME} server listening on http://localhost:${PORT}`);
 });

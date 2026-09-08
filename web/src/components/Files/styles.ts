@@ -413,6 +413,22 @@ export const FilesTable = styled.table`
 `;
 
 /* ---- This PC / drive cards ---------------------------------------------- */
+export const DriveSection = styled.div`
+  & + & {
+    border-top: 1px solid ${({ theme }) => theme.color.border};
+  }
+`;
+
+export const DriveSectionTitle = styled.h3`
+  margin: 0;
+  padding: 16px 18px 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
 export const Drives = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
@@ -426,17 +442,72 @@ export const Drives = styled.div`
   }
 `;
 
-export const DriveCard = styled.button`
+export const DriveCard = styled.button<{ $offline?: boolean }>`
+  position: relative;
   text-align: left;
   background: ${({ theme }) => theme.color.bg};
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
   padding: 16px;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+  ${({ $offline }) => $offline && "opacity: 0.72;"}
 
   &:hover {
     border-color: ${({ theme }) => theme.color.accent};
+    background: ${({ theme }) => theme.color.panel2};
+  }
+`;
+
+export const DriveCardRemove = styled.button`
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  color: ${({ theme }) => theme.color.muted};
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+
+  &:hover {
+    color: ${({ theme }) => theme.color.bad};
+    border-color: ${({ theme }) => theme.color.bad};
+  }
+`;
+
+export const AddDriveCard = styled.button`
+  text-align: left;
+  background: transparent;
+  border: 1px dashed ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.base};
+  padding: 16px;
+  min-height: 108px;
+  cursor: pointer;
+  color: ${({ theme }) => theme.color.muted};
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+
+  .ficon-sm {
+    width: 22px;
+    height: 22px;
+  }
+
+  &:hover {
+    border-color: ${({ theme }) => theme.color.accent};
+    color: ${({ theme }) => theme.color.accent};
     background: ${({ theme }) => theme.color.panel2};
   }
 `;
@@ -447,6 +518,7 @@ export const DriveCardHead = styled.div`
   gap: 10px;
   margin-bottom: 14px;
   color: ${({ theme }) => theme.color.text};
+  padding-right: 22px;
 
   .ficon-sm {
     width: 22px;
@@ -534,4 +606,66 @@ export const SwitchKnob = styled.span<{ $on?: boolean }>`
   background: ${({ theme }) => theme.color.knob};
   transition: transform 0.15s ease;
   ${({ $on }) => $on && "transform: translateX(16px);"}
+`;
+
+export const ShareForm = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+`;
+
+export const ProtocolRow = styled.div`
+  display: flex;
+  gap: 6px;
+`;
+
+export const ProtocolBtn = styled.button<{ $on?: boolean }>`
+  flex: 1;
+  background: transparent;
+  border: 1px solid
+    ${({ $on, theme }) => ($on ? theme.color.accent : theme.color.hairline)};
+  color: ${({ $on, theme }) => ($on ? theme.color.accent : theme.color.text)};
+  padding: 8px 10px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+`;
+
+export const ShareHint = styled.p`
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const ShareCreds = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.color.bg};
+`;
+
+export const ShareCredsTitle = styled.div`
+  font-size: 13px;
+  font-weight: 600;
+  color: ${({ theme }) => theme.color.text};
+`;
+
+export const GuestToggle = styled.button`
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: ${({ theme }) => theme.color.accent};
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 `;

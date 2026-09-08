@@ -7,7 +7,7 @@
 #   bash scripts/configure-service-user.sh vadmin
 
 [Unit]
-Description=SystemDash
+Description=Beacon
 After=network.target docker.service
 Wants=docker.service
 

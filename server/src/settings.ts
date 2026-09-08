@@ -34,7 +34,7 @@ export function sanitizeOsUsername(raw: unknown, fallback: string): string {
 export interface TerminalSettings {
   /**
    * Optional Linux OS account for the in-app terminal (and Files → Home).
-   * Empty means "use the account that runs SystemDash". When set and the
+   * Empty means "use the account that runs Beacon". When set and the
    * process is root, the terminal opens with `su -` into this user.
    * Per-machine — never ships with a username filled in.
    */

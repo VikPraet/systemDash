@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ExternalLink, Globe, RefreshCw } from "lucide-react";
+import { APP_NAME } from "../../brand";
 import { fetchPublicAccess, setPublicAccessHostname } from "../../api";
 import type { IngressRoute, PublicAccessStatus } from "../../types";
 import { AuthError, GhostBtn, Loading } from "../ui/styles";
@@ -34,7 +35,7 @@ function statusCopy(data: PublicAccessStatus): {
 
 function hintFor(data: PublicAccessStatus): string {
   if (data.canWrite) {
-    return "Type a hostname on a domain you already use with this tunnel, then expose. SystemDash writes the tunnel route. DNS is the CNAME box below if it isn’t live yet.";
+    return `Type a hostname on a domain you already use with this tunnel, then expose. ${APP_NAME} writes the tunnel route. DNS is the CNAME box below if it isn’t live yet.`;
   }
   if (data.mode === "dashboard") {
     return `In Cloudflare Zero Trust, add a public hostname pointing at ${data.origin}. Then save that name here.`;

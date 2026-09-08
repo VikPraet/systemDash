@@ -9,6 +9,7 @@ import type { AppUpdateJob, AppUpdateStatus } from "../../types";
 import { Dropdown } from "../Dropdown";
 import { DangerBtn, GhostBtn } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
+import { APP_NAME } from "../../brand";
 import * as S from "./styles";
 
 const JOB_POLL_MS = 800;
@@ -122,7 +123,7 @@ export function AppUpdatePanel() {
       <S.AppPanelHead>
         <S.AppPanelTitle>
           <Sparkles size={16} />
-          SystemDash
+          {APP_NAME}
         </S.AppPanelTitle>
         <S.AppPanelActions>
           <Tooltip label="Check GitHub for a new release">
@@ -161,7 +162,7 @@ export function AppUpdatePanel() {
             }))}
             onChange={setPicked}
             variant="underline"
-            ariaLabel="SystemDash version"
+            ariaLabel={`${APP_NAME} version`}
           />
         </S.AppPanelSelect>
       )}
@@ -179,7 +180,9 @@ export function AppUpdatePanel() {
         </S.Banner>
       )}
       {picked === current && status?.enabled && !status.hint && !loading && (
-        <S.Banner>SystemDash v{current} is already installed.</S.Banner>
+        <S.Banner>
+          {APP_NAME} v{current} is already installed.
+        </S.Banner>
       )}
 
       {(job?.running || job?.phase === "done" || job?.phase === "error") && (

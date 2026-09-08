@@ -97,7 +97,7 @@ async function requestedOsUsername(): Promise<string> {
 /**
  * Resolves the OS account the terminal (and Files Home) should use.
  * Switching only happens when an OS username is configured (settings or
- * SYSTEMDASH_OS_USER) and SystemDash is running as root.
+ * SYSTEMDASH_OS_USER) and Beacon is running as root.
  */
 export async function resolveOsUser(): Promise<ResolvedOsUser> {
   const current = currentOsUser();

@@ -7,6 +7,7 @@ import {
   X,
   PanelLeftClose,
 } from "lucide-react";
+import { APP_NAME } from "../../brand";
 import { cache } from "../../cache";
 import { randomId } from "../../randomId";
 import { fetchSettings, saveSettings } from "../../api";
@@ -465,7 +466,7 @@ function TerminalSettingsDialog({
         <ModalTitle as="h3">Host shell user</ModalTitle>
         <S.SettingsBlurb>
           Optional and stored only on this machine. Leave empty to open the
-          terminal as whoever runs SystemDash. If you set a Linux username and
+          terminal as whoever runs {APP_NAME}. If you set a Linux username and
           the service is running as root, new tabs switch with{" "}
           <code>su - {exampleUser}</code> into that account’s home. Files →
           Home follows it too.

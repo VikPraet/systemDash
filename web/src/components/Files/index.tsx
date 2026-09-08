@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   copyEntry,
   createFile,
@@ -9,8 +9,12 @@ import {
   fetchListing,
   fetchRoots,
   fetchSettings,
+  fetchShares,
   formatBytes,
   formatDate,
+  addNetworkShare,
+  connectNetworkShare,
+  removeNetworkShare,
   moveEntry,
   renameEntry,
   saveSettings,
@@ -22,6 +26,8 @@ import type {
   FsEntry,
   FsRoot,
   Settings,
+  ShareProtocol,
+  SharesStatus,
 } from "../../types";
 import { cache, type DirSize } from "../../cache";
 import { Bar } from "../widgets";
@@ -49,6 +55,8 @@ type Dialog =
   | { kind: "newFile" }
   | { kind: "rename"; entry: FsEntry }
   | { kind: "delete"; entry: FsEntry }
+  | { kind: "addShare" }
+  | { kind: "removeShare"; root: FsRoot }
   | null;
 
 const SIZE_CONCURRENCY = 4;
@@ -109,20 +117,20 @@ export function Files() {
     cache.files.path = path;
   }, [path]);
 
+  const reloadRoots = useCallback(async () => {
+    const r = await fetchRoots();
+    cache.files.roots = r;
+    setRoots(r);
+    return r;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    fetchRoots()
-      .then((r) => {
-        if (!cancelled) {
-          cache.files.roots = r;
-          setRoots(r);
-        }
-      })
-      .catch((e) => !cancelled && setError((e as Error).message));
+    reloadRoots().catch((e) => !cancelled && setError((e as Error).message));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadRoots]);
 
   useEffect(() => {
     if (path === null) {
@@ -226,10 +234,14 @@ export function Files() {
     () => roots.filter((r) => r.kind === "drive" || r.kind === "root"),
     [roots]
   );
+  const network = useMemo(
+    () => roots.filter((r) => r.kind === "network"),
+    [roots]
+  );
 
   const crumbs = useMemo(
-    () => (path && listing ? breadcrumbs(listing.path) : []),
-    [path, listing]
+    () => (path && listing ? breadcrumbs(listing.path, roots) : []),
+    [path, listing, roots]
   );
 
   const entries = useMemo(() => {
@@ -246,6 +258,29 @@ export function Files() {
   function goUp() {
     if (listing?.parent) setPath(listing.parent);
     else setPath(null);
+  }
+
+  async function openRoot(root: FsRoot) {
+    if (root.kind === "network" && root.connected === false) {
+      if (!canWrite || !root.shareId) {
+        setActionError(root.error ?? "This network drive is offline.");
+        return;
+      }
+      setBusy(true);
+      setActionError(null);
+      try {
+        await connectNetworkShare(root.shareId);
+        const next = await reloadRoots();
+        const updated = next.find((r) => r.shareId === root.shareId) ?? root;
+        setPath(updated.path);
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    setPath(root.path);
   }
 
   // Re-fetches the current folder after a mutation, without the navigation
@@ -401,6 +436,12 @@ export function Files() {
         </S.Crumbs>
       </S.FilesNav>
 
+      {atThisPc && actionError && (
+        <S.FilesMessage $bad style={{ padding: "10px 18px", textAlign: "left" }}>
+          {actionError}
+        </S.FilesMessage>
+      )}
+
       {!atThisPc && canWrite && (
         <S.FilesActions>
           <button onClick={handleNewFolder} disabled={busy}>
@@ -439,7 +480,14 @@ export function Files() {
 
       <S.FilesBody>
         {atThisPc ? (
-          <ThisPc drives={drives} onOpen={setPath} />
+          <ThisPc
+            drives={drives}
+            network={network}
+            canWrite={canWrite}
+            onOpen={openRoot}
+            onAdd={() => setDialog({ kind: "addShare" })}
+            onRemove={(root) => setDialog({ kind: "removeShare", root })}
+          />
         ) : error ? (
           <S.FilesMessage $bad>{error}</S.FilesMessage>
         ) : loading && !listing ? (
@@ -564,6 +612,48 @@ export function Files() {
         />
       )}
 
+      {dialog?.kind === "addShare" && (
+        <AddShareDialog
+          onCancel={() => setDialog(null)}
+          onAdded={async () => {
+            await reloadRoots();
+            setDialog(null);
+          }}
+        />
+      )}
+
+      {dialog?.kind === "removeShare" && (
+        <ConfirmDialog
+          title="Remove network drive?"
+          message={
+            <>
+              Disconnect <strong>{dialog.root.name}</strong>
+              {dialog.root.label ? ` (${dialog.root.label})` : ""} from this
+              dashboard? Files on the NAS are not deleted.
+            </>
+          }
+          confirmLabel="Remove"
+          danger
+          onCancel={() => setDialog(null)}
+          onConfirm={async () => {
+            const id = dialog.root.shareId;
+            if (!id) return "Missing share id";
+            try {
+              await removeNetworkShare(id);
+              const rootPath = dialog.root.path;
+              const sep = rootPath.includes("\\") ? "\\" : "/";
+              const prefix = /[\\/]$/.test(rootPath) ? rootPath : rootPath + sep;
+              if (path && (path === rootPath || path.startsWith(prefix))) setPath(null);
+              await reloadRoots();
+              setDialog(null);
+              return null;
+            } catch (e) {
+              return (e as Error).message;
+            }
+          }}
+        />
+      )}
+
       {dialog?.kind === "delete" && (
         <ConfirmDialog
           title={`Delete ${dialog.entry.type === "dir" ? "folder" : "file"}?`}
@@ -598,38 +688,103 @@ export function Files() {
 
 function ThisPc({
   drives,
+  network,
+  canWrite,
   onOpen,
+  onAdd,
+  onRemove,
 }: {
   drives: FsRoot[];
-  onOpen: (path: string) => void;
+  network: FsRoot[];
+  canWrite: boolean;
+  onOpen: (root: FsRoot) => void;
+  onAdd: () => void;
+  onRemove: (root: FsRoot) => void;
 }) {
-  if (drives.length === 0) {
+  if (drives.length === 0 && network.length === 0 && !canWrite) {
     return <S.FilesMessage className="muted">Loading drives…</S.FilesMessage>;
   }
   return (
-    <S.Drives>
-      {drives.map((d) => (
-        <S.DriveCard key={d.path} onClick={() => onOpen(d.path)}>
-          <S.DriveCardHead>
-            <DriveIcon />
-            <S.DriveName>
-              {d.name}
-              {d.label && <span className="drive-label muted"> {d.label}</span>}
-            </S.DriveName>
-          </S.DriveCardHead>
-          {d.sizeBytes ? (
-            <>
-              <Bar value={d.usedPercent ?? 0} />
-              <S.DriveMeta className="muted">
-                {formatBytes(d.freeBytes ?? 0)} free of {formatBytes(d.sizeBytes)}
-              </S.DriveMeta>
-            </>
-          ) : (
-            <S.DriveMeta className="muted">{d.path}</S.DriveMeta>
+    <>
+      <S.DriveSection>
+        <S.Drives>
+          {drives.map((d) => (
+            <DriveCardView key={d.path} d={d} onOpen={() => onOpen(d)} />
+          ))}
+        </S.Drives>
+      </S.DriveSection>
+      <S.DriveSection>
+        <S.DriveSectionTitle>Network</S.DriveSectionTitle>
+        <S.Drives>
+          {network.map((d) => (
+            <DriveCardView
+              key={d.shareId ?? d.path}
+              d={d}
+              onOpen={() => onOpen(d)}
+              onRemove={
+                canWrite && d.shareId ? () => onRemove(d) : undefined
+              }
+            />
+          ))}
+          {canWrite && (
+            <S.AddDriveCard type="button" onClick={onAdd}>
+              <PlusIcon />
+              Add network drive
+            </S.AddDriveCard>
           )}
-        </S.DriveCard>
-      ))}
-    </S.Drives>
+        </S.Drives>
+      </S.DriveSection>
+    </>
+  );
+}
+
+function DriveCardView({
+  d,
+  onOpen,
+  onRemove,
+}: {
+  d: FsRoot;
+  onOpen: () => void;
+  onRemove?: () => void;
+}) {
+  const offline = d.kind === "network" && d.connected === false;
+  return (
+    <S.DriveCard type="button" $offline={offline} onClick={onOpen}>
+      {onRemove && (
+        <S.DriveCardRemove
+          type="button"
+          title="Remove"
+          aria-label={`Remove ${d.name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+        >
+          ×
+        </S.DriveCardRemove>
+      )}
+      <S.DriveCardHead>
+        {d.kind === "network" ? <NetworkIcon /> : <DriveIcon />}
+        <S.DriveName>
+          {d.name}
+          {d.label && <span className="drive-label muted"> {d.label}</span>}
+        </S.DriveName>
+      </S.DriveCardHead>
+      {offline ? (
+        <S.DriveMeta className="muted">
+          {d.error ?? "Offline — click to reconnect"}
+        </S.DriveMeta>
+      ) : d.sizeBytes ? (
+        <>
+          <Bar value={d.usedPercent ?? 0} />
+          <S.DriveMeta className="muted">
+            {formatBytes(d.freeBytes ?? 0)} free of {formatBytes(d.sizeBytes)}
+          </S.DriveMeta>
+        </>
+      ) : (
+        <S.DriveMeta className="muted">{d.label ?? d.path}</S.DriveMeta>
+      )}
+    </S.DriveCard>
   );
 }
 
@@ -768,10 +923,12 @@ function DirSizeCell({ size }: { size?: DirSize }) {
 
 function ModalShell({
   onCancel,
+  wide,
   children,
 }: {
   onCancel: () => void;
-  children: React.ReactNode;
+  wide?: boolean;
+  children: ReactNode;
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -787,7 +944,7 @@ function ModalShell({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <Modal role="dialog" aria-modal="true">
+      <Modal role="dialog" aria-modal="true" $wide={wide}>
         {children}
       </Modal>
     </ModalOverlay>
@@ -859,6 +1016,201 @@ function PromptDialog({
             disabled={!value.trim() || busy}
           >
             {busy ? "Working…" : confirmLabel}
+          </ModalBtn>
+        </ModalActions>
+      </form>
+    </ModalShell>
+  );
+}
+
+function AddShareDialog({
+  onCancel,
+  onAdded,
+}: {
+  onCancel: () => void;
+  onAdded: () => Promise<void>;
+}) {
+  const [caps, setCaps] = useState<SharesStatus | null>(null);
+  const [name, setName] = useState("");
+  const [protocol, setProtocol] = useState<ShareProtocol>("smb");
+  const [host, setHost] = useState("");
+  const [share, setShare] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [domain, setDomain] = useState("");
+  const [guest, setGuest] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchShares()
+      .then((s) => {
+        if (cancelled) return;
+        setCaps(s);
+        if (!s.protocols.includes("smb") && s.protocols.includes("nfs")) {
+          setProtocol("nfs");
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setError((e as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const protocols = caps?.protocols ?? ["smb"];
+  const smb = protocol === "smb";
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (busy || !host.trim() || !share.trim()) return;
+    if (smb && !guest && !username.trim()) {
+      setError("Enter the NAS username (the same one Windows asks for).");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await addNetworkShare({
+        name: name.trim(),
+        protocol,
+        host: host.trim(),
+        share: share.trim(),
+        username: smb && !guest ? username.trim() : undefined,
+        password: smb && !guest ? password : undefined,
+        domain: smb && !guest ? domain.trim() || undefined : undefined,
+      });
+      await onAdded();
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ModalShell wide onCancel={onCancel}>
+      <form onSubmit={submit}>
+        <ModalTitle as="h3">Add network drive</ModalTitle>
+        <S.ShareForm>
+          {protocols.length > 1 && (
+            <div>
+              <ModalLabel>Protocol</ModalLabel>
+              <S.ProtocolRow>
+                {protocols.map((p) => (
+                  <S.ProtocolBtn
+                    key={p}
+                    type="button"
+                    $on={protocol === p}
+                    onClick={() => setProtocol(p)}
+                  >
+                    {p === "smb" ? "SMB / CIFS" : "NFS"}
+                  </S.ProtocolBtn>
+                ))}
+              </S.ProtocolRow>
+            </div>
+          )}
+          <div>
+            <ModalLabel>Display name</ModalLabel>
+            <ModalInput
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={smb ? "Media" : "Backup"}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <ModalLabel>Host</ModalLabel>
+            <ModalInput
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder="192.168.1.10 or nas.local"
+              spellCheck={false}
+              autoComplete="off"
+              required
+            />
+          </div>
+          <div>
+            <ModalLabel>{smb ? "Share name" : "Export path"}</ModalLabel>
+            <ModalInput
+              value={share}
+              onChange={(e) => setShare(e.target.value)}
+              placeholder={smb ? "media" : "/volume1/media"}
+              spellCheck={false}
+              autoComplete="off"
+              required
+            />
+          </div>
+          {smb && (
+            <S.ShareCreds>
+              <S.ShareCredsTitle>Credentials</S.ShareCredsTitle>
+              <S.ShareHint>
+                Same username and password Windows asks for when you map this
+                drive. Saved on the server so it can reconnect without prompting.
+              </S.ShareHint>
+              {guest ? (
+                <S.ShareHint>Connecting as guest (no password).</S.ShareHint>
+              ) : (
+                <>
+                  <div>
+                    <ModalLabel>Username</ModalLabel>
+                    <ModalInput
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="NAS user"
+                      spellCheck={false}
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <ModalLabel>Password</ModalLabel>
+                    <ModalInput
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <div>
+                    <ModalLabel>Domain (only if the NAS uses one)</ModalLabel>
+                    <ModalInput
+                      value={domain}
+                      onChange={(e) => setDomain(e.target.value)}
+                      placeholder="WORKGROUP"
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                  </div>
+                </>
+              )}
+              <S.GuestToggle
+                type="button"
+                onClick={() => setGuest((g) => !g)}
+              >
+                {guest ? "Use a username and password" : "This share is public / guest"}
+              </S.GuestToggle>
+            </S.ShareCreds>
+          )}
+          {caps?.hint && !smb && <S.ShareHint>{caps.hint}</S.ShareHint>}
+        </S.ShareForm>
+        {error && <ModalError>{error}</ModalError>}
+        <ModalActions>
+          <ModalBtn type="button" onClick={onCancel}>
+            Cancel
+          </ModalBtn>
+          <ModalBtn
+            type="submit"
+            $variant="primary"
+            disabled={
+              busy ||
+              !host.trim() ||
+              !share.trim() ||
+              (smb && !guest && !username.trim())
+            }
+          >
+            {busy ? "Connecting…" : "Connect"}
           </ModalBtn>
         </ModalActions>
       </form>
@@ -1037,7 +1389,42 @@ function GearIcon() {
   );
 }
 
-function breadcrumbs(p: string): { label: string; path: string }[] {
+function breadcrumbs(
+  p: string,
+  roots: FsRoot[] = []
+): { label: string; path: string }[] {
+  const net = [...roots]
+    .filter((r) => r.kind === "network")
+    .sort((a, b) => b.path.length - a.path.length);
+  const share = net.find(
+    (r) => p === r.path || p.startsWith(r.path.endsWith("\\") ? r.path : r.path + (p.includes("\\") ? "\\" : "/"))
+  );
+  if (share) {
+    const sep = share.path.includes("\\") ? "\\" : "/";
+    const rest = p.slice(share.path.length).split(/[/\\]+/).filter(Boolean);
+    const crumbs = [{ label: share.name, path: share.path }];
+    let acc = share.path.replace(/[/\\]+$/, "");
+    for (const part of rest) {
+      acc = `${acc}${sep}${part}`;
+      crumbs.push({ label: part, path: acc });
+    }
+    return crumbs;
+  }
+
+  if (p.startsWith("\\\\")) {
+    const parts = p.split(/\\+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const root = `\\\\${parts[0]}\\${parts[1]}`;
+      const crumbs = [{ label: `${parts[0]}\\${parts[1]}`, path: root }];
+      let acc = root;
+      for (let i = 2; i < parts.length; i++) {
+        acc = `${acc}\\${parts[i]}`;
+        crumbs.push({ label: parts[i], path: acc });
+      }
+      return crumbs;
+    }
+  }
+
   const isWin = p.includes("\\");
   if (isWin) {
     const parts = p.split(/\\+/).filter(Boolean);
@@ -1093,6 +1480,17 @@ function DriveIcon() {
     <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
       <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
       <circle cx="17" cy="12" r="1.2" />
+    </svg>
+  );
+}
+
+function NetworkIcon() {
+  return (
+    <svg className="ficon-sm" viewBox="0 0 24 24" aria-hidden>
+      <rect x="3" y="14" width="6" height="6" rx="1" />
+      <rect x="15" y="14" width="6" height="6" rx="1" />
+      <rect x="9" y="4" width="6" height="6" rx="1" />
+      <path d="M6 14v-2h12v2M12 10v2" />
     </svg>
   );
 }

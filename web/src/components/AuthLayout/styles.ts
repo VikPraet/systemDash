@@ -53,6 +53,28 @@ export const AuthShell = styled.div`
   }
 `;
 
+export const AuthBrand = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+
+  span {
+    background: linear-gradient(
+      120deg,
+      ${({ theme }) => theme.color.text},
+      ${({ theme }) => theme.color.accent}
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+`;
+
 export const AuthPanelForm = styled.div`
   position: relative;
   width: min(380px, 100%);
@@ -101,6 +123,15 @@ export const AuthFootMeta = styled.div`
   flex: 1;
   min-width: 180px;
   gap: 12px;
+`;
+
+export const AuthFootHost = styled.span`
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: none;
+  letter-spacing: 0.2px;
 `;
 
 export const AuthMatrix = styled.canvas`

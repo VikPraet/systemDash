@@ -6,6 +6,7 @@ import {
   getAppUpdateStatus,
   startAppUpdate,
 } from "../appUpdate.js";
+import { APP_NAME } from "../brand.js";
 
 export const appUpdateRouter = Router();
 
@@ -42,7 +43,7 @@ appUpdateRouter.post("/start", adminOnly, (req, res) => {
       userId: req.user!.id,
       username: req.user!.username,
       action: "app-update.start",
-      detail: version ? `SystemDash self-update to v${version}` : "SystemDash self-update",
+      detail: version ? `${APP_NAME} self-update to v${version}` : `${APP_NAME} self-update`,
       status: 200,
       ip: clientIp(req),
     });
