@@ -10,6 +10,7 @@ import {
   ProjectsError,
   requireProject,
   resolveAccountForProject,
+  updateProject,
   workerScratchDir,
   writeWorkerEnvFile,
   type ProjectSummary,
@@ -17,6 +18,8 @@ import {
 import {
   buildManagedImage,
   dockerAvailable,
+  ensureContainer,
+  findContainer,
   listLabeledContainers,
   removeContainer,
   replicaName,
@@ -32,6 +35,7 @@ import {
 } from "./siteDeploy.js";
 import { checkRemote, gitPull } from "./gitRemote.js";
 import { getSnapshot } from "./stats.js";
+import { mergeProjectEnv } from "./projectEnv.js";
 
 const LOG_TAIL = 80_000;
 const TICK_MS = 15_000;
@@ -162,7 +166,10 @@ function spawnNative(project: ProjectSummary, replica: number): void {
   const cwd =
     project.workDir?.trim() ||
     (projectHasFolder(project) ? project.localPath : os.homedir());
-  const env = { ...process.env, ...envMapForRuntime(project.id), BEACON_REPLICA: String(replica) };
+  const env = mergeProjectEnv({
+    ...envMapForRuntime(project.id),
+    BEACON_REPLICA: String(replica),
+  });
   const file = process.platform === "win32" ? "cmd.exe" : "/bin/bash";
   const args = process.platform === "win32" ? ["/c", cmd] : ["-lc", cmd];
   appendLog(project.id, `[replica ${replica}] ${cmd}\n`);
@@ -214,19 +221,102 @@ async function reconcileProcess(project: ProjectSummary, want: number): Promise<
   }
 }
 
-async function reconcileDocker(project: ProjectSummary, want: number, onChunk?: (t: string) => void): Promise<void> {
-  if (!project.managed) {
+const IMAGE_BY_MARKER: Array<[string, string]> = [
+  ["package.json", "node:22-alpine"],
+  ["requirements.txt", "python:3.12-slim"],
+  ["pyproject.toml", "python:3.12-slim"],
+  ["go.mod", "golang:1.23-alpine"],
+  ["Cargo.toml", "rust:1-slim"],
+  ["composer.json", "php:8.3-cli"],
+  ["Gemfile", "ruby:3.3-slim"],
+];
+
+const FALLBACK_IMAGE = "alpine:3.20";
+
+/** Picks a base image (or Dockerfile) from what is in the project folder. */
+function detectWorkerRuntime(project: ProjectSummary): {
+  dockerfile: string | null;
+  image: string;
+  reason: string;
+} {
+  if (projectHasFolder(project)) {
+    if (fs.existsSync(path.join(project.localPath, "Dockerfile"))) {
+      return { dockerfile: "Dockerfile", image: "", reason: "found a Dockerfile" };
+    }
+    for (const [marker, image] of IMAGE_BY_MARKER) {
+      if (fs.existsSync(path.join(project.localPath, marker))) {
+        return { dockerfile: null, image, reason: `found ${marker}` };
+      }
+    }
+  }
+  return { dockerfile: null, image: FALLBACK_IMAGE, reason: "nothing to go on" };
+}
+
+/** The image to run, building the Dockerfile when there is one. Never requires the user to set it. */
+async function resolveImage(project: ProjectSummary, onChunk?: (t: string) => void): Promise<string> {
+  let dockerfile = project.dockerfile;
+  let context = project.buildContext || ".";
+  if (!dockerfile && !project.image) {
+    const guess = detectWorkerRuntime(project);
+    if (guess.dockerfile) {
+      onChunk?.(`no image set — building ${guess.dockerfile} (${guess.reason})\n`);
+      dockerfile = guess.dockerfile;
+      context = ".";
+    } else {
+      if (!project.startCommand?.trim()) {
+        throw new ProjectsError(
+          400,
+          `no image and no Dockerfile here, so ${guess.image} would start and exit — set a start command or an image`
+        );
+      }
+      onChunk?.(`no image set — using ${guess.image} (${guess.reason})\n`);
+      return guess.image;
+    }
+  }
+  if (dockerfile) {
+    if (!projectHasFolder(project)) throw new ProjectsError(400, "Dockerfile build needs a project folder");
+    return buildManagedImage(project.id, project.localPath, dockerfile, context, onChunk);
+  }
+  return project.image as string;
+}
+
+/**
+ * Attached workers point at a container Beacon did not create. Start it when it exists;
+ * create it when it does not, which hands ownership to Beacon from then on.
+ */
+async function reconcileAttached(project: ProjectSummary, onChunk?: (t: string) => void): Promise<void> {
+  const name = project.container?.trim() || replicaName(project.id, 0, null);
+  const found = await findContainer(name);
+  if (found) {
+    onChunk?.(`${found.running ? "restarting" : "starting"} ${name}\n`);
+    await ensureContainer(name, project.boot);
     return;
   }
+  onChunk?.(`container ${name} does not exist — creating it\n`);
+  const image = await resolveImage(project, onChunk);
+  await runManagedContainer({
+    projectId: project.id,
+    replica: 0,
+    name,
+    image,
+    command: project.startCommand,
+    envFile: writeWorkerEnvFile(project.id),
+    workDir: project.workDir,
+    cpuLimit: project.cpuLimit,
+    memoryLimitMb: project.memoryLimitMb,
+    restart: project.restartPolicy,
+  });
+  updateProject(project.id, { managed: true, container: name });
+  onChunk?.(`created ${name} — Beacon manages it from here\n`);
+}
+
+async function reconcileDocker(project: ProjectSummary, want: number, onChunk?: (t: string) => void): Promise<void> {
   if (!dockerAvailable()) throw new ProjectsError(503, "Docker is not available on this host");
-  let image = project.image;
-  if (project.dockerfile) {
-    if (!projectHasFolder(project)) throw new ProjectsError(400, "Dockerfile build needs a project folder");
-    const file = project.dockerfile;
-    const ctx = project.buildContext || ".";
-    image = await buildManagedImage(project.id, project.localPath, file, ctx, onChunk);
+  if (!project.managed) {
+    await reconcileAttached(project, onChunk);
+    return;
   }
-  if (!image) throw new ProjectsError(400, "managed Docker needs an image or a Dockerfile");
+  const image = await resolveImage(project, onChunk);
   const envFile = writeWorkerEnvFile(project.id);
   const labeled = await listLabeledContainers(project.id);
   const keep = new Set<string>();
@@ -268,7 +358,7 @@ async function reconcileCompose(project: ProjectSummary, onChunk?: (t: string) =
   if (!projectHasFolder(project)) throw new ProjectsError(400, "Compose needs a project folder");
   const file = project.composeFile || "compose.yaml";
   const chunk = onChunk ?? ((t: string) => appendLog(project.id, t));
-  await composeUp(project.localPath, file, chunk);
+  await composeUp(project.localPath, file, chunk, envMapForRuntime(project.id));
 }
 
 export async function reconcileWorker(projectId: number, onChunk?: (t: string) => void): Promise<void> {
@@ -289,7 +379,7 @@ export async function reconcileWorker(projectId: number, onChunk?: (t: string) =
       await reconcileProcess(project, want);
       break;
     case "docker":
-      if (project.managed) await reconcileDocker(project, want, log);
+      await reconcileDocker(project, want, log);
       break;
     case "systemd":
       if (want > 0) await reconcileSystemd(project, log);

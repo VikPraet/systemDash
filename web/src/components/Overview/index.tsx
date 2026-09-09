@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { formatBytes, formatUptime } from "../../api";
 import type { DashRole, SystemSnapshot } from "../../types";
-import { Bar, Gauge, LabeledBar, Stat, TemperatureReading } from "../widgets";
+import { Bar, ChartEmptyCard, Gauge, LabeledBar, Stat, TemperatureReading } from "../widgets";
 import { PublicAccess } from "../PublicAccess";
 import { PowerControl } from "../PowerControl";
+import { UsersActivityOverview } from "../Users";
 import { UpdatesOverview } from "../SystemUpdates/UpdatesOverview";
 import { AppUpdatesOverview } from "../SystemUpdates/AppUpdatesOverview";
 import { DashboardGrid, type DashboardItem } from "../dashboard/DashboardGrid";
-import { chartKey, OVERVIEW_WIDGETS, widgetById } from "../dashboard/catalog";
+import {
+  chartKey,
+  EXTRA_OVERVIEW_WIDGETS,
+  humanizePanelId,
+  OVERVIEW_WIDGETS,
+  widgetById,
+} from "../dashboard/catalog";
 import { useDashboardLayout } from "../../theme/DashboardContext";
 import { useHistoryFeed } from "../History/useHistoryFeed";
 import { buildHistoryCharts, makeTimeFmt } from "../History/charts";
@@ -29,8 +36,8 @@ export function Overview({
   const { layouts, editMode } = useDashboardLayout();
   const extraIds = (layouts.overview ?? [])
     .map((i) => i.id)
-    .filter((id) => id.startsWith("chart:"));
-  const needFeed = editMode || extraIds.length > 0;
+    .filter((id) => !OVERVIEW_WIDGETS.some((w) => w.id === id));
+  const needFeed = editMode || extraIds.some((id) => id.startsWith("chart:"));
   const feed = useHistoryFeed(needFeed);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
 
@@ -44,6 +51,7 @@ export function Overview({
   }, [fullscreenId]);
 
   const timeFmt = useMemo(() => makeTimeFmt(feed.range.ms), [feed.range.ms]);
+  const chartsLoading = needFeed && !feed.data && !feed.error;
 
   if (!snap) {
     if (error) {
@@ -334,14 +342,26 @@ export function Overview({
   );
 
   for (const id of extraIds) {
-    const key = chartKey(id);
-    const chart = charts.find((c) => c.id === key);
+    const extra = EXTRA_OVERVIEW_WIDGETS.find((w) => w.id === id);
+    if (extra?.id === "users") {
+      items.push({
+        id,
+        title: extra.label,
+        minW: extra.minW,
+        minH: extra.minH,
+        defaultRoles: extra.defaultRoles,
+        default: extra.default,
+        node: <UsersActivityOverview />,
+      });
+      continue;
+    }
+    const chart = charts.find((c) => c.id === chartKey(id));
     items.push({
       id,
       minW: 4,
       minH: 3,
       default: { x: 0, y: 0, w: 6, h: 4 },
-      node: chart ? chart.render(false) : <div className="muted">No data for this chart yet.</div>,
+      node: chart ? chart.render(false) : chartFallback(id, chartsLoading, feed.error),
     });
   }
 
@@ -363,6 +383,24 @@ export function Overview({
   );
 }
 
+/** What a chart panel shows before its first samples arrive, or when a metric
+ *  never reports on this machine. Always framed as a card, never bare text. */
+function chartFallback(id: string, loading: boolean, error: string | null) {
+  const label = widgetById("overview", id)?.label ?? humanizePanelId(id);
+  if (loading) return <WidgetSkeleton kind="chart" label={label} />;
+  if (error) {
+    return (
+      <ChartEmptyCard title={label} message="History unavailable" hint={error} />
+    );
+  }
+  return (
+    <ChartEmptyCard
+      title={label}
+      hint="Either recording is off, or this machine doesn't report this metric."
+    />
+  );
+}
+
 function OverviewSkeleton({ extraIds }: { extraIds: string[] }) {
   const items: DashboardItem[] = OVERVIEW_WIDGETS.map((w) => ({
     id: w.id,
@@ -374,6 +412,19 @@ function OverviewSkeleton({ extraIds }: { extraIds: string[] }) {
     node: <WidgetSkeleton kind={w.id} label={w.label} />,
   }));
   for (const id of extraIds) {
+    const extra = EXTRA_OVERVIEW_WIDGETS.find((w) => w.id === id);
+    if (extra) {
+      items.push({
+        id,
+        title: extra.label,
+        minW: extra.minW,
+        minH: extra.minH,
+        defaultRoles: extra.defaultRoles,
+        default: extra.default,
+        node: <WidgetSkeleton kind={extra.id} label={extra.label} />,
+      });
+      continue;
+    }
     const label = widgetById("overview", id)?.label;
     items.push({
       id,

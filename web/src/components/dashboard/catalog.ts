@@ -25,6 +25,19 @@ export const OVERVIEW_WIDGETS: CatalogWidget[] = [
   { id: "gpu", label: "GPU", category: "overview", default: { x: 0, y: 18, w: 12, h: 5 }, minW: 4, minH: 3 },
 ];
 
+/** Optional Overview panels — not on the default layout; add from the picker. */
+export const EXTRA_OVERVIEW_WIDGETS: CatalogWidget[] = [
+  {
+    id: "users",
+    label: "User activity",
+    category: "overview",
+    default: { x: 0, y: 0, w: 4, h: 5 },
+    minW: 3,
+    minH: 3,
+    defaultRoles: ADMIN_ONLY,
+  },
+];
+
 export const CHART_WIDGETS: CatalogWidget[] = [
   { id: "chart:cpu-load", label: "CPU Load", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
   { id: "chart:cpu-cores", label: "CPU Cores", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
@@ -50,7 +63,8 @@ export function gpuChartWidgets(gpuCount: number): CatalogWidget[] {
 }
 
 export function catalogForPage(pageId: string, gpuCount = 0): CatalogWidget[] {
-  if (pageId === "overview") return [...OVERVIEW_WIDGETS, ...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)];
+  if (pageId === "overview")
+    return [...OVERVIEW_WIDGETS, ...EXTRA_OVERVIEW_WIDGETS, ...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)];
   if (pageId === "history") return [...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)].map((w) => ({
     ...w,
     id: w.id.replace(/^chart:/, ""),

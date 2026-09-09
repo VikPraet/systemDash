@@ -1,13 +1,13 @@
 {
   "name": "@systemdash/server",
-  "version": "0.4.2-beta",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js"
+    "test": "tsx --import ./test/preload.ts --test ./test/authThrottle.test.ts ./test/clientAddress.test.ts ./test/projectEnv.test.ts ./test/fsAccess.test.ts ./test/authHttp.test.ts ./test/httpAuthz.test.ts ./test/wsAuth.test.ts"
   },
   "dependencies": {
     "express": "^5.2.1",

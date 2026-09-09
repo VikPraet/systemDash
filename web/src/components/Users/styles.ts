@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import styled, { css } from "styled-components";
 import { mobile } from "../../theme/media";
 
@@ -288,5 +289,100 @@ export const AuthField = styled.label`
 
   input:focus {
     border-bottom-color: ${({ theme }) => theme.color.accent};
+  }
+`;
+
+export const WidgetRoot = styled.div`
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+export const WidgetMeta = styled.div`
+  font-size: 12px;
+`;
+
+export const WidgetList = styled.div`
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -4px;
+`;
+
+export const WidgetRow = styled.div`
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "dot name when"
+    ". action action";
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 9px 4px;
+  border-top: 1px solid ${({ theme }) => theme.color.hairline};
+  font-size: 13px;
+
+  &:first-child {
+    border-top: none;
+    padding-top: 0;
+  }
+`;
+
+export const OnlineDot = styled.span<{ $on?: boolean }>`
+  grid-area: dot;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${({ $on, theme }) => ($on ? theme.color.good : theme.color.track)};
+  box-shadow: ${({ $on, theme }) =>
+    $on ? `0 0 0 3px color-mix(in srgb, ${theme.color.good} 22%, transparent)` : "none"};
+`;
+
+export const WidgetName = styled.span`
+  grid-area: name;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+export const WidgetWhen = styled.span<{ $live?: boolean }>`
+  grid-area: when;
+  font-size: 11px;
+  white-space: nowrap;
+  color: ${({ $live, theme }) => ($live ? theme.color.good : theme.color.muted)};
+`;
+
+export const WidgetAction = styled.span<{ $alert?: boolean }>`
+  grid-area: action;
+  min-width: 0;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: ${({ $alert, theme }) => ($alert ? theme.color.bad : theme.color.muted)};
+`;
+
+export const WidgetFoot = styled(Link)`
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+  padding-top: 8px;
+  color: ${({ theme }) => theme.color.accent};
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
   }
 `;

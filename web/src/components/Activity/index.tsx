@@ -338,14 +338,14 @@ function outcome(e: AuditEntry): Outcome {
   return "failed";
 }
 
-function isFailed(e: AuditEntry): boolean {
+export function isFailed(e: AuditEntry): boolean {
   return outcome(e) !== "ok";
 }
 
 // What to show as the row's headline. For denied/failed attempts we phrase it as
 // an attempt ("Tried to edit a file") so the log never implies the action
 // actually happened when it didn't.
-function displayLabel(e: AuditEntry): string {
+export function displayLabel(e: AuditEntry): string {
   const meta = actionMeta(e.action);
   switch (outcome(e)) {
     case "denied":

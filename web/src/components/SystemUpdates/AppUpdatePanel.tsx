@@ -9,6 +9,7 @@ import {
 import {
   fetchAppUpdateJob,
   fetchAppUpdateStatus,
+  fetchHealth,
   formatDate,
   formatRelative,
   startAppUpdate,
@@ -23,6 +24,7 @@ import * as S from "./styles";
 
 const JOB_POLL_MS = 800;
 const STATUS_POLL_MS = 5 * 60_000;
+const RESTART_POLL_MS = 1500;
 
 function phaseLabel(phase: AppUpdateJob["phase"]): string {
   switch (phase) {
@@ -122,6 +124,23 @@ export function AppUpdatePanel() {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [job?.log]);
+
+  // The install ends by restarting the host, which leaves this page on the old
+  // build. Wait for the new version to answer, then load it.
+  useEffect(() => {
+    if (job?.phase !== "done") return;
+    const installed = status?.currentVersion;
+    const id = setInterval(() => {
+      void fetchHealth()
+        .then((health) => {
+          if (health.version && health.version !== installed) window.location.reload();
+        })
+        .catch(() => {
+          // Still restarting.
+        });
+    }, RESTART_POLL_MS);
+    return () => clearInterval(id);
+  }, [job?.phase, status?.currentVersion]);
 
   async function runUpdate(): Promise<void> {
     setShowLog(true);

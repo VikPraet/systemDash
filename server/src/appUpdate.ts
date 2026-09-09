@@ -180,6 +180,11 @@ function readInstalledVersion(): InstalledVersion {
   };
 }
 
+/** Version of the build currently serving requests. Clients watch this to spot a restart onto a new release. */
+export function currentAppVersion(): string {
+  return readInstalledVersion().version;
+}
+
 function resolveInstallRoot(): string | null {
   const env = process.env.SYSTEMDASH_HOME?.trim();
   if (env) return path.resolve(env);

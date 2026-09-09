@@ -63,7 +63,11 @@ import {
   ModalSub,
   RoleBadge,
 } from "./components/ui/styles";
-import { ReconnectOverlay, useReconnectGate } from "./components/ui/ReconnectOverlay";
+import {
+  ReconnectOverlay,
+  useReconnectGate,
+  useReloadOnNewVersion,
+} from "./components/ui/ReconnectOverlay";
 import { Tooltip } from "./components/ui/Tooltip";
 import { ThemeToggle } from "./components/ui/ThemeToggle";
 import { ThemePicker } from "./components/ui/ThemePicker";
@@ -296,6 +300,7 @@ function DashboardLayout() {
   }, [onTerminalRoute, canUseTerminal]);
 
   const reconnect = useReconnectGate(!!error);
+  useReloadOnNewVersion(!!error);
 
   useEffect(() => {
     let cancelled = false;

@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Trash2, UserPlus, KeyRound, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { ChevronRight, KeyRound, Trash2, UserPlus, X } from "lucide-react";
 import {
   createUserApi,
   deleteUserApi,
+  fetchAudit,
+  fetchSessions,
   fetchUsers,
   formatDate,
+  formatRelative,
   updateUserApi,
 } from "../../api";
-import type { Role, User } from "../../types";
-import { useAuth } from "../../auth/AuthContext";
+import type { AuditEntry, Role, SessionInfo, User } from "../../types";
+import { hasRole, useAuth } from "../../auth/AuthContext";
+import { displayLabel, isFailed } from "../Activity";
 import { Dropdown } from "../Dropdown";
 import {
   AuthError,
@@ -21,9 +25,14 @@ import {
   ModalHead,
   ModalOverlay,
   ModalSub,
+  RoleBadge,
 } from "../ui/styles";
+import { PanelSkeleton } from "../ui/Skeleton";
 import { Tooltip } from "../ui/Tooltip";
 import * as S from "./styles";
+
+const WIDGET_POLL_MS = 5000;
+const WIDGET_AUDIT_LIMIT = 200;
 
 /** A custom dropdown for picking a role (shows the role hints in the menu). */
 function RoleSelect({
@@ -51,6 +60,178 @@ const ROLE_OPTIONS: { value: Role; label: string; hint: string }[] = [
   { value: "user", label: "User", hint: "Viewer + file edits, uploads, terminal" },
   { value: "admin", label: "Admin", hint: "Full access + manage users" },
 ];
+
+interface UserActivity {
+  user: User;
+  sessionCount: number;
+  online: boolean;
+  lastSeen: number | null;
+  lastAction: AuditEntry | null;
+}
+
+/** Newest audit entry per user, matched on id first so renames don't lose rows. */
+function lastActionByUser(audit: AuditEntry[]): Map<string, AuditEntry> {
+  const map = new Map<string, AuditEntry>();
+  for (const entry of audit) {
+    const keys = [
+      entry.userId !== null ? `id:${entry.userId}` : null,
+      entry.username ? `name:${entry.username}` : null,
+    ].filter((k): k is string => k !== null);
+    for (const key of keys) {
+      const prev = map.get(key);
+      if (!prev || entry.ts > prev.ts) map.set(key, entry);
+    }
+  }
+  return map;
+}
+
+function buildActivity(
+  users: User[],
+  sessions: SessionInfo[],
+  audit: AuditEntry[]
+): UserActivity[] {
+  const byUser = lastActionByUser(audit);
+  const rows = users.map((user) => {
+    const mine = sessions.filter((s) => s.userId === user.id);
+    const lastAction = byUser.get(`id:${user.id}`) ?? byUser.get(`name:${user.username}`) ?? null;
+    const seen = [
+      ...mine.map((s) => s.lastSeen),
+      ...(lastAction ? [lastAction.ts] : []),
+    ];
+    return {
+      user,
+      sessionCount: mine.length,
+      online: mine.length > 0 && user.active,
+      lastSeen: seen.length > 0 ? Math.max(...seen) : null,
+      lastAction,
+    };
+  });
+  return rows.sort((a, b) => {
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    if (a.lastSeen !== b.lastSeen) return (b.lastSeen ?? 0) - (a.lastSeen ?? 0);
+    return a.user.username.localeCompare(b.user.username);
+  });
+}
+
+/** Overview panel: who is signed in and what each account did last. Admin only. */
+export function UsersActivityOverview() {
+  const { user: me } = useAuth();
+  const isAdmin = hasRole(me, "admin");
+  const [users, setUsers] = useState<User[]>([]);
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    try {
+      const [nextUsers, nextSessions, nextAudit] = await Promise.all([
+        fetchUsers(),
+        fetchSessions().catch(() => [] as SessionInfo[]),
+        fetchAudit(WIDGET_AUDIT_LIMIT)
+          .then((a) => a.entries)
+          .catch(() => [] as AuditEntry[]),
+      ]);
+      setUsers(nextUsers);
+      setSessions(nextSessions);
+      setAudit(nextAudit);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    void load();
+    const id = setInterval(() => void load(), WIDGET_POLL_MS);
+    return () => clearInterval(id);
+  }, [isAdmin, load]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isAdmin]);
+
+  const rows = useMemo(
+    () => buildActivity(users, sessions, audit),
+    [audit, sessions, users]
+  );
+  const onlineCount = rows.filter((r) => r.online).length;
+
+  if (!isAdmin) {
+    return <div className="muted">Only admins can see user activity.</div>;
+  }
+
+  if (loading && users.length === 0) {
+    return <PanelSkeleton label="Loading user activity…" />;
+  }
+
+  return (
+    <S.WidgetRoot>
+      <S.WidgetMeta className="muted">
+        {onlineCount} online · {users.length} account{users.length === 1 ? "" : "s"}
+      </S.WidgetMeta>
+      {error && <AuthError $inline>{error}</AuthError>}
+      {rows.length === 0 && !error ? (
+        <div className="muted">No accounts yet.</div>
+      ) : (
+        <S.WidgetList>
+          {rows.map((row) => (
+            <ActivityRow key={row.user.id} row={row} now={now} isSelf={row.user.id === me?.id} />
+          ))}
+        </S.WidgetList>
+      )}
+      <S.WidgetFoot to="/activity">
+        Open activity
+        <ChevronRight size={14} strokeWidth={1.8} />
+      </S.WidgetFoot>
+    </S.WidgetRoot>
+  );
+}
+
+function ActivityRow({
+  row,
+  now,
+  isSelf,
+}: Readonly<{ row: UserActivity; now: number; isSelf: boolean }>) {
+  const { user, online, sessionCount, lastSeen, lastAction } = row;
+
+  let when = "never signed in";
+  if (online) {
+    when = sessionCount > 1 ? `online · ${sessionCount} sessions` : "online";
+  } else if (lastSeen !== null) {
+    when = formatRelative(lastSeen, now);
+  }
+
+  let what = "No recent activity";
+  if (!user.active) what = "Account disabled";
+  else if (lastAction) what = displayLabel(lastAction);
+
+  return (
+    <S.WidgetRow>
+      <S.OnlineDot $on={online} title={online ? "Signed in" : "Not signed in"} />
+      <S.WidgetName>
+        {user.username}
+        {isSelf && <S.SelfBadge>you</S.SelfBadge>}
+        <RoleBadge $role={user.role}>{user.role}</RoleBadge>
+      </S.WidgetName>
+      <S.WidgetWhen $live={online} title={lastSeen ? formatDate(lastSeen) : undefined}>
+        {when}
+      </S.WidgetWhen>
+      <S.WidgetAction
+        $alert={!user.active || (lastAction ? isFailed(lastAction) : false)}
+        title={lastAction?.detail ?? undefined}
+      >
+        {what}
+      </S.WidgetAction>
+    </S.WidgetRow>
+  );
+}
 
 export function Users() {
   const { user: me } = useAuth();

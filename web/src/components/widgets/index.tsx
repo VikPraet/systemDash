@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { Maximize2, X } from "lucide-react";
+import { LineChart, Maximize2, X } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { useAppearance } from "../../theme/AppearanceContext";
 import type { GaugeStyle } from "../../theme/schema";
@@ -612,6 +612,39 @@ export function ChartCard({
       </S.ChartCardHead>
       {children}
     </S.ChartCardRoot>
+  );
+}
+
+/** Placeholder card for a chart panel that has no samples to draw. */
+export function ChartEmptyCard({
+  title,
+  subtitle,
+  message = "No data recorded yet",
+  hint,
+}: {
+  title: string;
+  subtitle?: string | null;
+  message?: string;
+  hint?: string | null;
+}) {
+  return (
+    <S.ChartEmptyRoot className="chart-card">
+      <S.ChartCardHead>
+        <S.ChartCardTitles>
+          <S.CardTitle as="h2">{title}</S.CardTitle>
+          {subtitle && (
+            <S.ChartCardSubtitle title={subtitle}>{subtitle}</S.ChartCardSubtitle>
+          )}
+        </S.ChartCardTitles>
+      </S.ChartCardHead>
+      <S.ChartEmptyBody>
+        <S.ChartEmptyIcon aria-hidden>
+          <LineChart size={20} strokeWidth={1.6} />
+        </S.ChartEmptyIcon>
+        <S.ChartEmptyText>{message}</S.ChartEmptyText>
+        {hint && <S.ChartEmptyHint>{hint}</S.ChartEmptyHint>}
+      </S.ChartEmptyBody>
+    </S.ChartEmptyRoot>
   );
 }
 

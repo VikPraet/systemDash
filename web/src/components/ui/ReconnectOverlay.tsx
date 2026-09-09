@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import styled from "styled-components";
 import { APP_NAME } from "../../brand";
-import { formatRelative } from "../../api";
+import { fetchHealth, formatRelative } from "../../api";
 import { GhostBtn } from "./styles";
 import { mobile } from "../../theme/media";
 
 const OVERLAY_DELAY_MS = 1400;
+const VERSION_POLL_MS = 2000;
 
 /** Shows the reconnect overlay after a short delay so brief blips don't flash. */
 export function useReconnectGate(disconnected: boolean): {
@@ -28,6 +29,52 @@ export function useReconnectGate(disconnected: boolean): {
   }, [disconnected]);
 
   return { visible, since };
+}
+
+/**
+ * Reloads once the host answers again on a different version. An in-app update
+ * swaps the build under a page that is still running the old assets, so without
+ * this the tab silently keeps talking to a server it was not built against.
+ */
+export function useReloadOnNewVersion(disconnected: boolean): void {
+  const loaded = useRef<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchHealth()
+      .then((health) => {
+        if (!cancelled && loaded.current === null) loaded.current = health.version;
+      })
+      .catch(() => {
+        // Offline at boot; the first poll below records the version instead.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!disconnected) return;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      void fetchHealth()
+        .then((health) => {
+          if (cancelled || !health.version) return;
+          if (loaded.current === null) {
+            loaded.current = health.version;
+            return;
+          }
+          if (health.version !== loaded.current) window.location.reload();
+        })
+        .catch(() => {
+          // Still down; keep waiting.
+        });
+    }, VERSION_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [disconnected]);
 }
 
 function formatWait(ms: number): string {

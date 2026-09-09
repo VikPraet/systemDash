@@ -5,6 +5,8 @@ import {
   isRecoveryQuestionId,
   normalizeRecoveryAnswer,
 } from "./recoveryQuestions.js";
+import { clientIp as addressClientIp } from "./clientAddress.js";
+import { disconnectSession, disconnectUser } from "./wsLive.js";
 
 // Roles are an ordered hierarchy: each role implies the ones below it. We compare
 // by rank so `requireRole("user")` also admits admins.
@@ -188,6 +190,7 @@ export function setUserRole(id: number, role: Role): User {
   authDb().prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id);
   const user = getUserById(id);
   if (!user) throw new AuthError(404, "user not found");
+  if (ROLE_RANK[user.role] < ROLE_RANK.user) disconnectUser(id);
   return user;
 }
 
@@ -226,6 +229,7 @@ export function setUserRecovery(id: number, recovery: RecoveryInput): User {
 }
 
 export function deleteUser(id: number): void {
+  disconnectUser(id);
   const info = authDb().prepare("DELETE FROM users WHERE id = ?").run(id);
   if (info.changes === 0) throw new AuthError(404, "user not found");
 }
@@ -259,29 +263,6 @@ let dummyRecoveryHash: string | null = null;
 function dummyHash(): string {
   if (!dummyRecoveryHash) dummyRecoveryHash = hashPassword("__sd_recovery_dummy__");
   return dummyRecoveryHash;
-}
-
-const RECOVERY_WINDOW_MS = 15 * 60 * 1000;
-const RECOVERY_MAX_ATTEMPTS = 8;
-const recoveryAttempts = new Map<string, { count: number; resetAt: number }>();
-
-/** Returns false when this IP has exhausted failed recovery attempts. */
-export function allowRecoveryAttempt(ip: string): boolean {
-  const key = ip || "unknown";
-  const cur = recoveryAttempts.get(key);
-  if (!cur || cur.resetAt <= Date.now()) return true;
-  return cur.count < RECOVERY_MAX_ATTEMPTS;
-}
-
-export function recordRecoveryFailure(ip: string): void {
-  const key = ip || "unknown";
-  const now = Date.now();
-  const cur = recoveryAttempts.get(key);
-  if (!cur || cur.resetAt <= now) {
-    recoveryAttempts.set(key, { count: 1, resetAt: now + RECOVERY_WINDOW_MS });
-    return;
-  }
-  cur.count += 1;
 }
 
 function userRowByUsername(username: string): UserRow | undefined {
@@ -352,8 +333,12 @@ export const RECOVERY_FAIL_MESSAGE = RECOVERY_FAIL;
 export const SESSION_COOKIE = "sd_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export function isOperatorRole(role: Role): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK.user;
 }
 
 export interface NewSession {
@@ -415,10 +400,13 @@ export function userForToken(token: string | undefined): User | null {
 
 export function destroySession(token: string | undefined): void {
   if (!token) return;
-  authDb().prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
+  const hash = hashToken(token);
+  authDb().prepare("DELETE FROM sessions WHERE token_hash = ?").run(hash);
+  disconnectSession(hash);
 }
 
 function deleteUserSessions(userId: number): void {
+  disconnectUser(userId);
   authDb().prepare("DELETE FROM sessions WHERE user_id = ?").run(userId);
 }
 
@@ -488,6 +476,7 @@ export function revokeSession(id: string): void {
     .prepare("DELETE FROM sessions WHERE token_hash = ?")
     .run(id);
   if (info.changes === 0) throw new AuthError(404, "session not found");
+  disconnectSession(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -698,11 +687,9 @@ export function clearAudit(): void {
   authDb().exec("DELETE FROM audit_log;");
 }
 
-/** Extracts a best-effort client IP from an Express-like request. */
-export function clientIp(req: { ip?: string; headers: Record<string, unknown> }): string {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0].trim();
-  return req.ip ?? "";
+/** Client IP for audit logs and rate limits (trusted-proxy aware). */
+export function clientIp(req: Parameters<typeof addressClientIp>[0]): string {
+  return addressClientIp(req);
 }
 
 // ---------------------------------------------------------------------------

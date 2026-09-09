@@ -1,15 +1,15 @@
 import { spawn } from "node:child_process";
 import type { Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import { parseCookies, userForToken, SESSION_COOKIE } from "./auth.js";
 import { getProject } from "./projects.js";
-import { listLabeledContainers, spawnDockerLogs } from "./docker.js";
+import { findContainer, listLabeledContainers, spawnDockerLogs } from "./docker.js";
 import { subscribeWorkerLogs, workerLogTail } from "./workers.js";
-
-function authenticate(req: import("node:http").IncomingMessage) {
-  const cookies = parseCookies(req.headers.cookie);
-  return userForToken(cookies[SESSION_COOKIE]);
-}
+import {
+  authenticateSocket,
+  requireOperator,
+  socketSessionToken,
+  watchAuthorizedSocket,
+} from "./wsAuth.js";
 
 function pipeChild(ws: WebSocket, child: ReturnType<typeof spawn>): void {
   const send = (s: string) => {
@@ -33,9 +33,15 @@ export function attachWorkerLogs(server: Server): void {
     const pathname = (req.url ?? "").split("?")[0];
     const match = /^\/api\/projects\/(\d+)\/logs$/.exec(pathname);
     if (!match) return;
-    const user = authenticate(req);
-    if (!user) {
+    const token = socketSessionToken(req);
+    const user = authenticateSocket(req);
+    if (!user || !token) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    if (!requireOperator(user)) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
     }
@@ -47,6 +53,22 @@ export function attachWorkerLogs(server: Server): void {
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      const children: Array<ReturnType<typeof spawn>> = [];
+      const killKids = () => {
+        for (const child of children) {
+          try {
+            child.kill("SIGTERM");
+          } catch {
+            // gone
+          }
+        }
+      };
+      watchAuthorizedSocket({
+        token,
+        userId: user.id,
+        ws,
+        onRevoked: killKids,
+      });
       const send = (s: string) => {
         if (ws.readyState === ws.OPEN) ws.send(s);
       };
@@ -57,9 +79,20 @@ export function attachWorkerLogs(server: Server): void {
           try {
             if (project.managed) {
               const labeled = await listLabeledContainers(id);
-              for (const c of labeled) pipeChild(ws, spawnDockerLogs(c.id, 200));
+              for (const c of labeled) {
+                const child = spawnDockerLogs(c.id, 200);
+                children.push(child);
+                pipeChild(ws, child);
+              }
             } else if (project.container) {
-              pipeChild(ws, spawnDockerLogs(project.container, 200));
+              const found = await findContainer(project.container);
+              if (found) {
+                const child = spawnDockerLogs(found.id, 200);
+                children.push(child);
+                pipeChild(ws, child);
+              } else {
+                send(`container ${project.container} does not exist yet — Start creates it.\n`);
+              }
             }
           } catch (err) {
             send(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -68,6 +101,7 @@ export function attachWorkerLogs(server: Server): void {
       }
       if (project.runKind === "systemd" && project.unit && process.platform === "linux") {
         const child = spawn("journalctl", ["-fu", project.unit, "-n", "200"], { windowsHide: true });
+        children.push(child);
         pipeChild(ws, child);
       }
       ws.on("close", () => unsub());

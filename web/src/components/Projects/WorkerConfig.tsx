@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Dropdown } from "../Dropdown";
+import { FolderPicker } from "./FolderPicker";
 import type { ProjectDetail, ProjectSummary, ProjectsCapabilities, RestartPolicy, RunKind } from "../../types";
 import * as S from "./styles";
 import { EnvEditor, envDraftFrom, type EnvDraftRow } from "./EnvEditor";
@@ -166,7 +167,7 @@ function runKindOptions(capabilities: ProjectsCapabilities): { value: string; la
   if (capabilities.compose) opts.push({ value: "compose", label: "Docker Compose" });
   if (capabilities.systemd) opts.push({ value: "systemd", label: "systemd service" });
   if (capabilities.docker) {
-    opts.push({ value: "docker-attach", label: "Attach existing container" });
+    opts.push({ value: "docker-attach", label: "Docker, by container name" });
   }
   return opts;
 }
@@ -183,6 +184,7 @@ export function WorkerConfig({
   disabled?: boolean;
 }) {
   const [advanced, setAdvanced] = useState(false);
+  const [browseWorkDir, setBrowseWorkDir] = useState(false);
   const attach = draft.runKind === "docker" && !draft.managed;
   const kindValue: string = attach ? "docker-attach" : draft.runKind;
   const managedDocker = draft.runKind === "docker" && draft.managed;
@@ -210,7 +212,8 @@ export function WorkerConfig({
             variant="underline"
           />
           <S.FieldHint>
-            Default is Docker when Docker is available, otherwise a native process Beacon starts itself.
+            Default is Docker when Docker is available, otherwise a native process Beacon starts
+            itself. Every field below is optional — Beacon fills in what you leave blank.
           </S.FieldHint>
         </S.Field>
         {managedDocker && (
@@ -221,10 +224,12 @@ export function WorkerConfig({
                 value={draft.image}
                 disabled={disabled}
                 onChange={(e) => onChange({ image: e.target.value })}
-                placeholder="node:22-alpine"
-                required={!draft.dockerfile.trim()}
+                placeholder="auto — from your project files"
               />
-              <S.FieldHint>Leave blank if you build from a Dockerfile.</S.FieldHint>
+              <S.FieldHint>
+                Leave blank and Beacon picks one: a Dockerfile in the folder is built, otherwise the
+                image matches what it finds (package.json, requirements.txt, go.mod…).
+              </S.FieldHint>
             </S.Field>
             <S.Field>
               Dockerfile
@@ -238,17 +243,30 @@ export function WorkerConfig({
           </S.FieldPair>
         )}
         {attach && (
-          <S.Field>
-            Existing container
-            <input
-              value={draft.container}
-              disabled={disabled}
-              onChange={(e) => onChange({ container: e.target.value })}
-              placeholder="my-worker"
-              required
-            />
-            <S.FieldHint>Beacon watches and restarts this container but never deletes it.</S.FieldHint>
-          </S.Field>
+          <>
+            <S.Field>
+              Container name
+              <input
+                value={draft.container}
+                disabled={disabled}
+                onChange={(e) => onChange({ container: e.target.value })}
+                placeholder="auto — beacon-w-&lt;id&gt;"
+              />
+              <S.FieldHint>
+                If a container with this name already exists, Beacon starts and watches it. If it
+                does not, Beacon creates it and takes ownership.
+              </S.FieldHint>
+            </S.Field>
+            <S.Field>
+              Image (only used if Beacon has to create it)
+              <input
+                value={draft.image}
+                disabled={disabled}
+                onChange={(e) => onChange({ image: e.target.value })}
+                placeholder="auto — from your project files"
+              />
+            </S.Field>
+          </>
         )}
         {draft.runKind === "compose" && (
           <S.Field>
@@ -272,14 +290,14 @@ export function WorkerConfig({
             />
           </S.Field>
         )}
-        {(draft.runKind === "process" || draft.runKind === "systemd" || managedDocker) && (
+        {(draft.runKind === "process" || draft.runKind === "systemd" || draft.runKind === "docker") && (
           <S.Field>
             Start command
             <input
               value={draft.startCommand}
               disabled={disabled}
               onChange={(e) => onChange({ startCommand: e.target.value })}
-              placeholder={managedDocker ? "optional — image default" : "node worker.js"}
+              placeholder={draft.runKind === "docker" ? "optional — image default" : "node worker.js"}
               required={draft.runKind === "process"}
             />
           </S.Field>
@@ -329,15 +347,48 @@ export function WorkerConfig({
         <>
           <S.FormSection $flush>
             <S.FormSectionTitle>Resources</S.FormSectionTitle>
-            <S.Field>
-              Working directory
-              <input
-                value={draft.workDir}
-                disabled={disabled}
-                onChange={(e) => onChange({ workDir: e.target.value })}
-                placeholder="project folder by default"
+            {draft.runKind === "compose" ? null : draft.runKind === "docker" ? (
+              <S.Field>
+                Working directory (inside the container)
+                <input
+                  value={draft.workDir}
+                  disabled={disabled}
+                  onChange={(e) => onChange({ workDir: e.target.value })}
+                  placeholder="image default, usually /app"
+                />
+                <S.FieldHint>
+                  A path in the container's own filesystem, not a folder on this machine.
+                </S.FieldHint>
+              </S.Field>
+            ) : (
+              <S.Field>
+                Working directory (on this machine)
+                <S.PathRow>
+                  <input
+                    value={draft.workDir}
+                    disabled={disabled}
+                    onChange={(e) => onChange({ workDir: e.target.value })}
+                    placeholder="project folder by default"
+                  />
+                  <S.Btn type="button" disabled={disabled} onClick={() => setBrowseWorkDir(true)}>
+                    Browse
+                  </S.Btn>
+                </S.PathRow>
+                <S.FieldHint>
+                  Where the start command runs. Blank uses the project folder.
+                </S.FieldHint>
+              </S.Field>
+            )}
+            {browseWorkDir && (
+              <FolderPicker
+                initialPath={draft.workDir.trim()}
+                onClose={() => setBrowseWorkDir(false)}
+                onPick={(next) => {
+                  onChange({ workDir: next });
+                  setBrowseWorkDir(false);
+                }}
               />
-            </S.Field>
+            )}
             {managedDocker && draft.dockerfile.trim() && (
               <S.Field>
                 Build context

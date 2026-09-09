@@ -268,6 +268,52 @@ export const ChartCardRoot = styled(CardRoot)`
   }
 `;
 
+/* ---- Empty chart card ---------------------------------------------------- */
+// Same frame as a real chart so a metric with no samples still reads as a
+// panel instead of a bare line of text.
+export const ChartEmptyRoot = styled(ChartCardRoot)`
+  display: flex;
+  flex-direction: column;
+`;
+
+export const ChartEmptyBody = styled.div`
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 18px 14px;
+  text-align: center;
+  border: 1px dashed ${({ theme }) => theme.color.hairline};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: color-mix(in srgb, ${({ theme }) => theme.color.panel2} 55%, transparent);
+`;
+
+export const ChartEmptyIcon = styled.span`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: ${({ theme }) => theme.color.accent};
+  background: color-mix(in srgb, ${({ theme }) => theme.color.accent} 12%, transparent);
+`;
+
+export const ChartEmptyText = styled.span`
+  font-size: 13px;
+  color: ${({ theme }) => theme.color.text};
+`;
+
+export const ChartEmptyHint = styled.span`
+  max-width: 42ch;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
 export const ChartCardHead = styled.div`
   display: flex;
   align-items: flex-start;

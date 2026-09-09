@@ -2,6 +2,7 @@ import { promises as fsp, existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import si from "systeminformation";
+import type { Role } from "./auth.js";
 import { resolveOsUser } from "./osUser.js";
 import {
   isNetworkShareRoot,
@@ -10,7 +11,7 @@ import {
   pathsEqual,
 } from "./shares.js";
 import { isInTrash, trashCount, trashPath } from "./trash.js";
-import { TRASH_DIR } from "./paths.js";
+import { DATA_DIR, isPathInside, TRASH_DIR } from "./paths.js";
 
 export interface FsEntry {
   name: string;
@@ -179,8 +180,56 @@ function round(n: number | null | undefined): number {
   return Math.round(n * 10) / 10;
 }
 
-export async function listDirectory(input: string): Promise<DirListing> {
-  const dir = normalizeInput(input);
+function pathsInside(parent: string, child: string): boolean {
+  if (process.platform === "win32") {
+    return isPathInside(parent.toLowerCase(), child.toLowerCase());
+  }
+  return isPathInside(parent, child);
+}
+
+async function realOrResolved(p: string): Promise<string> {
+  try {
+    return await fsp.realpath(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/** True when a path is Beacon data, share creds, or an SSH directory. */
+export async function isSensitiveFsPath(target: string): Promise<boolean> {
+  const resolved = path.resolve(target);
+  const real = await realOrResolved(resolved);
+  const osUser = await resolveOsUser();
+  const blocked = [
+    DATA_DIR,
+    path.join(os.homedir(), ".ssh"),
+    path.join(osUser.home || os.homedir(), ".ssh"),
+  ];
+  for (const root of blocked) {
+    const rootAbs = path.resolve(root);
+    const rootReal = await realOrResolved(rootAbs);
+    if (
+      pathsInside(rootAbs, resolved) ||
+      pathsInside(rootReal, real) ||
+      pathsInside(rootAbs, real) ||
+      pathsInside(rootReal, resolved)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function assertFsReadable(input: string, role: Role): Promise<string> {
+  const p = normalizeInput(input);
+  if (role === "viewer" && (await isSensitiveFsPath(p))) {
+    throw new HttpError(403, "permission denied");
+  }
+  return p;
+}
+
+export async function listDirectory(input: string, role: Role = "admin"): Promise<DirListing> {
+  const dir = await assertFsReadable(input, role);
 
   let dirents;
   try {
@@ -239,9 +288,10 @@ export async function listDirectory(input: string): Promise<DirListing> {
  */
 export async function directorySize(
   input: string,
-  shouldAbort: () => boolean
+  shouldAbort: () => boolean,
+  role: Role = "admin"
 ): Promise<{ bytes: number; partial: boolean }> {
-  const dir = normalizeInput(input);
+  const dir = await assertFsReadable(input, role);
   let total = 0;
   let partial = false;
 
@@ -536,9 +586,10 @@ export async function scanUsageTree(
   opts: {
     shouldAbort: () => boolean;
     onProgress?: (progress: UsageProgress) => void;
+    role?: Role;
   }
 ): Promise<UsageTree> {
-  const dir = normalizeInput(input);
+  const dir = await assertFsReadable(input, opts.role ?? "admin");
   await assertDirectory(dir);
 
   const started = Date.now();
@@ -662,8 +713,8 @@ export async function scanUsageTree(
 }
 
 /** Validates a path points to a readable file and returns its absolute path. */
-export async function resolveFile(input: string): Promise<string> {
-  const file = normalizeInput(input);
+export async function resolveFile(input: string, role: Role = "admin"): Promise<string> {
+  const file = await assertFsReadable(input, role);
   let st;
   try {
     st = await fsp.stat(file);
@@ -682,9 +733,10 @@ const MAX_EDIT_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /** Reads a (text) file for editing, rejecting directories, huge, or binary files. */
 export async function readTextFile(
-  input: string
+  input: string,
+  role: Role = "admin"
 ): Promise<{ path: string; content: string }> {
-  const file = normalizeInput(input);
+  const file = await assertFsReadable(input, role);
   let st;
   try {
     st = await fsp.stat(file);

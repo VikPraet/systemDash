@@ -41,7 +41,7 @@ if [[ "$REQUESTED" == "latest" ]]; then
   if curl_api "releases/latest" >"$TMP/release.json"; then
     TAG="$(node -e "console.log(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).tag_name)" "$TMP/release.json")"
   else
-    # No stable Latest (all tags are pre-releases) — pick the newest published release.
+    # No GitHub Latest (only pre-releases so far) — pick the newest published release.
     curl_api "releases?per_page=20" >"$TMP/releases.json"
     TAG="$(node -e "
       const list = JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'));

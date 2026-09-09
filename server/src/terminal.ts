@@ -1,15 +1,16 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import * as pty from "node-pty";
 import os from "node:os";
-import type { Server, IncomingMessage } from "node:http";
-import {
-  parseCookies,
-  userForToken,
-  recordAudit,
-  SESSION_COOKIE,
-  type User,
-} from "./auth.js";
+import type { Server } from "node:http";
+import { recordAudit, type User } from "./auth.js";
+import { clientIp } from "./clientAddress.js";
 import { resolveOsUser, type ResolvedOsUser } from "./osUser.js";
+import {
+  authenticateSocket,
+  requireOperator,
+  socketSessionToken,
+  watchAuthorizedSocket,
+} from "./wsAuth.js";
 
 // We stream a real pseudo-terminal (PTY) over a WebSocket. Because the shell
 // runs attached to a TTY, it behaves exactly like a native terminal: it does
@@ -39,6 +40,7 @@ type ClientMessage = InputMessage | ResizeMessage | HelloMessage;
 interface SessionContext {
   user: User;
   ip: string;
+  token: string;
 }
 
 function shellCommand(osUser: ResolvedOsUser): {
@@ -116,6 +118,25 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
     return;
   }
 
+  const killPty = () => {
+    try {
+      child.kill();
+    } catch {
+      // already gone
+    }
+  };
+
+  let bannerFallback: ReturnType<typeof setTimeout> | undefined;
+  const watch = watchAuthorizedSocket({
+    token: ctx.token,
+    userId: ctx.user.id,
+    ws,
+    onRevoked: () => {
+      if (bannerFallback) clearTimeout(bannerFallback);
+      killPty();
+    },
+  });
+
   child.onData((d) => send(d));
   child.onExit(({ exitCode }) => {
     send(`\r\n[process exited with code ${exitCode}]\r\n`);
@@ -132,7 +153,7 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
   };
   // Old clients never send hello; still greet them after a beat.
   let helloReceived = false;
-  const bannerFallback = setTimeout(() => {
+  bannerFallback = setTimeout(() => {
     if (!helloReceived) sendBanner();
   }, 250);
 
@@ -150,6 +171,7 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
       return;
     }
     if (msg.type === "input" && typeof msg.data === "string") {
+      if (!watch.ensureAuthorized()) return;
       tracker.feed(msg.data, (command) => {
         recordAudit({
           userId: ctx.user.id,
@@ -169,6 +191,7 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
       Number.isFinite(msg.cols) &&
       Number.isFinite(msg.rows)
     ) {
+      if (!watch.ensureAuthorized()) return;
       try {
         child.resize(
           Math.max(1, Math.trunc(msg.cols)),
@@ -197,12 +220,6 @@ async function startSession(ws: WebSocket, ctx: SessionContext): Promise<void> {
   });
 }
 
-/** Validates the session cookie on an upgrade request; returns the user or null. */
-function authenticateUpgrade(req: IncomingMessage): User | null {
-  const cookies = parseCookies(req.headers.cookie);
-  return userForToken(cookies[SESSION_COOKIE]);
-}
-
 /**
  * Attaches the terminal WebSocket endpoint at /api/terminal to an HTTP server.
  *
@@ -219,23 +236,20 @@ export function attachTerminal(server: Server): void {
     const pathname = url.split("?")[0];
     if (pathname !== "/api/terminal") return;
 
-    const user = authenticateUpgrade(req);
-    if (!user) {
+    const token = socketSessionToken(req);
+    const user = authenticateSocket(req);
+    if (!user || !token) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
     }
-    if (user.role !== "user" && user.role !== "admin") {
+    if (!requireOperator(user)) {
       socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
     }
 
-    const fwd = req.headers["x-forwarded-for"];
-    const ip =
-      (typeof fwd === "string" && fwd.split(",")[0].trim()) ||
-      req.socket.remoteAddress ||
-      "";
+    const ip = clientIp(req);
     recordAudit({
       userId: user.id,
       username: user.username,
@@ -246,7 +260,7 @@ export function attachTerminal(server: Server): void {
     });
 
     wss.handleUpgrade(req, socket, head, (ws) => {
-      void startSession(ws, { user, ip });
+      void startSession(ws, { user, ip, token });
     });
   });
 }

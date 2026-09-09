@@ -6,6 +6,7 @@ import path from "node:path";
 import { ProjectsError, projectsDataDir, type ProjectSummary } from "./projects.js";
 import { dockerBinPath } from "./docker.js";
 import { APP_NAME } from "./brand.js";
+import { mergeProjectEnv } from "./projectEnv.js";
 
 const SYSTEMD_TIMEOUT_MS = 60_000;
 const COMPOSE_TIMEOUT_MS = 20 * 60_000;
@@ -63,19 +64,18 @@ export async function publishFolder(
 function spawnLogged(
   file: string,
   args: string[],
-  opts: { cwd?: string; timeout?: number },
+  opts: { cwd?: string; timeout?: number; env?: NodeJS.ProcessEnv },
   onChunk: (text: string) => void
 ): Promise<void> {
   const timeout = opts.timeout ?? SYSTEMD_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd: opts.cwd,
-      env: {
-        ...process.env,
+      env: opts.env ?? mergeProjectEnv({
         FORCE_COLOR: process.env.FORCE_COLOR || "1",
         CLICOLOR_FORCE: "1",
         TERM: process.env.TERM && process.env.TERM !== "dumb" ? process.env.TERM : "xterm-256color",
-      },
+      }),
       windowsHide: true,
     });
     let log = "";
@@ -114,7 +114,8 @@ function spawnLogged(
 export function composeUp(
   localPath: string,
   composeFile: string,
-  onChunk: (text: string) => void
+  onChunk: (text: string) => void,
+  projectEnv?: Record<string, string>
 ): Promise<void> {
   const file = resolveUnderProject(localPath, composeFile);
   if (!fs.existsSync(file)) {
@@ -124,7 +125,16 @@ export function composeUp(
   return spawnLogged(
     dockerBinPath(),
     ["compose", "-f", file, "up", "-d"],
-    { cwd: localPath, timeout: COMPOSE_TIMEOUT_MS },
+    {
+      cwd: localPath,
+      timeout: COMPOSE_TIMEOUT_MS,
+      env: mergeProjectEnv({
+        ...projectEnv,
+        FORCE_COLOR: process.env.FORCE_COLOR || "1",
+        CLICOLOR_FORCE: "1",
+        TERM: process.env.TERM && process.env.TERM !== "dumb" ? process.env.TERM : "xterm-256color",
+      }),
+    },
     onChunk
   );
 }
@@ -212,7 +222,7 @@ async function trySpawn(
   onChunk: (text: string) => void
 ): Promise<{ ok: boolean; log: string }> {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { env: process.env, windowsHide: true });
+    const child = spawn(file, args, { env: mergeProjectEnv(), windowsHide: true });
     let log = "";
     const append = (buf: Buffer) => {
       const text = buf.toString();

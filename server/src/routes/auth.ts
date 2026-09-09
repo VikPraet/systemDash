@@ -2,7 +2,6 @@ import { Router, type Request } from "express";
 import {
   AuthError,
   authenticate,
-  allowRecoveryAttempt,
   clearSessionCookie,
   clientIp,
   createSession,
@@ -15,19 +14,27 @@ import {
   recoverPassword,
   recoverUsername,
   RECOVERY_FAIL_MESSAGE,
-  recordRecoveryFailure,
   requireAuth,
   sessionCookie,
   SESSION_COOKIE,
   setUserRecovery,
 } from "../auth.js";
+import { isSecureRequest } from "../clientAddress.js";
+import {
+  AUTH_LOCKED_MESSAGE,
+  clearAuthFailures,
+  gateAuthAttempt,
+  loginKeys,
+  recordAuthFailure,
+  recoveryPasswordKeys,
+  recoveryUsernameKeys,
+} from "../authThrottle.js";
 import { releaseLayoutLock } from "../dashboardLock.js";
 
 export const authRouter = Router();
 
-/** Whether the connection is HTTPS (directly or via a trusting proxy). */
 function isSecure(req: Request): boolean {
-  return req.secure || req.headers["x-forwarded-proto"] === "https";
+  return isSecureRequest(req);
 }
 
 function sessionMeta(req: Request) {
@@ -80,22 +87,30 @@ authRouter.post("/setup", (req, res) => {
   }
 });
 
-authRouter.post("/login", (req, res) => {
+authRouter.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body ?? {};
     const attempted = String(username ?? "");
+    const ip = clientIp(req);
+    const keys = loginKeys(ip, attempted);
+    if ((await gateAuthAttempt(keys)) === "locked") {
+      res.status(429).json({ error: AUTH_LOCKED_MESSAGE });
+      return;
+    }
     const user = authenticate(attempted, String(password ?? ""));
     if (!user) {
+      recordAuthFailure(keys);
       recordAudit({
         username: attempted || null,
         action: "auth.login_failed",
         detail: "invalid username or password",
         status: 401,
-        ip: clientIp(req),
+        ip,
       });
       res.status(401).json({ error: "invalid username or password" });
       return;
     }
+    clearAuthFailures(keys);
     const { token, expiresAt } = createSession(user.id, sessionMeta(req));
     res.setHeader("Set-Cookie", sessionCookie(token, expiresAt, isSecure(req)));
     recordAudit({
@@ -103,7 +118,7 @@ authRouter.post("/login", (req, res) => {
       username: user.username,
       action: "auth.login",
       status: 200,
-      ip: clientIp(req),
+      ip,
     });
     res.json({ user });
   } catch (err) {
@@ -138,16 +153,17 @@ authRouter.get("/me", (req, res) => {
   res.json({ user });
 });
 
-authRouter.post("/recover/username", (req, res) => {
+authRouter.post("/recover/username", async (req, res) => {
   const ip = clientIp(req);
-  if (!allowRecoveryAttempt(ip)) {
-    res.status(429).json({ error: "too many attempts, try again later" });
+  const { question, answer } = req.body ?? {};
+  const keys = recoveryUsernameKeys(ip, String(question ?? ""));
+  if ((await gateAuthAttempt(keys)) === "locked") {
+    res.status(429).json({ error: AUTH_LOCKED_MESSAGE });
     return;
   }
-  const { question, answer } = req.body ?? {};
   const username = recoverUsername(String(question ?? ""), String(answer ?? ""));
   if (!username) {
-    recordRecoveryFailure(ip);
+    recordAuthFailure(keys);
     recordAudit({
       action: "auth.recover_username_failed",
       detail: "recovery details did not match",
@@ -157,6 +173,7 @@ authRouter.post("/recover/username", (req, res) => {
     res.status(401).json({ error: RECOVERY_FAIL_MESSAGE });
     return;
   }
+  clearAuthFailures(keys);
   recordAudit({
     username,
     action: "auth.recover_username",
@@ -166,18 +183,19 @@ authRouter.post("/recover/username", (req, res) => {
   res.json({ username });
 });
 
-authRouter.post("/recover/password", (req, res) => {
+authRouter.post("/recover/password", async (req, res) => {
   const ip = clientIp(req);
-  if (!allowRecoveryAttempt(ip)) {
-    res.status(429).json({ error: "too many attempts, try again later" });
-    return;
-  }
   try {
     const { username, answer, password } = req.body ?? {};
     const attempted = String(username ?? "");
+    const keys = recoveryPasswordKeys(ip, attempted);
+    if ((await gateAuthAttempt(keys)) === "locked") {
+      res.status(429).json({ error: AUTH_LOCKED_MESSAGE });
+      return;
+    }
     const ok = recoverPassword(attempted, String(answer ?? ""), String(password ?? ""));
     if (!ok) {
-      recordRecoveryFailure(ip);
+      recordAuthFailure(keys);
       recordAudit({
         username: attempted || null,
         action: "auth.recover_password_failed",
@@ -188,6 +206,7 @@ authRouter.post("/recover/password", (req, res) => {
       res.status(401).json({ error: RECOVERY_FAIL_MESSAGE });
       return;
     }
+    clearAuthFailures(keys);
     recordAudit({
       username: attempted,
       action: "auth.recover_password",

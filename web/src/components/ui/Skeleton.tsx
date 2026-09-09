@@ -340,6 +340,23 @@ function bodyFor(kind: string): ReactNode {
       </Stack>
     );
   }
+  if (kind === "users") {
+    return (
+      <Stack $gap={12}>
+        <Bone $w="42%" $h={8} />
+        {["36%", "28%", "44%"].map((w) => (
+          <Stack $gap={6} key={w}>
+            <Row>
+              <Bone $w="8px" $h={8} $r="50%" />
+              <Bone $w={w} $h={10} />
+              <Bone $w="48px" $h={8} style={{ marginLeft: "auto" }} />
+            </Row>
+            <Bone $w="62%" $h={8} />
+          </Stack>
+        ))}
+      </Stack>
+    );
+  }
   if (kind === "chart" || kind.startsWith("chart:")) {
     return <ChartSkeleton />;
   }

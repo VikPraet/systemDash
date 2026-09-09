@@ -71,6 +71,9 @@ WorkingDirectory=/opt/systemdash/current
 Environment=NODE_ENV=production
 Environment=PORT=3001
 # Environment=SYSTEMDASH_DATA_DIR=/opt/systemdash/data
+# Reverse proxies (including cloudflared) usually connect from localhost, which
+# is always trusted. Set this only if a proxy talks to Beacon from another IP:
+# Environment=SYSTEMDASH_TRUSTED_PROXIES=10.0.0.1,10.0.0.0/8
 ExecStart=/usr/bin/node server/dist/index.js
 Restart=on-failure
 RestartSec=5
@@ -86,6 +89,11 @@ sudo systemctl enable --now systemdash
 
 Data (users, settings, history) lives in `~/.systemdash/` by default, or
 `SYSTEMDASH_DATA_DIR` — **outside** the release folder, so upgrades don't wipe it.
+
+`SYSTEMDASH_TRUSTED_PROXIES` is a comma-separated list of extra proxy IPs or IPv4
+CIDRs. Beacon always trusts loopback (`127.0.0.1` / `::1`) so Cloudflare Tunnel
+to `127.0.0.1:3001` keeps using `X-Forwarded-For` / `X-Forwarded-Proto`. Direct
+clients cannot spoof those headers.
 
 ### Run as a normal user (recommended)
 
@@ -132,27 +140,28 @@ symlink and restart).
 ## Publishing a release (maintainer)
 
 1. Bump `version` in root `package.json` (and keep server/web in sync if needed).
-2. Add `docs/releases/vX.Y.Z-beta.md`.
+2. Add `docs/releases/vX.Y.Z.md` (or `vX.Y.Z-beta.md` for an experiment).
 3. Commit, tag, push:
 
    ```bash
-   git tag v0.4.0-beta
+   git tag v0.4.3
    git push origin dev --tags
    ```
 
-   Stay on **beta** until 1.0. Small tries are a patch plus `-beta` (`v0.2.1-beta`,
-   `v0.2.2-beta`). A larger product change (rename, new major surfaces) is a minor
+   Tags with `-beta` are experiments (GitHub pre-release). Tags without `-beta`
+   are the recommended install (GitHub Latest). Security and hardening land on
+   the latter so `latest` and in-app Updates pick them up. Small feature tries
+   are a patch plus `-beta` (`v0.4.2-beta`). A larger product change is a minor
    bump (`v0.3.0-beta`). Do not stack `beta.1`, `beta.2` on the same version.
-   Every GitHub Release is a **pre-release** until there is a real 1.0. There is no
-   stable Latest. Install a tag, or `latest` (newest pre-release):
 
    ```bash
-   bash install-release.sh YOUR_ORG/systemDash v0.4.0-beta
+   bash install-release.sh YOUR_ORG/systemDash v0.4.3
    bash install-release.sh YOUR_ORG/systemDash latest
    ```
 
 4. GitHub Actions (`.github/workflows/release.yml`) builds
-   `systemdash-0.4.0-beta-linux-x64.tar.gz` and attaches it to the Release.
+   `systemdash-0.4.3-linux-x64.tar.gz` and attaches it to the Release. `-beta` tags
+   stay marked prerelease.
 
 Test the package locally before tagging:
 

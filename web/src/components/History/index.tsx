@@ -8,11 +8,14 @@ import {
 } from "../../api";
 import { cache } from "../../cache";
 import type { HistorySettings, HistoryStats, Settings } from "../../types";
-import { Bar, Stat } from "../widgets";
+import { Bar, ChartEmptyCard, Stat } from "../widgets";
 import { useAuth, hasRole } from "../../auth/AuthContext";
 import { ModalBtn } from "../ui/styles";
+import { WidgetSkeleton } from "../ui/Skeleton";
 import { CardTitle } from "../widgets/styles";
-import { DashboardGrid } from "../dashboard/DashboardGrid";
+import { DashboardGrid, type DashboardItem } from "../dashboard/DashboardGrid";
+import { humanizePanelId, widgetById } from "../dashboard/catalog";
+import { useDashboardLayout } from "../../theme/DashboardContext";
 import { packDefaults } from "../dashboard/grid";
 import { HISTORY_RANGES, useHistoryFeed } from "./useHistoryFeed";
 import { buildHistoryCharts, formatResolution, makeTimeFmt } from "./charts";
@@ -21,6 +24,7 @@ import * as S from "./styles";
 export function History() {
   const { user } = useAuth();
   const canWrite = hasRole(user, "user");
+  const { layouts } = useDashboardLayout();
   const { rangeId, range, selectRange, data, stats, snap, error, refreshStats } =
     useHistoryFeed(true);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
@@ -45,10 +49,48 @@ export function History() {
     [data, snap, timeFmt]
   );
   const fullscreenChart = fullscreenId ? charts.find((c) => c.id === fullscreenId) : null;
+  const loading = !data && !error;
+  const gpuCount = snap?.gpus.length ?? data?.gpus.length ?? 0;
+
+  // Charts the saved layout still holds but that produced no series this load —
+  // kept on screen as placeholder cards so panels never silently disappear.
+  const placeholderIds = (layouts.history ?? [])
+    .map((item) => item.id)
+    .filter((id) => !charts.some((c) => c.id === id));
+
   const chartDefaults = packDefaults(
-    charts.map((c) => c.id),
+    [...charts.map((c) => c.id), ...placeholderIds],
     { x: 0, y: 0, w: 6, h: 4 }
   );
+
+  const gridItems: DashboardItem[] = [
+    ...charts.map((c) => ({
+      id: c.id,
+      label: c.label,
+      minW: 4,
+      minH: 3,
+      default: chartDefaults[c.id] ?? { x: 0, y: 0, w: 6, h: 4 },
+      node: loading ? <WidgetSkeleton kind="chart" label={c.label} /> : c.render(false),
+    })),
+    ...placeholderIds.map((id) => {
+      const label = widgetById("history", id, gpuCount)?.label ?? humanizePanelId(id);
+      return {
+        id,
+        label,
+        minW: 4,
+        minH: 3,
+        default: chartDefaults[id] ?? { x: 0, y: 0, w: 6, h: 4 },
+        node: loading ? (
+          <WidgetSkeleton kind="chart" label={label} />
+        ) : (
+          <ChartEmptyCard
+            title={label}
+            hint="Either recording is off, or this machine doesn't report this metric."
+          />
+        ),
+      };
+    }),
+  ];
 
   return (
     <S.HistoryRoot>
@@ -91,21 +133,9 @@ export function History() {
         </S.HistoryNotice>
       )}
 
-      {charts.length > 0 && (
-        <DashboardGrid
-          pageId="history"
-          items={charts.map((c) => ({
-            id: c.id,
-            label: c.label,
-            minW: 4,
-            minH: 3,
-            default: chartDefaults[c.id] ?? { x: 0, y: 0, w: 6, h: 4 },
-            node: c.render(false),
-          }))}
-        />
-      )}
+      {gridItems.length > 0 && <DashboardGrid pageId="history" items={gridItems} />}
 
-      {charts.length === 0 && (
+      {gridItems.length === 0 && (
         <S.HistoryNotice>No charts to show yet.</S.HistoryNotice>
       )}
 

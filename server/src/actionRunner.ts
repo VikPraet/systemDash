@@ -10,6 +10,7 @@ import {
   projectHasGit,
   projectHasFolder,
   writeWorkerEnvFile,
+  envMapForRuntime,
   type ActionRun,
   type ActionStep,
   type ProjectSummary,
@@ -25,6 +26,7 @@ import {
 } from "./docker.js";
 import { applySystemdUnit, composeUp, publishFolder, runSystemctl } from "./siteDeploy.js";
 import { reconcileWorker } from "./workers.js";
+import { mergeProjectEnv } from "./projectEnv.js";
 
 export interface ActionJob {
   running: boolean;
@@ -156,7 +158,8 @@ export function projectsCapabilities(): {
 function runCommand(
   cwd: string,
   command: string,
-  onChunk: (text: string) => void
+  onChunk: (text: string) => void,
+  projectId: number
 ): Promise<void> {
   const isWin = process.platform === "win32";
   const file = isWin ? process.env.ComSpec || "cmd.exe" : "/bin/bash";
@@ -164,13 +167,13 @@ function runCommand(
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       cwd,
-      env: {
-        ...process.env,
+      env: mergeProjectEnv({
+        ...envMapForRuntime(projectId),
         FORCE_COLOR: process.env.FORCE_COLOR || "1",
         CLICOLOR_FORCE: "1",
         npm_config_color: "always",
         TERM: process.env.TERM && process.env.TERM !== "dumb" ? process.env.TERM : "xterm-256color",
-      },
+      }),
       windowsHide: true,
     });
     let log = "";
@@ -230,7 +233,7 @@ async function runStep(
       if (!projectHasFolder(project)) {
         throw new ProjectsError(400, "this project has no folder to run commands in");
       }
-      await runCommand(localPath, step.command, onChunk);
+      await runCommand(localPath, step.command, onChunk, project.id);
       return;
     case "docker_restart":
       if (!step.container) throw new ProjectsError(400, "container is empty");
@@ -247,7 +250,7 @@ async function runStep(
       return;
     case "docker_ensure": {
       const name = step.container || project.container;
-      if (project.managed) {
+      if (project.managed || (project.serviceKind === "worker" && project.runKind === "docker")) {
         await reconcileWorker(project.id, onChunk);
         appendLog(job, "Managed container applied.\n");
         return;
@@ -271,7 +274,7 @@ async function runStep(
         throw new ProjectsError(400, "Compose needs a project folder");
       }
       const file = step.source || project.composeFile || "compose.yaml";
-      await composeUp(localPath, file, onChunk);
+      await composeUp(localPath, file, onChunk, envMapForRuntime(project.id));
       return;
     }
     case "systemd_restart":

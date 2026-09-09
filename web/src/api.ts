@@ -360,6 +360,17 @@ export async function deleteThemeApi(id: string): Promise<void> {
   }
 }
 
+export async function fetchHealth(
+  signal?: AbortSignal
+): Promise<{ ok: boolean; version: string | null }> {
+  const res = await fetch("/api/health", { signal });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+  const data = (await res.json()) as { ok?: boolean; version?: string };
+  return { ok: data.ok !== false, version: data.version ?? null };
+}
+
 export async function fetchSnapshot(signal?: AbortSignal): Promise<SystemSnapshot> {
   const res = await fetch("/api/system", { signal });
   if (!res.ok) {

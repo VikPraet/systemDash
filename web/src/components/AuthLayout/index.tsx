@@ -29,6 +29,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
   const paneKey = children ? "nested" : location.pathname;
   const [unreachable, setUnreachable] = useState(false);
   const reconnect = useReconnectGate(unreachable);
+  const loadedVersion = useRef<string | null>(null);
 
   useEffect(() => {
     prevPath.current = location.pathname;
@@ -50,6 +51,17 @@ export function AuthLayout({ children }: AuthLayoutProps) {
         downRef.current = !res.ok;
         setUnreachable(!res.ok);
         applyConnectionFavicon(res.ok ? "idle" : "bad");
+        if (res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { version?: string };
+          if (body.version) {
+            // An update restarted the host under us; pick up the new build.
+            if (loadedVersion.current && body.version !== loadedVersion.current) {
+              window.location.reload();
+              return;
+            }
+            loadedVersion.current = body.version;
+          }
+        }
       } catch {
         if (cancelled) return;
         downRef.current = true;

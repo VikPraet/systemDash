@@ -870,12 +870,6 @@ export function validateProjectShape(p: {
     if (p.runKind === "compose" && !folder) {
       throw new ProjectsError(400, "Compose needs a folder for the compose file");
     }
-    if (p.runKind === "docker" && !p.managed && !p.container) {
-      throw new ProjectsError(400, "container name is required, or turn on managed Docker");
-    }
-    if (p.runKind === "docker" && p.managed && !p.image && !p.dockerfile) {
-      throw new ProjectsError(400, "managed Docker needs an image or a Dockerfile");
-    }
     if (p.runKind === "process" && !p.startCommand) {
       throw new ProjectsError(400, "a start command is required for a native worker");
     }
@@ -1347,7 +1341,7 @@ export function insertProject(input: {
       input.autodeployIntervalS ?? 300
     );
   const id = Number(info.lastInsertRowid);
-  if (serviceKind === "worker" && runKind === "docker" && managed && !input.container) {
+  if (serviceKind === "worker" && runKind === "docker" && !input.container) {
     projectsDb()
       .prepare("UPDATE projects SET container = ? WHERE id = ?")
       .run(`beacon-w-${id}`, id);

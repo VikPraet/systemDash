@@ -1,6 +1,6 @@
 {
   "name": "systemdash",
-  "version": "0.4.2-beta",
+  "version": "0.4.3",
   "private": true,
   "description": "Beacon — self-hosted host console. Live stats, customizable dashboard, themes, files, terminal, containers, and deploys.",
   "workspaces": [

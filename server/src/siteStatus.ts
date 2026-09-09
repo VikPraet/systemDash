@@ -210,7 +210,14 @@ async function runtimeFor(project: ProjectSummary): Promise<RuntimeStatus> {
       try {
         const found = await findContainer(project.container);
         if (!found) {
-          return { kind: "docker", state: "missing", detail: `${project.container} not found` };
+          return {
+            kind: "docker",
+            state: "missing",
+            detail:
+              project.serviceKind === "worker"
+                ? `${project.container} not created yet — Start creates it`
+                : `${project.container} not found`,
+          };
         }
         return {
           kind: "docker",

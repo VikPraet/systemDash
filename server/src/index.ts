@@ -52,12 +52,14 @@ import {
   recordAudit,
   clientIp,
 } from "./auth.js";
+import { trustProxyAddress } from "./clientAddress.js";
 import { authRouter } from "./routes/auth.js";
 import { usersRouter } from "./routes/users.js";
 import { activityRouter } from "./routes/activity.js";
 import { dockerRouter } from "./routes/docker.js";
 import { updatesRouter } from "./routes/updates.js";
 import { appUpdateRouter } from "./routes/appUpdate.js";
+import { currentAppVersion } from "./appUpdate.js";
 import { powerRouter } from "./routes/power.js";
 import { projectsRouter } from "./routes/projects.js";
 import { accessRouter } from "./routes/access.js";
@@ -74,16 +76,16 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
 
+export function createApp(): express.Express {
 const app = express();
-// We're behind a single host (and optionally a reverse proxy); trust the proxy
-// so req.secure / x-forwarded-proto are honoured for Secure cookies.
-app.set("trust proxy", true);
+// Honour X-Forwarded-* only from loopback / SYSTEMDASH_TRUSTED_PROXIES.
+app.set("trust proxy", trustProxyAddress);
 // Raise the body limit so the editor can save reasonably large text files.
 app.use(express.json({ limit: "8mb" }));
 
 // Health check stays public so uptime monitors work without credentials.
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, version: currentAppVersion() });
 });
 
 // Auth endpoints (status/setup/login/logout/me) must be reachable while logged
@@ -318,7 +320,7 @@ app.delete("/api/fs/shares/:id", requireRole("user"), async (req, res) => {
 
 app.get("/api/fs/list", async (req, res) => {
   try {
-    const listing = await listDirectory(String(req.query.path ?? ""));
+    const listing = await listDirectory(String(req.query.path ?? ""), req.user!.role);
     res.json(listing);
   } catch (err) {
     if (err instanceof HttpError) {
@@ -338,7 +340,8 @@ app.get("/api/fs/dirsize", async (req, res) => {
   try {
     const result = await directorySize(
       String(req.query.path ?? ""),
-      () => aborted
+      () => aborted,
+      req.user!.role
     );
     if (aborted) return;
     res.json(result);
@@ -372,6 +375,7 @@ app.get("/api/fs/usage", async (req, res) => {
     const result = await scanUsageTree(String(req.query.path ?? ""), {
       shouldAbort: () => aborted,
       onProgress: (progress) => write({ type: "progress", ...progress }),
+      role: req.user!.role,
     });
     if (aborted) return;
     write({ type: "done", ...result });
@@ -397,7 +401,7 @@ app.get("/api/fs/usage", async (req, res) => {
 app.get("/api/fs/read", async (req, res) => {
   const target = String(req.query.path ?? "");
   try {
-    const result = await readTextFile(target);
+    const result = await readTextFile(target, req.user!.role);
     recordAudit({
       userId: req.user?.id ?? null,
       username: req.user?.username ?? null,
@@ -424,7 +428,7 @@ app.post("/api/fs/write", requireRole("user"), async (req, res) => {
 app.get("/api/fs/download", async (req, res) => {
   const target = String(req.query.path ?? "");
   try {
-    const file = await resolveFile(target);
+    const file = await resolveFile(target, req.user!.role);
     recordAudit({
       userId: req.user?.id ?? null,
       username: req.user?.username ?? null,
@@ -603,8 +607,12 @@ app.post("/api/fs/delete", requireRole("user"), async (req, res) => {
   }
 });
 
-app.get("/api/fs/trash", async (_req, res) => {
+app.get("/api/fs/trash", async (req, res) => {
   try {
+    if (req.user?.role === "viewer") {
+      res.status(403).json({ error: "permission denied" });
+      return;
+    }
     res.json({ items: await listTrash() });
   } catch (err) {
     sendError(res, err, "failed to list trash");
@@ -714,9 +722,17 @@ if (fs.existsSync(webDist)) {
   });
 }
 
-const server = http.createServer(app);
-attachTerminal(server);
-attachWorkerLogs(server);
+  return app;
+}
+
+export function attachRealtime(server: http.Server): void {
+  attachTerminal(server);
+  attachWorkerLogs(server);
+}
+
+if (process.env.SYSTEMDASH_LISTEN !== "0") {
+const server = http.createServer(createApp());
+attachRealtime(server);
 startWorkerSupervisor();
 
 // Start the background metrics recorder before accepting requests so a 24/7
@@ -747,3 +763,4 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`${APP_NAME} server listening on http://localhost:${PORT}`);
 });
+}
