@@ -129,6 +129,21 @@ export function composeUp(
   );
 }
 
+export function composeDown(
+  localPath: string,
+  composeFile: string,
+  onChunk: (text: string) => void
+): Promise<void> {
+  const file = resolveUnderProject(localPath, composeFile);
+  onChunk(`docker compose -f ${composeFile} down -v\n`);
+  return spawnLogged(
+    dockerBinPath(),
+    ["compose", "-f", file, "down", "-v"],
+    { cwd: localPath, timeout: COMPOSE_TIMEOUT_MS },
+    onChunk
+  );
+}
+
 function needsSudo(): boolean {
   return (
     process.platform !== "win32" &&
@@ -149,18 +164,29 @@ export function renderSystemdUnit(project: ProjectSummary, startCommand: string)
   const exec = startCommand.trim().startsWith("/")
     ? startCommand.trim()
     : `/bin/bash -lc ${JSON.stringify(startCommand.trim())}`;
-  const restart = project.boot ? "always" : "no";
+  const restart =
+    project.restartPolicy === "no" ? "no" : project.restartPolicy === "on-failure" ? "on-failure" : "always";
   const desc = project.name.replace(/[\n\r]/g, " ").slice(0, 80);
+  const envFile = path.join(projectsDataDir(), "workers", String(project.id), "env");
+  const extras: string[] = [];
+  if (fs.existsSync(envFile)) extras.push(`EnvironmentFile=${envFile}`);
+  if (project.cpuLimit && project.cpuLimit > 0) {
+    extras.push(`CPUQuota=${Math.round(project.cpuLimit * 100)}%`);
+  }
+  if (project.memoryLimitMb && project.memoryLimitMb > 0) {
+    extras.push(`MemoryMax=${project.memoryLimitMb}M`);
+  }
+  const extraBlock = extras.length ? `${extras.join("\n")}\n` : "";
   return `[Unit]
 Description=${APP_NAME}: ${desc}
 After=network.target
 
 [Service]
 Type=simple
-${project.localPath ? `WorkingDirectory=${project.localPath}\n` : ""}ExecStart=${exec}
+${project.workDir || project.localPath ? `WorkingDirectory=${project.workDir || project.localPath}\n` : ""}ExecStart=${exec}
 Restart=${restart}
-RestartSec=3
-
+RestartSec=${Math.max(1, Math.round((project.restartBackoffMs || 3000) / 1000))}
+${extraBlock}
 [Install]
 WantedBy=multi-user.target
 `;

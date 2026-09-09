@@ -41,6 +41,8 @@ import {
 import { getSettings, saveSettings, initSettings, diffSettings, sanitizeOsUsername } from "./settings.js";
 import { queryHistory, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
+import { attachWorkerLogs } from "./workerLogs.js";
+import { startWorkerSupervisor } from "./workers.js";
 import { lookupOsUser } from "./osUser.js";
 import {
   requireAuth,
@@ -714,6 +716,8 @@ if (fs.existsSync(webDist)) {
 
 const server = http.createServer(app);
 attachTerminal(server);
+attachWorkerLogs(server);
+startWorkerSupervisor();
 
 // Start the background metrics recorder before accepting requests so a 24/7
 // server keeps collecting history even when no browser is connected.

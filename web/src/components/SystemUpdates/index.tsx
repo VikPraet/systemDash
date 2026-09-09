@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronRight,
+  CircleCheck,
+  Download,
+  PackageX,
+  RefreshCw,
+  Search as SearchIcon,
+  Text,
+  X,
+} from "lucide-react";
 import {
   fetchUpdatesJob,
   fetchUpdatesStatus,
   startSystemUpdates,
 } from "../../api";
 import type { PendingPackage, UpdateJob, UpdatesStatus } from "../../types";
+import { APP_NAME } from "../../brand";
 import { DangerBtn, GhostBtn, Loading } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
 import { AppUpdatePanel } from "./AppUpdatePanel";
@@ -30,6 +41,26 @@ function phaseLabel(phase: UpdateJob["phase"]): string {
 }
 
 export function SystemUpdates() {
+  return (
+    <S.Page>
+      <S.Head>
+        <S.HeadLeft>
+          <h2>Updates</h2>
+          <S.HeadSub>
+            Keep {APP_NAME} and this host&apos;s packages current, with a snapshot to
+            fall back on.
+          </S.HeadSub>
+        </S.HeadLeft>
+      </S.Head>
+
+      <AppUpdatePanel />
+      <PackagesCard />
+      <BackupPanel />
+    </S.Page>
+  );
+}
+
+function PackagesCard() {
   const [status, setStatus] = useState<UpdatesStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,166 +177,234 @@ export function SystemUpdates() {
     }
   }
 
-  if (loading && !status) {
-    return (
-      <S.Root>
-        <BackupPanel />
-        <Loading>Fetching package lists — this can take a minute…</Loading>
-      </S.Root>
-    );
-  }
-
-  if (error && !status) {
-    return (
-      <S.Root>
-        <BackupPanel />
-        <S.Banner $bad>{error}</S.Banner>
-        <S.Empty>
-          <GhostBtn type="button" onClick={() => void reload()}>
-            Retry
-          </GhostBtn>
-        </S.Empty>
-      </S.Root>
-    );
-  }
-
-  if (!status?.available) {
-    return (
-      <S.Root>
-        <BackupPanel />
-        <AppUpdatePanel />
-        <S.Banner $bad>{status?.hint ?? "Updates are not available on this platform."}</S.Banner>
-      </S.Root>
-    );
-  }
-
   const busy = job?.running ?? false;
-  const pending = status.pendingCount ?? 0;
+  const pending = status?.pendingCount ?? status?.items.length ?? 0;
+  const available = status?.available ?? false;
+  const items = status?.items ?? [];
+  const missingDescriptions = items.some((p) => p.description === null);
 
   return (
-    <S.Root>
-      <BackupPanel />
-      <AppUpdatePanel />
-      <S.SectionHead>OS packages</S.SectionHead>
-      <S.Toolbar>
-        <S.ToolbarTop>
-          <S.Search
-            type="text"
-            placeholder="Find packages…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            disabled={busy}
-          />
-          <S.Summary>
-            <span>
-              <strong>{pending}</strong> updates
-            </span>
-            <span>
-              <strong>{selected.size}</strong> selected
-            </span>
-          </S.Summary>
-        </S.ToolbarTop>
-        <S.ToolbarActions>
-          <Tooltip label="Refresh package lists from apt (can take a minute)">
-            <GhostBtn type="button" onClick={() => void reload(true, true)} disabled={loading || busy}>
-              <RefreshCw size={14} />
-              Refresh
-            </GhostBtn>
-          </Tooltip>
-          <GhostBtn type="button" onClick={() => void reload(false, true)} disabled={loading || busy}>
-            Load descriptions
-          </GhostBtn>
-          <GhostBtn
-            type="button"
-            disabled={!status.canInstall || busy || pending === 0}
-            onClick={() => void runUpdate("packages", true)}
-          >
-            <Download size={14} />
-            Update selected
-          </GhostBtn>
-          <DangerBtn
-            type="button"
-            disabled={!status.canInstall || busy || pending === 0}
-            onClick={() => void runUpdate("packages", false)}
-          >
-            Update all packages
-          </DangerBtn>
-          {status.manager === "apt" && (
-            <DangerBtn
-              type="button"
-              disabled={!status.canInstall || busy || pending === 0}
-              onClick={() => void runUpdate("all", false)}
-            >
-              Full upgrade (incl. OS)
-            </DangerBtn>
-          )}
-        </S.ToolbarActions>
-      </S.Toolbar>
-
-      {status.hint && <S.Banner $bad>{status.hint}</S.Banner>}
-      {loading && <S.Banner>Refreshing package lists…</S.Banner>}
-
-      {(job?.running || job?.phase === "done" || job?.phase === "error") && (
-        <S.ProgressWrap>
-          <S.ProgressLabel>
-            <span>{phaseLabel(job.phase)}</span>
-            <span>{job.progress}%</span>
-          </S.ProgressLabel>
-          <S.ProgressTrack>
-            <S.ProgressFill $value={job.progress} />
-          </S.ProgressTrack>
-        </S.ProgressWrap>
-      )}
-
-      {showLog && job?.log && <S.LogPanel ref={logRef}>{job.log}</S.LogPanel>}
-      {job?.error && <S.Banner $bad>{job.error}</S.Banner>}
+    <S.Card>
+      <S.CardHead>
+        <S.CardTitle>OS packages</S.CardTitle>
+        {busy ? (
+          <S.Pill $tone="accent">Installing</S.Pill>
+        ) : !available ? (
+          <S.Pill>Unavailable</S.Pill>
+        ) : pending > 0 ? (
+          <S.Pill $tone="warn">
+            {pending} pending
+          </S.Pill>
+        ) : (
+          <S.Pill $tone="good">Up to date</S.Pill>
+        )}
+        {available && (
+          <S.CardActions>
+            <Tooltip label="Refresh package lists from the package manager (can take a minute)">
+              <GhostBtn
+                type="button"
+                onClick={() => void reload(true, true)}
+                disabled={loading || busy}
+              >
+                <RefreshCw size={14} />
+                Refresh
+              </GhostBtn>
+            </Tooltip>
+            {missingDescriptions && (
+              <GhostBtn
+                type="button"
+                onClick={() => void reload(false, true)}
+                disabled={loading || busy}
+              >
+                <Text size={14} />
+                Load descriptions
+              </GhostBtn>
+            )}
+          </S.CardActions>
+        )}
+      </S.CardHead>
 
       <S.Body>
-        {pending === 0 && !loading ? (
-          <S.Empty>All packages are up to date.</S.Empty>
+        {status?.manager && (
+          <S.CardNote>
+            Pending updates reported by <strong>{status.manager}</strong> on{" "}
+            {status.platform}.
+          </S.CardNote>
+        )}
+
+        {loading && !status ? (
+          <Loading>Fetching package lists — this can take a minute…</Loading>
+        ) : error && !status ? (
+          <>
+            <S.Banner $bad>{error}</S.Banner>
+            <S.Empty>
+              <PackageX size={20} strokeWidth={1.6} />
+              <strong>Couldn&apos;t read package lists</strong>
+              <GhostBtn type="button" onClick={() => void reload()}>
+                Retry
+              </GhostBtn>
+            </S.Empty>
+          </>
+        ) : !available ? (
+          <S.Empty>
+            <PackageX size={20} strokeWidth={1.6} />
+            <strong>No package manager here</strong>
+            {status?.hint ?? "Updates are not available on this platform."}
+          </S.Empty>
         ) : (
-          <S.Table>
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={(e) => toggleAll(e.target.checked)}
-                    disabled={busy || rows.length === 0}
-                  />
-                </th>
-                <th>Package</th>
-                <th>Description</th>
-                <th>Status</th>
-                <th>Source</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((pkg: PendingPackage) => (
-                <tr key={pkg.name}>
-                  <td>
+          <>
+            {status?.hint && <S.Banner $bad>{status.hint}</S.Banner>}
+
+            {items.length > 0 && (
+              <>
+                <S.Toolbar>
+                  <S.Search>
+                    <SearchIcon size={14} strokeWidth={1.8} />
                     <input
-                      type="checkbox"
+                      type="text"
+                      placeholder="Find packages…"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      disabled={busy}
+                    />
+                    {query && (
+                      <Tooltip label="Clear">
+                        <S.SearchClear type="button" onClick={() => setQuery("")}>
+                          <X size={13} strokeWidth={2} />
+                        </S.SearchClear>
+                      </Tooltip>
+                    )}
+                  </S.Search>
+                  <S.SelectAll>
+                    <S.Check
+                      checked={allSelected}
+                      onChange={(e) => toggleAll(e.target.checked)}
+                      disabled={busy || rows.length === 0}
+                    />
+                    Select all{query ? " shown" : ""}
+                  </S.SelectAll>
+                </S.Toolbar>
+
+                <S.ActionBar>
+                  <S.ActionBarInfo>
+                    <strong>{selected.size}</strong> of <strong>{pending}</strong>{" "}
+                    {pending === 1 ? "update" : "updates"} selected
+                  </S.ActionBarInfo>
+                  <S.ActionBarButtons>
+                    <GhostBtn
+                      type="button"
+                      disabled={!status?.canInstall || busy || selected.size === 0}
+                      onClick={() => void runUpdate("packages", true)}
+                    >
+                      <Download size={14} />
+                      Update selected
+                    </GhostBtn>
+                    <DangerBtn
+                      type="button"
+                      disabled={!status?.canInstall || busy}
+                      onClick={() => void runUpdate("packages", false)}
+                    >
+                      Update all
+                    </DangerBtn>
+                    {status?.manager === "apt" && (
+                      <Tooltip label="Runs a full upgrade, which may install or remove OS packages">
+                        <DangerBtn
+                          type="button"
+                          disabled={!status.canInstall || busy}
+                          onClick={() => void runUpdate("all", false)}
+                        >
+                          Full upgrade
+                        </DangerBtn>
+                      </Tooltip>
+                    )}
+                  </S.ActionBarButtons>
+                </S.ActionBar>
+              </>
+            )}
+
+            {(job?.running || job?.phase === "done" || job?.phase === "error") && (
+              <S.ProgressWrap>
+                <S.ProgressLabel>
+                  <span>{phaseLabel(job.phase)}</span>
+                  <span>{job.progress}%</span>
+                </S.ProgressLabel>
+                <S.ProgressTrack>
+                  <S.ProgressFill
+                    $value={job.progress}
+                    $active={job.running}
+                    $bad={job.phase === "error"}
+                  />
+                </S.ProgressTrack>
+                {job.log && (
+                  <>
+                    <S.Disclosure
+                      type="button"
+                      aria-expanded={showLog}
+                      onClick={() => setShowLog((v) => !v)}
+                    >
+                      <ChevronRight size={13} strokeWidth={2} />
+                      {showLog ? "Hide log" : "Show log"}
+                    </S.Disclosure>
+                    {showLog && <S.LogPanel ref={logRef}>{job.log}</S.LogPanel>}
+                  </>
+                )}
+              </S.ProgressWrap>
+            )}
+
+            {job?.error && <S.Banner $bad>{job.error}</S.Banner>}
+            {loading && <S.Banner>Refreshing package lists…</S.Banner>}
+
+            {rows.length > 0 ? (
+              <S.PkgList>
+                {rows.map((pkg: PendingPackage) => (
+                  <S.PkgRow key={pkg.name} $selected={selected.has(pkg.name)}>
+                    <S.Check
                       checked={selected.has(pkg.name)}
                       onChange={(e) => toggleOne(pkg.name, e.target.checked)}
                       disabled={busy}
                     />
-                  </td>
-                  <td className="mono">{pkg.name}</td>
-                  <td className="desc muted">{pkg.description ?? "—"}</td>
-                  <td className="status">
-                    {pkg.currentVersion
-                      ? `${pkg.currentVersion} → ${pkg.newVersion}`
-                      : `New version ${pkg.newVersion}`}
-                  </td>
-                  <td className="mono muted">{pkg.source}</td>
-                </tr>
-              ))}
-            </tbody>
-          </S.Table>
+                    <S.PkgTop>
+                      <S.PkgName>{pkg.name}</S.PkgName>
+                      <S.SourceChip>{pkg.source}</S.SourceChip>
+                      <S.Delta>
+                        {pkg.currentVersion ? (
+                          <>
+                            <span className="from">{pkg.currentVersion}</span>
+                            <ArrowRight size={12} strokeWidth={2} />
+                            <span>{pkg.newVersion}</span>
+                          </>
+                        ) : (
+                          <span>new · {pkg.newVersion}</span>
+                        )}
+                      </S.Delta>
+                    </S.PkgTop>
+                    {pkg.description && <S.PkgDesc>{pkg.description}</S.PkgDesc>}
+                  </S.PkgRow>
+                ))}
+              </S.PkgList>
+            ) : query ? (
+              <S.Empty>
+                <SearchIcon size={20} strokeWidth={1.6} />
+                <strong>No packages match “{query}”</strong>
+              </S.Empty>
+            ) : loading ? null : pending > 0 ? (
+              <S.Empty>
+                <PackageX size={20} strokeWidth={1.6} />
+                <strong>
+                  {pending} {pending === 1 ? "update" : "updates"} pending
+                </strong>
+                The package list came back empty — refresh to load it.
+              </S.Empty>
+            ) : (
+              <S.Empty>
+                <CircleCheck size={20} strokeWidth={1.6} />
+                <strong>All packages are up to date</strong>
+                Refresh to check the package lists again.
+              </S.Empty>
+            )}
+          </>
         )}
       </S.Body>
-    </S.Root>
+    </S.Card>
   );
 }

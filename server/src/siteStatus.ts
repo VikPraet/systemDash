@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { composeServices, dockerComposeAvailable, findContainer } from "./docker.js";
+import { composeServices, dockerComposeAvailable, findContainer, listLabeledContainers } from "./docker.js";
 import { type ProjectSummary, type RunKind } from "./projects.js";
 import { resolveUnderProject } from "./siteDeploy.js";
 import { trafficForHostname, type SiteTraffic } from "./cloudflareAnalytics.js";
 import { APP_USER_AGENT_HEALTH } from "./brand.js";
+import { processReplicaRunning } from "./workers.js";
 
 const CACHE_MS = 20_000;
 const PROBE_MS = 4_000;
@@ -185,6 +186,24 @@ async function systemdRuntime(unit: string): Promise<RuntimeStatus> {
 async function runtimeFor(project: ProjectSummary): Promise<RuntimeStatus> {
   switch (project.runKind) {
     case "docker": {
+      if (project.managed) {
+        try {
+          const labeled = await listLabeledContainers(project.id);
+          if (labeled.length === 0) {
+            return { kind: "docker", state: "missing", detail: "no managed containers" };
+          }
+          const running = labeled.filter((c) => c.running).length;
+          const state: RuntimeState =
+            running === labeled.length ? "running" : running > 0 ? "unknown" : "stopped";
+          return { kind: "docker", state, detail: `${running}/${labeled.length} running` };
+        } catch (err) {
+          return {
+            kind: "docker",
+            state: "unknown",
+            detail: err instanceof Error ? err.message : "docker status failed",
+          };
+        }
+      }
       if (!project.container) {
         return { kind: "docker", state: "unknown", detail: "no container name set" };
       }
@@ -241,6 +260,12 @@ async function runtimeFor(project: ProjectSummary): Promise<RuntimeStatus> {
         return { kind: "systemd", state: "unknown", detail: "no unit set" };
       }
       return systemdRuntime(project.unit);
+    }
+    case "process": {
+      const n = processReplicaRunning(project.id);
+      if (n > 0) return { kind: "process", state: "running", detail: `${n} process${n === 1 ? "" : "es"}` };
+      if (project.schedule) return { kind: "process", state: "stopped", detail: "waiting on schedule" };
+      return { kind: "process", state: "stopped", detail: "not running" };
     }
     default:
       return { kind: project.runKind, state: "skipped", detail: null };

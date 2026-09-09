@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { Router } from "express";
 import { clientIp, recordAudit, requireRole } from "../auth.js";
 import {
@@ -12,21 +13,33 @@ import {
   insertProject,
   isGitProvider,
   listAccounts,
+  listProjectEnv,
   listProjects,
   listRuns,
   parseId,
   providerForUrl,
+  replaceProjectEnv,
   requireProject,
   sanitizeBoot,
+  sanitizeBool,
   sanitizeBranch,
   sanitizeOptionalBranch,
   sanitizeContainerName,
+  sanitizeCpuLimit,
+  sanitizeDockerfile,
+  sanitizeImage,
   sanitizeLocalPath,
   sanitizeOptionalLocalPath,
+  sanitizeMemoryMb,
   sanitizeName,
+  sanitizePercent,
   sanitizePort,
+  sanitizePositiveInt,
   sanitizeRemoteUrl,
+  sanitizeReplicas,
+  sanitizeRestartPolicy,
   sanitizeRunKind,
+  sanitizeSchedule,
   sanitizeServiceKind,
   sanitizeSiteUrl,
   sanitizeStartCommand,
@@ -35,13 +48,16 @@ import {
   sanitizeNotes,
   sanitizeRelPath,
   sanitizeUnitName,
+  sanitizeWorkDir,
   projectHasGit,
   updateAction,
   updateProject,
   upsertAccount,
+  type EnvVarInput,
   type RunKind,
   type ServiceKind,
   type StepInput,
+  type WorkerPatch,
 } from "../projects.js";
 import {
   ensureLocalRepo,
@@ -66,6 +82,7 @@ import {
   getCloudflareAccountPublic,
 } from "../cloudflareAnalytics.js";
 import { invalidateSiteStatus, listSiteStatus } from "../siteStatus.js";
+import { purgePreview, purgeWorker, reconcileWorker, stopAllReplicas } from "../workers.js";
 
 export const projectsRouter = Router();
 
@@ -87,7 +104,7 @@ function parseRunProfile(body: Record<string, unknown>): {
   embedPreview?: boolean;
   embedUrl?: string | null;
   notes?: string | null;
-} {
+} & WorkerPatch {
   const profile: ReturnType<typeof parseRunProfile> = {};
   if (body.siteUrl !== undefined) profile.siteUrl = sanitizeSiteUrl(body.siteUrl);
   if (body.runKind !== undefined) profile.runKind = sanitizeRunKind(body.runKind);
@@ -117,6 +134,48 @@ function parseRunProfile(body: Record<string, unknown>): {
   }
   if (body.embedUrl !== undefined) profile.embedUrl = sanitizeSiteUrl(body.embedUrl);
   if (body.notes !== undefined) profile.notes = sanitizeNotes(body.notes);
+  if (body.managed !== undefined) profile.managed = sanitizeBool(body.managed);
+  if (body.image !== undefined) profile.image = sanitizeImage(body.image);
+  if (body.dockerfile !== undefined) profile.dockerfile = sanitizeDockerfile(body.dockerfile);
+  if (body.buildContext !== undefined) {
+    profile.buildContext = sanitizeRelPath(body.buildContext, "build context") ?? ".";
+  }
+  if (body.buildCommand !== undefined) {
+    profile.buildCommand = sanitizeStartCommand(body.buildCommand);
+  }
+  if (body.workDir !== undefined) profile.workDir = sanitizeWorkDir(body.workDir);
+  if (body.cpuLimit !== undefined) profile.cpuLimit = sanitizeCpuLimit(body.cpuLimit);
+  if (body.memoryLimitMb !== undefined) {
+    profile.memoryLimitMb = sanitizeMemoryMb(body.memoryLimitMb);
+  }
+  if (body.replicas !== undefined) profile.replicas = sanitizeReplicas(body.replicas);
+  if (body.restartPolicy !== undefined) {
+    profile.restartPolicy = sanitizeRestartPolicy(body.restartPolicy);
+  }
+  if (body.restartMaxRetries !== undefined) {
+    profile.restartMaxRetries = sanitizePositiveInt(body.restartMaxRetries, "restart retries", 1, 100);
+  }
+  if (body.restartBackoffMs !== undefined) {
+    profile.restartBackoffMs =
+      sanitizePositiveInt(body.restartBackoffMs, "restart backoff ms", 200, 120000) ?? 3000;
+  }
+  if (body.schedule !== undefined) profile.schedule = sanitizeSchedule(body.schedule);
+  if (body.autoscaleEnabled !== undefined) {
+    profile.autoscaleEnabled = sanitizeBool(body.autoscaleEnabled);
+  }
+  if (body.autoscaleMin !== undefined) profile.autoscaleMin = sanitizeReplicas(body.autoscaleMin);
+  if (body.autoscaleMax !== undefined) profile.autoscaleMax = sanitizeReplicas(body.autoscaleMax, 1);
+  if (body.autoscaleCpuTarget !== undefined) {
+    profile.autoscaleCpuTarget = sanitizePercent(body.autoscaleCpuTarget, "CPU target");
+  }
+  if (body.autoscaleMemTarget !== undefined) {
+    profile.autoscaleMemTarget = sanitizePercent(body.autoscaleMemTarget, "memory target");
+  }
+  if (body.autodeploy !== undefined) profile.autodeploy = sanitizeBool(body.autodeploy);
+  if (body.autodeployIntervalS !== undefined) {
+    profile.autodeployIntervalS =
+      sanitizePositiveInt(body.autodeployIntervalS, "autodeploy interval", 30, 86400) ?? 300;
+  }
   return profile;
 }
 
@@ -383,9 +442,15 @@ projectsRouter.post("/", mutate, async (req, res) => {
       }
     }
     const account = accountId ? getAccountById(accountId) : null;
+    let clonedByBeacon = false;
     if (wantsGit) {
       if (!localPath) throw new ProjectsError(400, "local path is required");
+      const existed = fs.existsSync(localPath);
+      const empty =
+        !existed ||
+        (fs.statSync(localPath).isDirectory() && fs.readdirSync(localPath).length === 0);
       await ensureLocalRepo({ localPath, remoteUrl, branch, account });
+      clonedByBeacon = empty;
     }
     const project = insertProject({
       name,
@@ -393,9 +458,15 @@ projectsRouter.post("/", mutate, async (req, res) => {
       remoteUrl,
       branch,
       accountId: wantsGit ? accountId : null,
+      clonedByBeacon,
       ...profile,
     });
     invalidateSiteStatus();
+    if (project.serviceKind === "worker") {
+      void reconcileWorker(project.id).catch((err) => {
+        console.error("worker reconcile after create failed:", err);
+      });
+    }
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
@@ -483,6 +554,11 @@ projectsRouter.patch("/:id", mutate, (req, res) => {
     }
     const project = updateProject(id, patch);
     invalidateSiteStatus();
+    if (project.serviceKind === "worker") {
+      void reconcileWorker(project.id).catch((err) => {
+        console.error("worker reconcile after update failed:", err);
+      });
+    }
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
@@ -497,21 +573,68 @@ projectsRouter.patch("/:id", mutate, (req, res) => {
   }
 });
 
-projectsRouter.delete("/:id", mutate, (req, res) => {
+projectsRouter.delete("/:id", mutate, async (req, res) => {
   try {
     const id = parseId(req.params.id);
     const project = requireProject(id);
+    const purge =
+      req.query.purge === "1" ||
+      req.query.purge === "true" ||
+      (req.body as { purge?: unknown } | undefined)?.purge === true;
+    let notes: string[] = [];
+    stopAllReplicas(id);
+    if (purge) {
+      notes = await purgeWorker(project);
+    }
     deleteProject(id);
     invalidateSiteStatus();
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
       action: "project.delete",
-      detail: `${project.name} (${project.localPath})`,
+      detail: `${project.name}${purge ? ` purge: ${notes.join("; ")}` : " (unlink)"} (${project.localPath})`,
       status: 200,
       ip: clientIp(req),
     });
-    res.json({ ok: true });
+    res.json({ ok: true, purged: purge, notes });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.get("/:id/purge-preview", mutate, async (req, res) => {
+  try {
+    const project = requireProject(parseId(req.params.id));
+    res.json({ preview: await purgePreview(project) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.get("/:id/env", (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    res.json({ env: listProjectEnv(id) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.put("/:id/env", mutate, (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    const body = (req.body ?? {}) as { env?: EnvVarInput[] };
+    if (!Array.isArray(body.env)) throw new ProjectsError(400, "env must be an array");
+    const env = replaceProjectEnv(id, body.env);
+    recordAudit({
+      userId: req.user!.id,
+      username: req.user!.username,
+      action: "project.env",
+      detail: requireProject(id).name,
+      status: 200,
+      ip: clientIp(req),
+    });
+    res.json({ env });
   } catch (err) {
     sendError(res, err);
   }

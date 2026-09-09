@@ -47,9 +47,10 @@ export const TooltipDetail = styled.span`
   white-space: pre-line;
 `;
 
-export const TooltipArrow = styled.span<{ $below?: boolean }>`
+export const TooltipArrow = styled.span<{ $below?: boolean; $x: number }>`
   position: absolute;
-  left: 14px;
+  left: ${({ $x }) => $x}px;
+  margin-left: -4px;
   width: 8px;
   height: 8px;
   background: ${({ theme }) => theme.color.panel2};

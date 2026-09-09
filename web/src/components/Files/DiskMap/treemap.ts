@@ -29,20 +29,6 @@ export function hydrateUsageTree(tree: UsageNode, rootPath: string): HydratedNod
   return walk(tree, rootPath, true);
 }
 
-export function withFreeSpace(tree: HydratedNode, freeBytes: number): HydratedNode {
-  if (freeBytes <= 0) return tree;
-  const free: HydratedNode = {
-    name: "Free space",
-    type: "free",
-    size: freeBytes,
-    files: 0,
-    ext: null,
-    path: tree.path,
-  };
-  const children = [...(tree.children ?? []), free].sort((a, b) => b.size - a.size);
-  return { ...tree, size: tree.size + freeBytes, children };
-}
-
 export function findNodeByPath(node: HydratedNode, path: string): HydratedNode | null {
   if (node.path === path && node.type !== "other" && node.type !== "free") {
     return node;
@@ -67,6 +53,8 @@ export interface LayoutCell {
   rect: Rect;
   depth: number;
   leaf: boolean;
+  /** Height of the title strip reserved at the top of a folder, 0 when it does not fit. */
+  header: number;
 }
 
 function worst(row: number[], side: number): number {
@@ -160,6 +148,10 @@ function squarify(sizes: number[], rect: Rect): Rect[] {
 }
 
 const GAP = 1.25;
+const HEADER = 14;
+// Below these sizes a title strip would eat more space than the files it labels.
+const HEADER_MIN_W = 46;
+const HEADER_MIN_H = 36;
 
 function inset(rect: Rect, gap: number): Rect {
   const g = Math.min(gap, rect.w / 2, rect.h / 2);
@@ -173,9 +165,14 @@ export function layoutTreemap(root: HydratedNode, bounds: Rect): LayoutCell[] {
   function walk(node: HydratedNode, rect: Rect, depth: number) {
     const kids = (node.children ?? []).filter((c) => c.size > 0);
     const leaf = kids.length === 0;
-    cells.push({ node, rect, depth, leaf });
+    const framed = depth === 0 ? rect : inset(rect, GAP);
+    const header =
+      !leaf && depth > 0 && framed.w >= HEADER_MIN_W && framed.h >= HEADER_MIN_H ? HEADER : 0;
+    cells.push({ node, rect: leaf ? rect : framed, depth, leaf, header });
     if (leaf) return;
-    const inner = depth === 0 ? rect : inset(rect, GAP);
+    const inner = header
+      ? { x: framed.x, y: framed.y + header, w: framed.w, h: framed.h - header }
+      : framed;
     const rects = squarify(kids.map((c) => c.size), inner);
     for (let i = 0; i < kids.length; i++) {
       const r = inset(rects[i], GAP);

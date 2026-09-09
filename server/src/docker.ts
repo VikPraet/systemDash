@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { APP_NAME } from "./brand.js";
@@ -325,6 +325,204 @@ export async function ensureContainer(idOrName: string, boot: boolean): Promise<
 
 export function dockerBinPath(): string {
   return dockerBin;
+}
+
+export function spawnDockerLogs(
+  container: string,
+  tail: number
+): ChildProcessWithoutNullStreams {
+  const cid = assertContainerId(container);
+  return spawn(
+    dockerBinPath(),
+    ["logs", "-f", "--tail", String(Math.max(1, Math.min(2000, tail))), cid],
+    { windowsHide: true }
+  );
+}
+
+export function dockerAvailable(): boolean {
+  try {
+    execFileSync(resolveDockerBin(), ["version"], {
+      timeout: 8_000,
+      windowsHide: true,
+      stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const BEACON_PROJECT_LABEL = "beacon.project";
+export const BEACON_MANAGED_LABEL = "beacon.managed";
+
+export function replicaName(projectId: number, replica: number, base?: string | null): string {
+  const prefix = (base && ID_RE.test(base) ? base : `beacon-w-${projectId}`).slice(0, 200);
+  return replica <= 0 ? prefix : `${prefix}-${replica}`;
+}
+
+export async function listLabeledContainers(projectId: number): Promise<DockerContainer[]> {
+  const out = await runDocker([
+    "ps",
+    "-a",
+    "--no-trunc",
+    "--filter",
+    `label=${BEACON_PROJECT_LABEL}=${projectId}`,
+    "--format",
+    "{{json .}}",
+  ]);
+  const rows: DockerContainer[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const raw = JSON.parse(trimmed) as PsRow;
+      const primaryName =
+        raw.Names?.replace(/^\//, "").split(",")[0]?.trim() || raw.ID.slice(0, 12);
+      rows.push({
+        id: raw.ID,
+        name: primaryName,
+        image: raw.Image,
+        status: raw.Status,
+        state: raw.State,
+        ports: raw.Ports || "",
+        running: raw.State === "running",
+      });
+    } catch {
+      // skip
+    }
+  }
+  return rows;
+}
+
+export async function listLabeledImages(projectId: number): Promise<string[]> {
+  const out = await runDocker([
+    "images",
+    "--filter",
+    `label=${BEACON_PROJECT_LABEL}=${projectId}`,
+    "--format",
+    "{{.ID}}",
+  ]);
+  return out
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+export async function listLabeledVolumes(projectId: number): Promise<string[]> {
+  const out = await runDocker([
+    "volume",
+    "ls",
+    "--filter",
+    `label=${BEACON_PROJECT_LABEL}=${projectId}`,
+    "--format",
+    "{{.Name}}",
+  ]);
+  return out
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+export async function buildManagedImage(
+  projectId: number,
+  cwd: string,
+  dockerfile: string,
+  context: string,
+  onChunk?: (text: string) => void
+): Promise<string> {
+  const tag = `beacon-worker-${projectId}:latest`;
+  const args = [
+    "build",
+    "-t",
+    tag,
+    "-f",
+    dockerfile,
+    "--label",
+    `${BEACON_PROJECT_LABEL}=${projectId}`,
+    "--label",
+    `${BEACON_MANAGED_LABEL}=1`,
+    context || ".",
+  ];
+  onChunk?.(`docker ${args.join(" ")}\n`);
+  await runDocker(args, 32 * 1024 * 1024, { cwd, timeout: 20 * 60_000 });
+  return tag;
+}
+
+export async function runManagedContainer(opts: {
+  projectId: number;
+  replica: number;
+  name: string;
+  image: string;
+  command?: string | null;
+  envFile?: string | null;
+  workDir?: string | null;
+  cpuLimit?: number | null;
+  memoryLimitMb?: number | null;
+  restart: "always" | "on-failure" | "no";
+}): Promise<void> {
+  const existing = await findContainer(opts.name);
+  if (existing) {
+    await runDocker(["rm", "-f", existing.id]);
+  }
+  const args = [
+    "run",
+    "-d",
+    "--name",
+    opts.name,
+    "--label",
+    `${BEACON_PROJECT_LABEL}=${opts.projectId}`,
+    "--label",
+    `${BEACON_MANAGED_LABEL}=1`,
+    "--label",
+    `beacon.replica=${opts.replica}`,
+    "--restart",
+    opts.restart === "always" ? "unless-stopped" : opts.restart === "on-failure" ? "on-failure" : "no",
+  ];
+  if (opts.envFile) args.push("--env-file", opts.envFile);
+  if (opts.workDir) args.push("-w", opts.workDir);
+  if (opts.cpuLimit && opts.cpuLimit > 0) args.push("--cpus", String(opts.cpuLimit));
+  if (opts.memoryLimitMb && opts.memoryLimitMb > 0) args.push("--memory", `${opts.memoryLimitMb}m`);
+  args.push(opts.image);
+  if (opts.command?.trim()) {
+    if (process.platform === "win32") {
+      args.push("cmd", "/c", opts.command.trim());
+    } else {
+      args.push("/bin/sh", "-lc", opts.command.trim());
+    }
+  }
+  await runDocker(args, 8 * 1024 * 1024, { timeout: 120_000 });
+}
+
+export async function removeLabeledResources(projectId: number): Promise<string[]> {
+  const notes: string[] = [];
+  try {
+    const containers = await listLabeledContainers(projectId);
+    for (const c of containers) {
+      await runDocker(["rm", "-f", c.id]);
+      notes.push(`removed container ${c.name}`);
+    }
+  } catch (err) {
+    notes.push(`containers: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const images = await listLabeledImages(projectId);
+    for (const img of images) {
+      await runDocker(["rmi", "-f", img]);
+      notes.push(`removed image ${img.slice(0, 12)}`);
+    }
+  } catch (err) {
+    notes.push(`images: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const vols = await listLabeledVolumes(projectId);
+    for (const v of vols) {
+      await runDocker(["volume", "rm", "-f", v]);
+      notes.push(`removed volume ${v}`);
+    }
+  } catch (err) {
+    notes.push(`volumes: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return notes;
 }
 
 export async function inspectContainer(id: string): Promise<{

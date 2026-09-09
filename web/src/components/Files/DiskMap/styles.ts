@@ -67,6 +67,31 @@ export const MapProgressBar = styled.div<{ $indeterminate?: boolean }>`
   }
 `;
 
+export const MapCapacity = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 0 1 230px;
+  min-width: 170px;
+
+  @media ${mobile} {
+    flex: 1 1 100%;
+  }
+`;
+
+export const MapCapacityHead = styled.div`
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-size: 11px;
+
+  strong {
+    color: ${({ theme }) => theme.color.text};
+    font-weight: 600;
+  }
+`;
+
 export const MapActions = styled.div`
   display: flex;
   align-items: center;
@@ -185,6 +210,12 @@ export const MapTipName = styled.div`
   word-break: break-all;
 `;
 
+export const MapTipPath = styled.div`
+  font-size: 11px;
+  color: ${({ theme }) => theme.color.muted};
+  word-break: break-all;
+`;
+
 export const MapTipMeta = styled.div`
   font-size: 11px;
   color: ${({ theme }) => theme.color.muted};
@@ -241,6 +272,10 @@ export const MapTable = styled.table`
 
   tbody tr {
     cursor: pointer;
+  }
+
+  tbody tr.hovered td {
+    background: color-mix(in srgb, ${({ theme }) => theme.color.text} 8%, transparent);
   }
 
   tbody tr.selected td {

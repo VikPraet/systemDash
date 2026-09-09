@@ -37,12 +37,14 @@ import type {
   AddIngressResult,
   ProjectAction,
   ProjectDetail,
+  ProjectEnvVar,
   ProjectsOverview,
   CloudflareAccountPublic,
   SitesStatusResponse,
   RunKind,
   ServiceKind,
   StepInput,
+  WorkerProfilePatch,
   SharesStatus,
   NetworkShare,
   ShareProtocol,
@@ -833,7 +835,7 @@ export function createProjectApi(input: {
   embedPreview?: boolean;
   embedUrl?: string | null;
   notes?: string | null;
-}): Promise<{ project: ProjectDetail }> {
+} & WorkerProfilePatch): Promise<{ project: ProjectDetail }> {
   return postJson("/api/projects", input);
 }
 
@@ -859,7 +861,7 @@ export function updateProjectApi(
     embedPreview?: boolean;
     embedUrl?: string | null;
     notes?: string | null;
-  }
+  } & WorkerProfilePatch
 ): Promise<{ project: ProjectDetail }> {
   return patchJson(`/api/projects/${id}`, patch);
 }
@@ -901,8 +903,33 @@ export async function disconnectCloudflareApi(): Promise<{
   return (await res.json()) as { cloudflare: CloudflareAccountPublic };
 }
 
-export function deleteProjectApi(id: number): Promise<void> {
-  return deleteJson(`/api/projects/${id}`);
+export function deleteProjectApi(id: number, opts?: { purge?: boolean }): Promise<void> {
+  const q = opts?.purge ? "?purge=1" : "";
+  return deleteJson(`/api/projects/${id}${q}`);
+}
+
+export async function fetchPurgePreview(id: number): Promise<{
+  containers: string[];
+  images: string[];
+  volumes: string[];
+  unit: string | null;
+  scratch: string | null;
+  localPath: string | null;
+  cloneOwned: boolean;
+}> {
+  const res = await fetch(`/api/projects/${id}/purge-preview`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Request failed: ${res.status}`);
+  }
+  return ((await res.json()) as { preview: Awaited<ReturnType<typeof fetchPurgePreview>> }).preview;
+}
+
+export function saveProjectEnvApi(
+  id: number,
+  env: Array<{ id?: number; key: string; value?: string | null; secret?: boolean }>
+): Promise<{ env: ProjectEnvVar[] }> {
+  return sendJson(`/api/projects/${id}/env`, "PUT", { env });
 }
 
 export function connectGitAccountApi(input: {

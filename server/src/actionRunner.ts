@@ -9,6 +9,7 @@ import {
   resolveAccountForProject,
   projectHasGit,
   projectHasFolder,
+  writeWorkerEnvFile,
   type ActionRun,
   type ActionStep,
   type ProjectSummary,
@@ -17,16 +18,13 @@ import {
 import { checkRemote, gitAvailable, gitPull, type GitCheckResult } from "./gitRemote.js";
 import {
   containerAction,
+  dockerAvailable,
   dockerComposeAvailable,
   DockerError,
   ensureContainer,
 } from "./docker.js";
-import {
-  applySystemdUnit,
-  composeUp,
-  publishFolder,
-  runSystemctl,
-} from "./siteDeploy.js";
+import { applySystemdUnit, composeUp, publishFolder, runSystemctl } from "./siteDeploy.js";
+import { reconcileWorker } from "./workers.js";
 
 export interface ActionJob {
   running: boolean;
@@ -116,6 +114,8 @@ function stepLabel(step: ActionStep): string {
       return `apply systemd ${step.unit ?? ""}`.trim();
     case "publish":
       return `publish ${step.source ?? ""} → ${step.dest ?? ""}`;
+    case "worker_apply":
+      return "apply worker";
     default:
       return step.type;
   }
@@ -142,12 +142,14 @@ export function projectsCapabilities(): {
   git: boolean;
   systemd: boolean;
   compose: boolean;
+  docker: boolean;
 } {
   return {
     platform: process.platform,
     git: gitAvailable(),
     systemd: process.platform === "linux" && commandExists("systemctl"),
     compose: dockerComposeAvailable(),
+    docker: dockerAvailable(),
   };
 }
 
@@ -245,6 +247,11 @@ async function runStep(
       return;
     case "docker_ensure": {
       const name = step.container || project.container;
+      if (project.managed) {
+        await reconcileWorker(project.id, onChunk);
+        appendLog(job, "Managed container applied.\n");
+        return;
+      }
       if (!name) throw new ProjectsError(400, "container is empty");
       appendLog(job, `Ensuring container ${name}…\n`);
       try {
@@ -287,6 +294,7 @@ async function runStep(
       const start = step.command || project.startCommand;
       if (!unit) throw new ProjectsError(400, "unit is empty");
       if (!start) throw new ProjectsError(400, "start command is empty");
+      writeWorkerEnvFile(project.id);
       await applySystemdUnit(project, unit, start, onChunk);
       return;
     }
@@ -295,6 +303,11 @@ async function runStep(
       const dest = step.dest || project.publishTo;
       if (!from || !dest) throw new ProjectsError(400, "publish from/to is required");
       await publishFolder(localPath, from, dest, onChunk);
+      return;
+    }
+    case "worker_apply": {
+      await reconcileWorker(project.id, onChunk);
+      appendLog(job, "Worker applied.\n");
       return;
     }
     default:

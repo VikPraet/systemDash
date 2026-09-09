@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Archive, Download, RefreshCw, Upload, X, AlertTriangle } from "lucide-react";
+import {
+  Archive,
+  ArchiveX,
+  Download,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+  X,
+  AlertTriangle,
+} from "lucide-react";
 import {
   backupDownloadUrl,
   createBackup,
   fetchBackups,
   formatBytes,
   formatDate,
+  formatRelative,
   restoreBackup,
   restoreBackupUpload,
 } from "../../api";
@@ -15,6 +25,7 @@ import {
   AuthError,
   DangerBtn,
   GhostBtn,
+  IconBtn,
   ModalActions,
   ModalCard,
   ModalClose,
@@ -37,6 +48,17 @@ function reasonLabel(reason: BackupReason): string {
       return "Before restore";
     default:
       return "Manual";
+  }
+}
+
+function reasonTone(reason: BackupReason): "accent" | "warn" | "muted" {
+  switch (reason) {
+    case "pre-update":
+      return "accent";
+    case "pre-restore":
+      return "warn";
+    default:
+      return "muted";
   }
 }
 
@@ -64,6 +86,7 @@ export function BackupPanel() {
     { kind: "id"; id: string } | { kind: "upload"; file: File } | null
   >(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const now = Date.now();
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -95,13 +118,15 @@ export function BackupPanel() {
   }
 
   return (
-    <S.AppPanel>
-      <S.AppPanelHead>
-        <S.AppPanelTitle>
-          <Archive size={16} />
-          Backup
-        </S.AppPanelTitle>
-        <S.AppPanelActions>
+    <S.Card>
+      <S.CardHead>
+        <S.CardTitle>Backup</S.CardTitle>
+        {snapshots.length > 0 && (
+          <S.Pill $tone="good">
+            {snapshots.length} {snapshots.length === 1 ? "snapshot" : "snapshots"}
+          </S.Pill>
+        )}
+        <S.CardActions>
           <Tooltip label="Refresh snapshot list">
             <GhostBtn type="button" onClick={() => void reload()} disabled={loading || busy}>
               <RefreshCw size={14} />
@@ -113,79 +138,89 @@ export function BackupPanel() {
             Restore file
           </GhostBtn>
           <GhostBtn type="button" onClick={() => void createNow()} disabled={busy}>
+            <Archive size={14} />
             Create backup
           </GhostBtn>
-        </S.AppPanelActions>
-      </S.AppPanelHead>
-      <S.AppPanelMeta>
-        <span>
+        </S.CardActions>
+      </S.CardHead>
+
+      <S.Body>
+        <S.CardNote>
           Copies of {APP_NAME} accounts, settings, projects, and history. Host
-          files are not included. Last 7 snapshots are kept on this machine.
-        </span>
-      </S.AppPanelMeta>
-      {error && (
-        <S.Banner $bad style={{ margin: "0 16px 12px" }}>
-          {error}
-        </S.Banner>
-      )}
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".tar.gz,.tgz,application/gzip"
-        hidden
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          if (file) setRestoreTarget({ kind: "upload", file });
-        }}
-      />
-      {loading && snapshots.length === 0 ? (
-        <S.BackupEmpty>Loading snapshots…</S.BackupEmpty>
-      ) : snapshots.length === 0 ? (
-        <S.BackupEmpty>No snapshots yet. Create one before an update or restore.</S.BackupEmpty>
-      ) : (
-        <S.BackupList>
-        <S.BackupTable>
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>Reason</th>
-              <th className="ta-right">Size</th>
-              <th className="ta-right"></th>
-            </tr>
-          </thead>
-          <tbody>
+          files are not included. The last 7 snapshots are kept on this machine.
+        </S.CardNote>
+
+        {error && <S.Banner $bad>{error}</S.Banner>}
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".tar.gz,.tgz,application/gzip"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) setRestoreTarget({ kind: "upload", file });
+          }}
+        />
+
+        {loading && snapshots.length === 0 ? (
+          <S.Empty>Loading snapshots…</S.Empty>
+        ) : snapshots.length === 0 ? (
+          <S.Empty>
+            <ArchiveX size={20} strokeWidth={1.6} />
+            <strong>No snapshots yet</strong>
+            Create one before an update or a restore.
+          </S.Empty>
+        ) : (
+          <S.BackupList>
             {snapshots.map((s) => (
-              <tr key={s.id}>
-                <td>{formatDate(s.createdAt)}</td>
-                <td className="muted">{reasonLabel(s.reason)}</td>
-                <td className="ta-right muted">{formatBytes(s.sizeBytes)}</td>
-                <td className="ta-right">
-                  <S.AppPanelActions style={{ justifyContent: "flex-end", padding: 0 }}>
-                    <GhostBtn
+              <S.BackupRow key={s.id}>
+                <S.BackupIcon>
+                  <Archive size={15} strokeWidth={1.8} />
+                </S.BackupIcon>
+                <S.BackupBody>
+                  <S.BackupWhen>
+                    {formatDate(s.createdAt)}
+                    <S.ReasonChip $tone={reasonTone(s.reason)}>
+                      {reasonLabel(s.reason)}
+                    </S.ReasonChip>
+                  </S.BackupWhen>
+                  <S.BackupMeta>
+                    <span>{formatRelative(s.createdAt, now)}</span>
+                    <span>{formatBytes(s.sizeBytes)}</span>
+                  </S.BackupMeta>
+                </S.BackupBody>
+                <S.RowActions>
+                  <Tooltip label="Download snapshot">
+                    <IconBtn
                       type="button"
+                      aria-label="Download snapshot"
                       onClick={() => {
                         window.location.href = backupDownloadUrl(s.id);
                       }}
                     >
-                      <Download size={14} />
-                      Download
-                    </GhostBtn>
-                    <DangerBtn
+                      <Download size={15} strokeWidth={1.8} />
+                    </IconBtn>
+                  </Tooltip>
+                  <Tooltip label="Restore this snapshot">
+                    <GhostBtn
                       type="button"
+                      $danger
+                      aria-label="Restore snapshot"
                       disabled={busy}
                       onClick={() => setRestoreTarget({ kind: "id", id: s.id })}
                     >
-                      Restore
-                    </DangerBtn>
-                  </S.AppPanelActions>
-                </td>
-              </tr>
+                      <RotateCcw size={15} strokeWidth={1.8} />
+                    </GhostBtn>
+                  </Tooltip>
+                </S.RowActions>
+              </S.BackupRow>
             ))}
-          </tbody>
-        </S.BackupTable>
-        </S.BackupList>
-      )}
+          </S.BackupList>
+        )}
+      </S.Body>
+
       {restoreTarget && (
         <RestoreModal
           target={restoreTarget}
@@ -194,7 +229,7 @@ export function BackupPanel() {
           onError={setError}
         />
       )}
-    </S.AppPanel>
+    </S.Card>
   );
 }
 

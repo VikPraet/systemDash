@@ -28,10 +28,27 @@ export type ActionStepType =
   | "systemd_restart"
   | "systemd_enable"
   | "systemd_apply"
-  | "publish";
-export type RunKind = "none" | "docker" | "compose" | "systemd" | "static";
+  | "publish"
+  | "worker_apply";
+export type RunKind = "none" | "docker" | "compose" | "systemd" | "static" | "process";
 export type ServiceKind = "website" | "api" | "worker";
 export type RunStatus = "running" | "ok" | "error";
+export type RestartPolicy = "always" | "on-failure" | "no";
+
+export interface ProjectEnvVar {
+  id: number;
+  key: string;
+  value: string | null;
+  secret: boolean;
+  sortOrder: number;
+}
+
+export interface EnvVarInput {
+  id?: number;
+  key: string;
+  value?: string | null;
+  secret?: boolean;
+}
 
 export interface GitAccountPublic {
   id: number;
@@ -101,11 +118,33 @@ export interface ProjectSummary {
   embedPreview: boolean;
   embedUrl: string | null;
   notes: string | null;
+  managed: boolean;
+  clonedByBeacon: boolean;
+  image: string | null;
+  dockerfile: string | null;
+  buildContext: string | null;
+  buildCommand: string | null;
+  workDir: string | null;
+  cpuLimit: number | null;
+  memoryLimitMb: number | null;
+  replicas: number;
+  restartPolicy: RestartPolicy;
+  restartMaxRetries: number | null;
+  restartBackoffMs: number;
+  schedule: string | null;
+  autoscaleEnabled: boolean;
+  autoscaleMin: number;
+  autoscaleMax: number;
+  autoscaleCpuTarget: number | null;
+  autoscaleMemTarget: number | null;
+  autodeploy: boolean;
+  autodeployIntervalS: number;
   lastRun: ActionRun | null;
 }
 
 export interface ProjectDetail extends ProjectSummary {
   actions: ProjectAction[];
+  env: ProjectEnvVar[];
 }
 
 export interface StepInput {
@@ -127,9 +166,34 @@ const STEP_TYPES = new Set<ActionStepType>([
   "systemd_enable",
   "systemd_apply",
   "publish",
+  "worker_apply",
 ]);
-const RUN_KINDS = new Set<RunKind>(["none", "docker", "compose", "systemd", "static"]);
+const RUN_KINDS = new Set<RunKind>(["none", "docker", "compose", "systemd", "static", "process"]);
 const SERVICE_KINDS = new Set<ServiceKind>(["website", "api", "worker"]);
+const RESTART_POLICIES = new Set<RestartPolicy>(["always", "on-failure", "no"]);
+const WORKER_COLUMNS = [
+  "managed INTEGER NOT NULL DEFAULT 0",
+  "cloned_by_beacon INTEGER NOT NULL DEFAULT 0",
+  "image TEXT",
+  "dockerfile TEXT",
+  "build_context TEXT",
+  "build_command TEXT",
+  "work_dir TEXT",
+  "cpu_limit REAL",
+  "memory_limit_mb INTEGER",
+  "replicas INTEGER NOT NULL DEFAULT 1",
+  "restart_policy TEXT NOT NULL DEFAULT 'always'",
+  "restart_max_retries INTEGER",
+  "restart_backoff_ms INTEGER NOT NULL DEFAULT 3000",
+  "schedule TEXT",
+  "autoscale_enabled INTEGER NOT NULL DEFAULT 0",
+  "autoscale_min INTEGER NOT NULL DEFAULT 1",
+  "autoscale_max INTEGER NOT NULL DEFAULT 1",
+  "autoscale_cpu_target INTEGER",
+  "autoscale_mem_target INTEGER",
+  "autodeploy INTEGER NOT NULL DEFAULT 0",
+  "autodeploy_interval_s INTEGER NOT NULL DEFAULT 300",
+];
 
 function migrateOptionalProjectSource(fresh: DatabaseSync): void {
   const cols = fresh.prepare("PRAGMA table_info(projects)").all() as Array<{
@@ -271,6 +335,7 @@ export function projectsDb(): DatabaseSync {
     "embed_preview INTEGER NOT NULL DEFAULT 0",
     "embed_url TEXT",
     "notes TEXT",
+    ...WORKER_COLUMNS,
   ]) {
     try {
       fresh.exec(`ALTER TABLE projects ADD COLUMN ${col};`);
@@ -278,6 +343,18 @@ export function projectsDb(): DatabaseSync {
       // already present
     }
   }
+  fresh.exec(`
+    CREATE TABLE IF NOT EXISTS project_env (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL DEFAULT '',
+      secret INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_env ON project_env (project_id, sort_order);
+  `);
   for (const col of ["source TEXT", "dest TEXT"]) {
     try {
       fresh.exec(`ALTER TABLE action_steps ADD COLUMN ${col};`);
@@ -332,6 +409,10 @@ export function isRunKind(v: unknown): v is RunKind {
 
 export function isServiceKind(v: unknown): v is ServiceKind {
   return typeof v === "string" && SERVICE_KINDS.has(v as ServiceKind);
+}
+
+export function isRestartPolicy(v: unknown): v is RestartPolicy {
+  return typeof v === "string" && RESTART_POLICIES.has(v as RestartPolicy);
 }
 
 export function isStepType(v: unknown): v is ActionStepType {
@@ -518,7 +599,7 @@ export function sanitizeSiteUrl(raw: unknown): string | null {
 export function sanitizeRunKind(raw: unknown): RunKind {
   if (raw === undefined || raw === null || raw === "") return "none";
   if (!isRunKind(raw)) {
-    throw new ProjectsError(400, "run kind must be none, docker, compose, systemd, or static");
+    throw new ProjectsError(400, "run kind must be none, docker, compose, systemd, static, or process");
   }
   if (raw === "systemd" && process.platform !== "linux") {
     throw new ProjectsError(400, "systemd is only available on Linux");
@@ -619,6 +700,119 @@ export function sanitizeStartCommand(raw: unknown): string | null {
   return c;
 }
 
+export function sanitizeBool(raw: unknown): boolean {
+  return raw === true || raw === 1 || raw === "1" || raw === "true";
+}
+
+export function sanitizeImage(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid image");
+  const v = raw.trim();
+  if (!v) return null;
+  if (v.length > 500) throw new ProjectsError(400, "image is too long");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@+-]*$/.test(v)) {
+    throw new ProjectsError(400, "invalid image name");
+  }
+  return v;
+}
+
+export function sanitizeDockerfile(raw: unknown): string | null {
+  return sanitizeRelPath(raw, "Dockerfile");
+}
+
+export function sanitizeWorkDir(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid working directory");
+  const p = raw.trim();
+  if (!p) return null;
+  if (p.length > 400) throw new ProjectsError(400, "working directory is too long");
+  return p;
+}
+
+export function sanitizeCpuLimit(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(n) || n <= 0 || n > 256) {
+    throw new ProjectsError(400, "CPU limit must be between 0 and 256 cores");
+  }
+  return Math.round(n * 1000) / 1000;
+}
+
+export function sanitizeMemoryMb(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 16 || n > 1024 * 1024) {
+    throw new ProjectsError(400, "memory must be 16–1048576 MB");
+  }
+  return n;
+}
+
+export function sanitizeReplicas(raw: unknown, fallback = 1): number {
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 1 || n > 32) {
+    throw new ProjectsError(400, "replicas must be 1–32");
+  }
+  return n;
+}
+
+export function sanitizeRestartPolicy(raw: unknown): RestartPolicy {
+  if (raw === undefined || raw === null || raw === "") return "always";
+  if (!isRestartPolicy(raw)) {
+    throw new ProjectsError(400, "restart policy must be always, on-failure, or no");
+  }
+  return raw;
+}
+
+export function sanitizePositiveInt(raw: unknown, label: string, min: number, max: number): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new ProjectsError(400, `${label} must be ${min}–${max}`);
+  }
+  return n;
+}
+
+export function sanitizeSchedule(raw: unknown): string | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid schedule");
+  const s = raw.trim();
+  if (!s) return null;
+  const parts = s.split(/\s+/);
+  if (parts.length !== 5) {
+    throw new ProjectsError(400, "schedule must be a 5-field cron expression");
+  }
+  if (s.length > 80) throw new ProjectsError(400, "schedule is too long");
+  return s;
+}
+
+export function sanitizePercent(raw: unknown, label: string): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isInteger(n) || n < 1 || n > 100) {
+    throw new ProjectsError(400, `${label} must be 1–100`);
+  }
+  return n;
+}
+
+export function sanitizeEnvKey(raw: unknown): string {
+  if (typeof raw !== "string") throw new ProjectsError(400, "env key is required");
+  const k = raw.trim();
+  if (!k) throw new ProjectsError(400, "env key is required");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) {
+    throw new ProjectsError(400, `invalid env key: ${k}`);
+  }
+  if (k.length > 120) throw new ProjectsError(400, "env key is too long");
+  return k;
+}
+
+export function sanitizeEnvValue(raw: unknown): string {
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw !== "string") throw new ProjectsError(400, "invalid env value");
+  if (raw.length > 8000) throw new ProjectsError(400, "env value is too long");
+  return raw;
+}
+
 export function sanitizeRemoteUrl(raw: unknown, opts?: { optional?: boolean }): string {
   if (opts?.optional && (raw === undefined || raw === null || (typeof raw === "string" && !raw.trim()))) {
     return "";
@@ -651,6 +845,11 @@ export function validateProjectShape(p: {
   runKind: RunKind;
   container: string | null;
   unit: string | null;
+  managed?: boolean;
+  image?: string | null;
+  dockerfile?: string | null;
+  startCommand?: string | null;
+  replicas?: number;
 }): void {
   const git = projectHasGit(p);
   const folder = projectHasFolder({ localPath: p.localPath });
@@ -663,7 +862,7 @@ export function validateProjectShape(p: {
       throw new ProjectsError(400, "workers do not publish a static site");
     }
     if (p.runKind === "none") {
-      throw new ProjectsError(400, "pick how this worker runs (Docker, Compose, or systemd)");
+      throw new ProjectsError(400, "pick how this worker runs (Docker, Compose, systemd, or a process)");
     }
     if (git && !folder) {
       throw new ProjectsError(400, "local folder is required to clone the repo");
@@ -671,11 +870,23 @@ export function validateProjectShape(p: {
     if (p.runKind === "compose" && !folder) {
       throw new ProjectsError(400, "Compose needs a folder for the compose file");
     }
-    if (p.runKind === "docker" && !p.container) {
-      throw new ProjectsError(400, "container name is required");
+    if (p.runKind === "docker" && !p.managed && !p.container) {
+      throw new ProjectsError(400, "container name is required, or turn on managed Docker");
     }
-    if (p.runKind === "systemd" && !p.unit) {
-      throw new ProjectsError(400, "systemd unit is required");
+    if (p.runKind === "docker" && p.managed && !p.image && !p.dockerfile) {
+      throw new ProjectsError(400, "managed Docker needs an image or a Dockerfile");
+    }
+    if (p.runKind === "process" && !p.startCommand) {
+      throw new ProjectsError(400, "a start command is required for a native worker");
+    }
+    if (p.runKind === "systemd" && !p.unit && !p.startCommand) {
+      throw new ProjectsError(400, "systemd unit or start command is required");
+    }
+    if ((p.runKind === "systemd" || p.runKind === "compose") && (p.replicas ?? 1) > 1) {
+      throw new ProjectsError(400, "replicas only apply to Docker and native process workers");
+    }
+    if (p.runKind === "docker" && p.dockerfile && !folder) {
+      throw new ProjectsError(400, "building a Dockerfile needs a project folder");
     }
   }
 }
@@ -790,16 +1001,43 @@ type ProjectRow = {
   embed_preview: number | null;
   embed_url: string | null;
   notes: string | null;
+  managed: number | null;
+  cloned_by_beacon: number | null;
+  image: string | null;
+  dockerfile: string | null;
+  build_context: string | null;
+  build_command: string | null;
+  work_dir: string | null;
+  cpu_limit: number | null;
+  memory_limit_mb: number | null;
+  replicas: number | null;
+  restart_policy: string | null;
+  restart_max_retries: number | null;
+  restart_backoff_ms: number | null;
+  schedule: string | null;
+  autoscale_enabled: number | null;
+  autoscale_min: number | null;
+  autoscale_max: number | null;
+  autoscale_cpu_target: number | null;
+  autoscale_mem_target: number | null;
+  autodeploy: number | null;
+  autodeploy_interval_s: number | null;
 };
 
 const PROJECT_COLS = `id, name, local_path, remote_url, branch, account_id, created_at,
          site_url, run_kind, port, boot, container, compose_file, unit,
          publish_from, publish_to, start_command, service_kind, health_path,
-         embed_preview, embed_url, notes`;
+         embed_preview, embed_url, notes,
+         managed, cloned_by_beacon, image, dockerfile, build_context, build_command,
+         work_dir, cpu_limit, memory_limit_mb, replicas, restart_policy,
+         restart_max_retries, restart_backoff_ms, schedule, autoscale_enabled,
+         autoscale_min, autoscale_max, autoscale_cpu_target, autoscale_mem_target,
+         autodeploy, autodeploy_interval_s`;
 
 function mapProject(row: ProjectRow): ProjectSummary {
   const kind = isRunKind(row.run_kind) ? row.run_kind : "none";
   const serviceKind = isServiceKind(row.service_kind) ? row.service_kind : "website";
+  const restart = isRestartPolicy(row.restart_policy) ? row.restart_policy : "always";
   return {
     id: row.id,
     name: row.name,
@@ -823,6 +1061,27 @@ function mapProject(row: ProjectRow): ProjectSummary {
     embedPreview: !!row.embed_preview,
     embedUrl: row.embed_url || null,
     notes: row.notes || null,
+    managed: !!row.managed,
+    clonedByBeacon: !!row.cloned_by_beacon,
+    image: row.image || null,
+    dockerfile: row.dockerfile || null,
+    buildContext: row.build_context || null,
+    buildCommand: row.build_command || null,
+    workDir: row.work_dir || null,
+    cpuLimit: typeof row.cpu_limit === "number" ? row.cpu_limit : null,
+    memoryLimitMb: typeof row.memory_limit_mb === "number" ? row.memory_limit_mb : null,
+    replicas: Math.max(1, row.replicas ?? 1),
+    restartPolicy: restart,
+    restartMaxRetries: row.restart_max_retries,
+    restartBackoffMs: row.restart_backoff_ms ?? 3000,
+    schedule: row.schedule || null,
+    autoscaleEnabled: !!row.autoscale_enabled,
+    autoscaleMin: Math.max(1, row.autoscale_min ?? 1),
+    autoscaleMax: Math.max(1, row.autoscale_max ?? 1),
+    autoscaleCpuTarget: row.autoscale_cpu_target,
+    autoscaleMemTarget: row.autoscale_mem_target,
+    autodeploy: !!row.autodeploy,
+    autodeployIntervalS: row.autodeploy_interval_s ?? 300,
     lastRun: getLatestRun(row.id),
   };
 }
@@ -943,7 +1202,7 @@ export function requireAction(projectId: number, actionId: number): ProjectActio
 
 export function getProjectDetail(id: number): ProjectDetail {
   const project = requireProject(id);
-  return { ...project, actions: listActions(id) };
+  return { ...project, actions: listActions(id), env: listProjectEnv(id) };
 }
 
 export function resolveAccountForProject(project: ProjectSummary): GitAccountRecord | null {
@@ -952,6 +1211,30 @@ export function resolveAccountForProject(project: ProjectSummary): GitAccountRec
   if (provider) return getAccountByProvider(provider);
   return null;
 }
+
+export type WorkerPatch = {
+  managed?: boolean;
+  clonedByBeacon?: boolean;
+  image?: string | null;
+  dockerfile?: string | null;
+  buildContext?: string | null;
+  buildCommand?: string | null;
+  workDir?: string | null;
+  cpuLimit?: number | null;
+  memoryLimitMb?: number | null;
+  replicas?: number;
+  restartPolicy?: RestartPolicy;
+  restartMaxRetries?: number | null;
+  restartBackoffMs?: number;
+  schedule?: string | null;
+  autoscaleEnabled?: boolean;
+  autoscaleMin?: number;
+  autoscaleMax?: number;
+  autoscaleCpuTarget?: number | null;
+  autoscaleMemTarget?: number | null;
+  autodeploy?: boolean;
+  autodeployIntervalS?: number;
+};
 
 export function insertProject(input: {
   name: string;
@@ -974,7 +1257,7 @@ export function insertProject(input: {
   embedPreview?: boolean;
   embedUrl?: string | null;
   notes?: string | null;
-}): ProjectSummary {
+} & WorkerPatch): ProjectSummary {
   if (input.localPath) {
     const existing = projectsDb()
       .prepare("SELECT id FROM projects WHERE local_path = ?")
@@ -988,8 +1271,10 @@ export function insertProject(input: {
   }
   const runKind = input.runKind ?? "none";
   const serviceKind = input.serviceKind ?? "website";
+  const managed = input.managed ?? (serviceKind === "worker" && runKind !== "none");
   const embedPreview =
     input.embedPreview !== undefined ? input.embedPreview : serviceKind === "website";
+  const replicas = input.replicas ?? 1;
   validateProjectShape({
     serviceKind,
     remoteUrl: input.remoteUrl,
@@ -997,6 +1282,11 @@ export function insertProject(input: {
     runKind,
     container: input.container ?? null,
     unit: input.unit ?? null,
+    managed,
+    image: input.image ?? null,
+    dockerfile: input.dockerfile ?? null,
+    startCommand: input.startCommand ?? null,
+    replicas,
   });
   const info = projectsDb()
     .prepare(
@@ -1004,8 +1294,13 @@ export function insertProject(input: {
          name, local_path, remote_url, branch, account_id, created_at,
          site_url, run_kind, port, boot, container, compose_file, unit,
          publish_from, publish_to, start_command, service_kind, health_path,
-         embed_preview, embed_url, notes
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         embed_preview, embed_url, notes,
+         managed, cloned_by_beacon, image, dockerfile, build_context, build_command,
+         work_dir, cpu_limit, memory_limit_mb, replicas, restart_policy,
+         restart_max_retries, restart_backoff_ms, schedule, autoscale_enabled,
+         autoscale_min, autoscale_max, autoscale_cpu_target, autoscale_mem_target,
+         autodeploy, autodeploy_interval_s
+       ) VALUES (${Array.from({ length: 42 }, () => "?").join(", ")})`
     )
     .run(
       input.name,
@@ -1028,9 +1323,41 @@ export function insertProject(input: {
       input.healthPath ?? null,
       embedPreview ? 1 : 0,
       input.embedUrl ?? null,
-      input.notes ?? null
+      input.notes ?? null,
+      managed ? 1 : 0,
+      input.clonedByBeacon ? 1 : 0,
+      input.image ?? null,
+      input.dockerfile ?? null,
+      input.buildContext ?? null,
+      input.buildCommand ?? null,
+      input.workDir ?? null,
+      input.cpuLimit ?? null,
+      input.memoryLimitMb ?? null,
+      replicas,
+      input.restartPolicy ?? "always",
+      input.restartMaxRetries ?? null,
+      input.restartBackoffMs ?? 3000,
+      input.schedule ?? null,
+      input.autoscaleEnabled ? 1 : 0,
+      input.autoscaleMin ?? 1,
+      input.autoscaleMax ?? 1,
+      input.autoscaleCpuTarget ?? null,
+      input.autoscaleMemTarget ?? null,
+      input.autodeploy ? 1 : 0,
+      input.autodeployIntervalS ?? 300
     );
-  const project = requireProject(Number(info.lastInsertRowid));
+  const id = Number(info.lastInsertRowid);
+  if (serviceKind === "worker" && runKind === "docker" && managed && !input.container) {
+    projectsDb()
+      .prepare("UPDATE projects SET container = ? WHERE id = ?")
+      .run(`beacon-w-${id}`, id);
+  }
+  if (serviceKind === "worker" && runKind === "systemd" && !input.unit) {
+    projectsDb()
+      .prepare("UPDATE projects SET unit = ? WHERE id = ?")
+      .run(`beacon-w-${id}.service`, id);
+  }
+  const project = requireProject(id);
   seedDefaultAction(project);
   return requireProject(project.id);
 }
@@ -1057,7 +1384,7 @@ export function updateProject(
     embedPreview?: boolean;
     embedUrl?: string | null;
     notes?: string | null;
-  }
+  } & WorkerPatch
 ): ProjectSummary {
   const prev = requireProject(id);
   validateProjectShape({
@@ -1067,90 +1394,99 @@ export function updateProject(
     runKind: patch.runKind ?? prev.runKind,
     container: patch.container !== undefined ? patch.container : prev.container,
     unit: patch.unit !== undefined ? patch.unit : prev.unit,
+    managed: patch.managed ?? prev.managed,
+    image: patch.image !== undefined ? patch.image : prev.image,
+    dockerfile: patch.dockerfile !== undefined ? patch.dockerfile : prev.dockerfile,
+    startCommand: patch.startCommand !== undefined ? patch.startCommand : prev.startCommand,
+    replicas: patch.replicas ?? prev.replicas,
   });
-  if (patch.name !== undefined) {
-    projectsDb().prepare("UPDATE projects SET name = ? WHERE id = ?").run(patch.name, id);
-  }
-  if (patch.remoteUrl !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET remote_url = ? WHERE id = ?")
-      .run(patch.remoteUrl, id);
-  }
-  if (patch.branch !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET branch = ? WHERE id = ?")
-      .run(patch.branch, id);
-  }
+  const dbh = projectsDb();
+  const set = (sql: string, value: string | number | bigint | null) =>
+    dbh.prepare(sql).run(value, id);
+  if (patch.name !== undefined) set("UPDATE projects SET name = ? WHERE id = ?", patch.name);
+  if (patch.remoteUrl !== undefined) set("UPDATE projects SET remote_url = ? WHERE id = ?", patch.remoteUrl);
+  if (patch.branch !== undefined) set("UPDATE projects SET branch = ? WHERE id = ?", patch.branch);
   if (patch.accountId !== undefined) {
     if (patch.accountId !== null && !getAccountById(patch.accountId)) {
       throw new ProjectsError(400, "git account not found");
     }
-    projectsDb()
-      .prepare("UPDATE projects SET account_id = ? WHERE id = ?")
-      .run(patch.accountId, id);
+    set("UPDATE projects SET account_id = ? WHERE id = ?", patch.accountId);
   }
-  if (patch.siteUrl !== undefined) {
-    projectsDb().prepare("UPDATE projects SET site_url = ? WHERE id = ?").run(patch.siteUrl, id);
-  }
-  if (patch.runKind !== undefined) {
-    projectsDb().prepare("UPDATE projects SET run_kind = ? WHERE id = ?").run(patch.runKind, id);
-  }
-  if (patch.port !== undefined) {
-    projectsDb().prepare("UPDATE projects SET port = ? WHERE id = ?").run(patch.port, id);
-  }
-  if (patch.boot !== undefined) {
-    projectsDb().prepare("UPDATE projects SET boot = ? WHERE id = ?").run(patch.boot ? 1 : 0, id);
-  }
-  if (patch.container !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET container = ? WHERE id = ?")
-      .run(patch.container, id);
-  }
+  if (patch.siteUrl !== undefined) set("UPDATE projects SET site_url = ? WHERE id = ?", patch.siteUrl);
+  if (patch.runKind !== undefined) set("UPDATE projects SET run_kind = ? WHERE id = ?", patch.runKind);
+  if (patch.port !== undefined) set("UPDATE projects SET port = ? WHERE id = ?", patch.port);
+  if (patch.boot !== undefined) set("UPDATE projects SET boot = ? WHERE id = ?", patch.boot ? 1 : 0);
+  if (patch.container !== undefined) set("UPDATE projects SET container = ? WHERE id = ?", patch.container);
   if (patch.composeFile !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET compose_file = ? WHERE id = ?")
-      .run(patch.composeFile, id);
+    set("UPDATE projects SET compose_file = ? WHERE id = ?", patch.composeFile);
   }
-  if (patch.unit !== undefined) {
-    projectsDb().prepare("UPDATE projects SET unit = ? WHERE id = ?").run(patch.unit, id);
-  }
+  if (patch.unit !== undefined) set("UPDATE projects SET unit = ? WHERE id = ?", patch.unit);
   if (patch.publishFrom !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET publish_from = ? WHERE id = ?")
-      .run(patch.publishFrom, id);
+    set("UPDATE projects SET publish_from = ? WHERE id = ?", patch.publishFrom);
   }
-  if (patch.publishTo !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET publish_to = ? WHERE id = ?")
-      .run(patch.publishTo, id);
-  }
+  if (patch.publishTo !== undefined) set("UPDATE projects SET publish_to = ? WHERE id = ?", patch.publishTo);
   if (patch.startCommand !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET start_command = ? WHERE id = ?")
-      .run(patch.startCommand, id);
+    set("UPDATE projects SET start_command = ? WHERE id = ?", patch.startCommand);
   }
   if (patch.serviceKind !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET service_kind = ? WHERE id = ?")
-      .run(patch.serviceKind, id);
+    set("UPDATE projects SET service_kind = ? WHERE id = ?", patch.serviceKind);
   }
   if (patch.healthPath !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET health_path = ? WHERE id = ?")
-      .run(patch.healthPath, id);
+    set("UPDATE projects SET health_path = ? WHERE id = ?", patch.healthPath);
   }
   if (patch.embedPreview !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET embed_preview = ? WHERE id = ?")
-      .run(patch.embedPreview ? 1 : 0, id);
+    set("UPDATE projects SET embed_preview = ? WHERE id = ?", patch.embedPreview ? 1 : 0);
   }
-  if (patch.embedUrl !== undefined) {
-    projectsDb()
-      .prepare("UPDATE projects SET embed_url = ? WHERE id = ?")
-      .run(patch.embedUrl, id);
+  if (patch.embedUrl !== undefined) set("UPDATE projects SET embed_url = ? WHERE id = ?", patch.embedUrl);
+  if (patch.notes !== undefined) set("UPDATE projects SET notes = ? WHERE id = ?", patch.notes);
+  if (patch.managed !== undefined) set("UPDATE projects SET managed = ? WHERE id = ?", patch.managed ? 1 : 0);
+  if (patch.clonedByBeacon !== undefined) {
+    set("UPDATE projects SET cloned_by_beacon = ? WHERE id = ?", patch.clonedByBeacon ? 1 : 0);
   }
-  if (patch.notes !== undefined) {
-    projectsDb().prepare("UPDATE projects SET notes = ? WHERE id = ?").run(patch.notes, id);
+  if (patch.image !== undefined) set("UPDATE projects SET image = ? WHERE id = ?", patch.image);
+  if (patch.dockerfile !== undefined) set("UPDATE projects SET dockerfile = ? WHERE id = ?", patch.dockerfile);
+  if (patch.buildContext !== undefined) {
+    set("UPDATE projects SET build_context = ? WHERE id = ?", patch.buildContext);
+  }
+  if (patch.buildCommand !== undefined) {
+    set("UPDATE projects SET build_command = ? WHERE id = ?", patch.buildCommand);
+  }
+  if (patch.workDir !== undefined) set("UPDATE projects SET work_dir = ? WHERE id = ?", patch.workDir);
+  if (patch.cpuLimit !== undefined) set("UPDATE projects SET cpu_limit = ? WHERE id = ?", patch.cpuLimit);
+  if (patch.memoryLimitMb !== undefined) {
+    set("UPDATE projects SET memory_limit_mb = ? WHERE id = ?", patch.memoryLimitMb);
+  }
+  if (patch.replicas !== undefined) set("UPDATE projects SET replicas = ? WHERE id = ?", patch.replicas);
+  if (patch.restartPolicy !== undefined) {
+    set("UPDATE projects SET restart_policy = ? WHERE id = ?", patch.restartPolicy);
+  }
+  if (patch.restartMaxRetries !== undefined) {
+    set("UPDATE projects SET restart_max_retries = ? WHERE id = ?", patch.restartMaxRetries);
+  }
+  if (patch.restartBackoffMs !== undefined) {
+    set("UPDATE projects SET restart_backoff_ms = ? WHERE id = ?", patch.restartBackoffMs);
+  }
+  if (patch.schedule !== undefined) set("UPDATE projects SET schedule = ? WHERE id = ?", patch.schedule);
+  if (patch.autoscaleEnabled !== undefined) {
+    set("UPDATE projects SET autoscale_enabled = ? WHERE id = ?", patch.autoscaleEnabled ? 1 : 0);
+  }
+  if (patch.autoscaleMin !== undefined) {
+    set("UPDATE projects SET autoscale_min = ? WHERE id = ?", patch.autoscaleMin);
+  }
+  if (patch.autoscaleMax !== undefined) {
+    set("UPDATE projects SET autoscale_max = ? WHERE id = ?", patch.autoscaleMax);
+  }
+  if (patch.autoscaleCpuTarget !== undefined) {
+    set("UPDATE projects SET autoscale_cpu_target = ? WHERE id = ?", patch.autoscaleCpuTarget);
+  }
+  if (patch.autoscaleMemTarget !== undefined) {
+    set("UPDATE projects SET autoscale_mem_target = ? WHERE id = ?", patch.autoscaleMemTarget);
+  }
+  if (patch.autodeploy !== undefined) {
+    set("UPDATE projects SET autodeploy = ? WHERE id = ?", patch.autodeploy ? 1 : 0);
+  }
+  if (patch.autodeployIntervalS !== undefined) {
+    set("UPDATE projects SET autodeploy_interval_s = ? WHERE id = ?", patch.autodeployIntervalS);
   }
   const next = requireProject(id);
   if (prev.runKind === "none" && next.runKind !== "none" && listActions(id).length === 0) {
@@ -1162,6 +1498,81 @@ export function updateProject(
 export function deleteProject(id: number): void {
   const info = projectsDb().prepare("DELETE FROM projects WHERE id = ?").run(id);
   if (info.changes === 0) throw new ProjectsError(404, "project not found");
+}
+
+export function workerScratchDir(projectId: number): string {
+  return path.join(DATA_DIR, "workers", String(projectId));
+}
+
+export function listProjectEnv(projectId: number, opts?: { includeSecrets?: boolean }): ProjectEnvVar[] {
+  requireProject(projectId);
+  const rows = projectsDb()
+    .prepare(
+      `SELECT id, key, value, secret, sort_order FROM project_env
+        WHERE project_id = ? ORDER BY sort_order, id`
+    )
+    .all(projectId) as Array<{
+    id: number;
+    key: string;
+    value: string;
+    secret: number;
+    sort_order: number;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    key: r.key,
+    value: r.secret && !opts?.includeSecrets ? null : r.value,
+    secret: !!r.secret,
+    sortOrder: r.sort_order,
+  }));
+}
+
+export function envMapForRuntime(projectId: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of listProjectEnv(projectId, { includeSecrets: true })) {
+    out[row.key] = row.value ?? "";
+  }
+  return out;
+}
+
+export function writeWorkerEnvFile(projectId: number): string {
+  const dir = workerScratchDir(projectId);
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = path.join(dir, "env");
+  const lines = listProjectEnv(projectId, { includeSecrets: true }).map((e) => {
+    const v = (e.value ?? "").replace(/\r?\n/g, " ");
+    return `${e.key}=${v}`;
+  });
+  fs.writeFileSync(dest, `${lines.join("\n")}${lines.length ? "\n" : ""}`, "utf8");
+  return dest;
+}
+
+export function replaceProjectEnv(projectId: number, items: EnvVarInput[]): ProjectEnvVar[] {
+  requireProject(projectId);
+  if (items.length > 200) throw new ProjectsError(400, "too many environment variables");
+  const existing = projectsDb()
+    .prepare("SELECT id, key, value, secret FROM project_env WHERE project_id = ?")
+    .all(projectId) as Array<{ id: number; key: string; value: string; secret: number }>;
+  const byId = new Map(existing.map((e) => [e.id, e]));
+  const seen = new Set<string>();
+  const rows: Array<{ key: string; value: string; secret: number }> = [];
+  for (const raw of items) {
+    const key = sanitizeEnvKey(raw.key);
+    if (seen.has(key)) throw new ProjectsError(400, `duplicate env key: ${key}`);
+    seen.add(key);
+    const secret = !!raw.secret;
+    let value = raw.value !== undefined && raw.value !== null ? sanitizeEnvValue(raw.value) : "";
+    if (secret && !value && raw.id && byId.has(raw.id)) {
+      value = byId.get(raw.id)!.value;
+    }
+    rows.push({ key, value, secret: secret ? 1 : 0 });
+  }
+  projectsDb().prepare("DELETE FROM project_env WHERE project_id = ?").run(projectId);
+  const insert = projectsDb().prepare(
+    `INSERT INTO project_env (project_id, key, value, secret, sort_order) VALUES (?, ?, ?, ?, ?)`
+  );
+  rows.forEach((r, i) => insert.run(projectId, r.key, r.value, r.secret, i));
+  return listProjectEnv(projectId);
 }
 
 export function validateSteps(steps: StepInput[]): StepInput[] {
@@ -1225,12 +1636,18 @@ export function validateSteps(steps: StepInput[]): StepInput[] {
       const dest = sanitizeLocalPath(raw.dest);
       return { type: "publish", source, dest };
     }
+    if (raw.type === "worker_apply") {
+      return { type: "worker_apply" };
+    }
     return { type: "git_pull" };
   });
 }
 
 function defaultActionSteps(project: ProjectSummary): StepInput[] | null {
   const pull: StepInput[] = projectHasGit(project) ? [{ type: "git_pull" }] : [];
+  if (project.serviceKind === "worker" && (project.managed || project.runKind === "process")) {
+    return [...pull, { type: "worker_apply" }];
+  }
   switch (project.runKind) {
     case "docker":
       if (!project.container) return pull.length ? pull : null;
@@ -1255,6 +1672,8 @@ function defaultActionSteps(project: ProjectSummary): StepInput[] | null {
         ...pull,
         { type: "publish", source: project.publishFrom, dest: project.publishTo },
       ];
+    case "process":
+      return [...pull, { type: "worker_apply" }];
     default:
       return pull.length ? pull : null;
   }

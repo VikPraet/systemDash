@@ -490,10 +490,20 @@ export type ActionStepType =
   | "systemd_restart"
   | "systemd_enable"
   | "systemd_apply"
-  | "publish";
+  | "publish"
+  | "worker_apply";
 
-export type RunKind = "none" | "docker" | "compose" | "systemd" | "static";
+export type RunKind = "none" | "docker" | "compose" | "systemd" | "static" | "process";
 export type ServiceKind = "website" | "api" | "worker";
+export type RestartPolicy = "always" | "on-failure" | "no";
+
+export interface ProjectEnvVar {
+  id: number;
+  key: string;
+  value: string | null;
+  secret: boolean;
+  sortOrder: number;
+}
 
 export interface GitAccountPublic {
   id: number;
@@ -600,11 +610,56 @@ export interface ProjectSummary {
   embedPreview: boolean;
   embedUrl: string | null;
   notes: string | null;
+  managed: boolean;
+  clonedByBeacon: boolean;
+  image: string | null;
+  dockerfile: string | null;
+  buildContext: string | null;
+  buildCommand: string | null;
+  workDir: string | null;
+  cpuLimit: number | null;
+  memoryLimitMb: number | null;
+  replicas: number;
+  restartPolicy: RestartPolicy;
+  restartMaxRetries: number | null;
+  restartBackoffMs: number;
+  schedule: string | null;
+  autoscaleEnabled: boolean;
+  autoscaleMin: number;
+  autoscaleMax: number;
+  autoscaleCpuTarget: number | null;
+  autoscaleMemTarget: number | null;
+  autodeploy: boolean;
+  autodeployIntervalS: number;
   lastRun: ActionRun | null;
 }
 
 export interface ProjectDetail extends ProjectSummary {
   actions: ProjectAction[];
+  env: ProjectEnvVar[];
+}
+
+export interface WorkerProfilePatch {
+  managed?: boolean;
+  image?: string | null;
+  dockerfile?: string | null;
+  buildContext?: string | null;
+  buildCommand?: string | null;
+  workDir?: string | null;
+  cpuLimit?: number | null;
+  memoryLimitMb?: number | null;
+  replicas?: number;
+  restartPolicy?: RestartPolicy;
+  restartMaxRetries?: number | null;
+  restartBackoffMs?: number;
+  schedule?: string | null;
+  autoscaleEnabled?: boolean;
+  autoscaleMin?: number;
+  autoscaleMax?: number;
+  autoscaleCpuTarget?: number | null;
+  autoscaleMemTarget?: number | null;
+  autodeploy?: boolean;
+  autodeployIntervalS?: number;
 }
 
 export interface ProjectsCapabilities {
@@ -612,6 +667,7 @@ export interface ProjectsCapabilities {
   git: boolean;
   systemd: boolean;
   compose: boolean;
+  docker: boolean;
 }
 
 export interface IngressRoute {

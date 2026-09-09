@@ -10,7 +10,8 @@ import {
 import { formatBytes, scanUsageTree } from "../../../api";
 import { cache } from "../../../cache";
 import type { FsEntry, FsRoot, UsageProgress, UsageTree } from "../../../types";
-import { usageFill, usageStroke } from "./colors";
+import { Bar } from "../../widgets";
+import { frameFill, frameStroke, usageColor, usageFill, usageStroke } from "./colors";
 import * as S from "./styles";
 import {
   findNodeByPath,
@@ -19,7 +20,6 @@ import {
   isSynthetic,
   layoutTreemap,
   nodeKey,
-  withFreeSpace,
   type HydratedNode,
   type LayoutCell,
 } from "./treemap";
@@ -54,6 +54,7 @@ export const DiskMap = forwardRef<
     y: number;
   } | null>(null);
   const [tab, setTab] = useState<"folder" | "largest">("folder");
+  const [rowHoverKey, setRowHoverKey] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const scanGen = useRef(0);
@@ -119,13 +120,12 @@ export const DiskMap = forwardRef<
     return () => ro.disconnect();
   }, [usage, scanning]);
 
-  const tree = useMemo(() => {
-    if (!usage) return null;
-    let hydrated = hydrateUsageTree(usage.tree, usage.path);
-    const volume = roots.find((r) => pathsEqual(r.path, usage.path));
-    if (volume?.freeBytes) hydrated = withFreeSpace(hydrated, volume.freeBytes);
-    return hydrated;
-  }, [usage, roots]);
+  const tree = useMemo(
+    () => (usage ? hydrateUsageTree(usage.tree, usage.path) : null),
+    [usage]
+  );
+
+  const volume = useMemo(() => findVolume(roots, path), [roots, path]);
 
   const view = useMemo(() => {
     if (!tree) return null;
@@ -140,6 +140,12 @@ export const DiskMap = forwardRef<
 
   const leaves = useMemo(
     () => cells.filter((c) => c.leaf && c.rect.w > 0.8 && c.rect.h > 0.8),
+    [cells]
+  );
+
+  // Folder plates render behind their contents; pre-order keeps parents first.
+  const frames = useMemo(
+    () => cells.filter((c) => !c.leaf && c.depth > 0 && c.rect.w > 3 && c.rect.h > 3),
     [cells]
   );
 
@@ -212,6 +218,10 @@ export const DiskMap = forwardRef<
   }
 
   const hoverNode = hover?.cell.node;
+  // The map and the list highlight each other, so a hover from either side
+  // resolves to the same node key.
+  const hoverKey = hover ? nodeKey(hover.cell.node) : rowHoverKey;
+  const usedPercent = volume ? volumeUsedPercent(volume) : null;
   const totalSize = tree?.size || 1;
   const viewSize = view?.size || 1;
 
@@ -256,6 +266,20 @@ export const DiskMap = forwardRef<
             <S.MapStatusTitle>Preparing scan…</S.MapStatusTitle>
           )}
         </S.MapStatusMain>
+        {volume && usedPercent != null && (
+          <S.MapCapacity>
+            <S.MapCapacityHead>
+              <span>
+                <strong>{usedPercent.toFixed(0)}%</strong> used
+              </span>
+              <span>
+                {formatBytes(volume.freeBytes ?? 0)} free of{" "}
+                {formatBytes(volume.sizeBytes ?? 0)}
+              </span>
+            </S.MapCapacityHead>
+            <Bar value={usedPercent} />
+          </S.MapCapacity>
+        )}
         <S.MapActions>
           {zoomed && (
             <button type="button" onClick={zoomOut}>
@@ -320,12 +344,58 @@ export const DiskMap = forwardRef<
                 if (cell) activate(cell.node);
               }}
             >
+              {frames.map((cell) => {
+                const key = nodeKey(cell.node);
+                const on = key === selectedKey;
+                const over = key === hoverKey;
+                const showTitle = cell.header > 0 && cell.rect.w > 50;
+                const showSize = showTitle && cell.rect.w > 132;
+                return (
+                  <g key={key}>
+                    <rect
+                      x={cell.rect.x}
+                      y={cell.rect.y}
+                      width={cell.rect.w}
+                      height={cell.rect.h}
+                      rx={2.5}
+                      fill={frameFill(cell.depth)}
+                      stroke={on || over ? usageStroke(on, over) : frameStroke(cell.depth)}
+                      strokeWidth={on ? 2 : 0.7}
+                    />
+                    {showTitle && (
+                      <text
+                        x={cell.rect.x + 5}
+                        y={cell.rect.y + 10.5}
+                        fill="var(--text)"
+                        fontSize={10}
+                        fontWeight={600}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {clipLabel(cell.node.name, cell.rect.w - (showSize ? 74 : 10))}
+                      </text>
+                    )}
+                    {showSize && (
+                      <text
+                        x={cell.rect.x + cell.rect.w - 5}
+                        y={cell.rect.y + 10.5}
+                        textAnchor="end"
+                        fill="var(--muted)"
+                        fontSize={9}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {formatBytes(cell.node.size)}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
               {leaves.map((cell) => {
                 const key = nodeKey(cell.node);
                 const on = key === selectedKey;
-                const over = hover?.cell ? nodeKey(hover.cell.node) === key : false;
+                const over = key === hoverKey;
                 const showLabel = cell.rect.w > 52 && cell.rect.h > 16;
                 const showSize = cell.rect.h > 30 && cell.rect.w > 64;
+                const color = usageColor(cell.node.type, cell.node.ext);
                 return (
                   <g key={key}>
                     <rect
@@ -334,7 +404,7 @@ export const DiskMap = forwardRef<
                       width={cell.rect.w}
                       height={cell.rect.h}
                       rx={1.5}
-                      fill={usageFill(cell.node.type, cell.node.ext)}
+                      fill={color.fill}
                       stroke={usageStroke(on, over)}
                       strokeWidth={on ? 2 : 0.6}
                     />
@@ -342,11 +412,7 @@ export const DiskMap = forwardRef<
                       <text
                         x={cell.rect.x + 5}
                         y={cell.rect.y + 13}
-                        fill={
-                          cell.node.type === "free" || cell.node.type === "other"
-                            ? "var(--text)"
-                            : "rgba(8,10,14,0.88)"
-                        }
+                        fill={color.label}
                         fontSize={10}
                         fontWeight={600}
                         style={{ pointerEvents: "none" }}
@@ -358,11 +424,7 @@ export const DiskMap = forwardRef<
                       <text
                         x={cell.rect.x + 5}
                         y={cell.rect.y + 26}
-                        fill={
-                          cell.node.type === "free" || cell.node.type === "other"
-                            ? "var(--muted)"
-                            : "rgba(8,10,14,0.7)"
-                        }
+                        fill={color.meta}
                         fontSize={10}
                         style={{ pointerEvents: "none" }}
                       >
@@ -376,6 +438,9 @@ export const DiskMap = forwardRef<
             {hoverNode && hover && (
               <S.MapTip $x={hover.x} $y={hover.y}>
                 <S.MapTipName>{hoverNode.name}</S.MapTipName>
+                {!isSynthetic(hoverNode.type) && (
+                  <S.MapTipPath>{hoverNode.path}</S.MapTipPath>
+                )}
                 <S.MapTipMeta>
                   {formatBytes(hoverNode.size)} · {pct(hoverNode.size, viewSize)} of view ·{" "}
                   {pct(hoverNode.size, totalSize)} of total
@@ -417,9 +482,14 @@ export const DiskMap = forwardRef<
                   ? folderRows.map((node) => (
                       <tr
                         key={nodeKey(node)}
-                        className={nodeKey(node) === selectedKey ? "selected" : ""}
+                        className={rowClass(
+                          nodeKey(node) === selectedKey,
+                          nodeKey(node) === hoverKey
+                        )}
                         onClick={() => setSelectedKey(nodeKey(node))}
                         onDoubleClick={() => activate(node)}
+                        onMouseEnter={() => setRowHoverKey(nodeKey(node))}
+                        onMouseLeave={() => setRowHoverKey(null)}
                       >
                         <td>
                           <span className="map-name">
@@ -440,15 +510,19 @@ export const DiskMap = forwardRef<
                   : usage.largest.map((file) => (
                       <tr
                         key={file.path}
-                        className={
-                          selected?.path === file.path && selected.type === "file"
-                            ? "selected"
-                            : ""
-                        }
+                        className={rowClass(
+                          selected?.path === file.path && selected.type === "file",
+                          hoverNode?.type === "file" && hoverNode.path === file.path
+                        )}
                         onClick={() => {
                           const found = findNodeByPath(tree, file.path);
                           if (found) setSelectedKey(nodeKey(found));
                         }}
+                        onMouseEnter={() => {
+                          const found = findNodeByPath(tree, file.path);
+                          setRowHoverKey(found ? nodeKey(found) : null);
+                        }}
+                        onMouseLeave={() => setRowHoverKey(null)}
                         onDoubleClick={() =>
                           onOpenFile({
                             name: file.name,
@@ -499,6 +573,13 @@ export const DiskMap = forwardRef<
   );
 });
 
+function rowClass(selected: boolean | undefined, hovered: boolean | undefined): string {
+  const names: string[] = [];
+  if (hovered) names.push("hovered");
+  if (selected) names.push("selected");
+  return names.join(" ");
+}
+
 function pct(part: number, whole: number): string {
   if (!whole) return "0%";
   const v = (part / whole) * 100;
@@ -518,9 +599,32 @@ function clipLabel(name: string, width: number): string {
   return `${name.slice(0, Math.max(1, max - 1))}…`;
 }
 
-function pathsEqual(a: string, b: string): boolean {
-  const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
-  return norm(a) === norm(b);
+function normPath(p: string): string {
+  let out = p.replaceAll("\\", "/").toLowerCase();
+  while (out.endsWith("/")) out = out.slice(0, -1);
+  return out;
+}
+
+// The scanned folder is usually somewhere inside a volume, so match the
+// deepest root that contains it to report the right capacity.
+function findVolume(roots: FsRoot[], target: string): FsRoot | null {
+  const t = normPath(target);
+  let best: FsRoot | null = null;
+  for (const root of roots) {
+    if (!root.sizeBytes || root.connected === false) continue;
+    const rp = normPath(root.path);
+    if (t !== rp && !t.startsWith(`${rp}/`)) continue;
+    if (!best || normPath(best.path).length < rp.length) best = root;
+  }
+  return best;
+}
+
+function volumeUsedPercent(volume: FsRoot): number {
+  if (volume.usedPercent != null) return Math.max(0, Math.min(100, volume.usedPercent));
+  const size = volume.sizeBytes ?? 0;
+  if (!size) return 0;
+  const used = volume.usedBytes ?? size - (volume.freeBytes ?? 0);
+  return Math.max(0, Math.min(100, (used / size) * 100));
 }
 
 function findByKey(node: HydratedNode, key: string): HydratedNode | null {

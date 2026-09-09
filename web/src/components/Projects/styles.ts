@@ -230,7 +230,7 @@ export const CardPreview = styled.div`
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  min-height: 220px;
+  min-height: 96px;
   max-height: 360px;
   overflow: hidden;
   background: ${({ theme }) => theme.color.bg};
@@ -258,19 +258,25 @@ export const CardBody = styled.div`
   gap: 8px;
   padding: 16px;
   width: 100%;
+  min-height: 0;
   box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 `;
 
 export const CardTitle = styled.div`
+  min-width: 0;
   font-size: 16px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 `;
 
 export const CardTop = styled.div`
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   width: 100%;
 `;
 
@@ -280,7 +286,8 @@ export const CardBadges = styled.div`
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  flex-shrink: 0;
+  min-width: 0;
+  margin-left: auto;
 `;
 
 export const HealthDot = styled.span<{ $state?: "up" | "degraded" | "down" | "unknown" }>`
@@ -301,7 +308,10 @@ export const HealthDot = styled.span<{ $state?: "up" | "degraded" | "down" | "un
 export const HealthPill = styled.span<{ $state?: "up" | "degraded" | "down" | "unknown" }>`
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.2px;
@@ -536,7 +546,10 @@ export const SiteLink = styled.a`
 export const KindPill = styled.span`
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.2px;
@@ -713,6 +726,16 @@ export const Steps = styled.ol`
   }
 `;
 
+export const LogNotice = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
 export const LogPanel = styled.pre<{ $full?: boolean }>`
   margin: 0;
   padding: 12px 16px;
@@ -863,6 +886,101 @@ export const FormStack = styled.div`
   display: flex;
   flex-direction: column;
   gap: 12px;
+`;
+
+/**
+ * A band inside a form panel. Sections are separated by a hairline rather than
+ * nested cards, so a long config form reads as one surface with clear groups.
+ */
+export const FormSection = styled.div<{ $flush?: boolean }>`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid ${({ theme }) => theme.color.hairline};
+
+  &:first-child {
+    padding-top: 0;
+    border-top: none;
+  }
+
+  ${({ $flush }) =>
+    $flush &&
+    css`
+      padding-top: 0;
+      border-top: none;
+    `}
+`;
+
+export const FormSectionTitle = styled.span`
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const FormActions = styled.div`
+  display: flex;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid ${({ theme }) => theme.color.hairline};
+`;
+
+export const FieldPair = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+`;
+
+export const Disclosure = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 16px 0 0;
+  border: none;
+  border-top: 1px solid ${({ theme }) => theme.color.hairline};
+  background: none;
+  color: ${({ theme }) => theme.color.muted};
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    color: ${({ theme }) => theme.color.text};
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+`;
+
+export const EnvRow = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto auto;
+  gap: 8px;
+  align-items: center;
+
+  input {
+    min-width: 0;
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+
+    input:first-child {
+      grid-column: 1 / -1;
+    }
+  }
 `;
 
 export const Field = styled.label`

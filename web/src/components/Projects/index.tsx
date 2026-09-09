@@ -28,6 +28,8 @@ import {
   addCloudflaredIngressApi,
   deleteProjectActionApi,
   deleteProjectApi,
+  fetchPurgePreview,
+  saveProjectEnvApi,
   disconnectCloudflareApi,
   disconnectGitAccountApi,
   fetchGitAccountDetails,
@@ -82,6 +84,8 @@ import {
 } from "../ui/styles";
 import { FolderPicker } from "./FolderPicker";
 import { ColorLog } from "./ColorLog";
+import { WorkerConfig, workerDraftFromProject, workerPayload, envPayload, defaultWorkerDraft, type WorkerDraft } from "./WorkerConfig";
+import { WorkerLogs } from "./WorkerLogs";
 import { TunnelDnsHint } from "../TunnelDns";
 import { DashboardGrid } from "../dashboard/DashboardGrid";
 import { packDefaults } from "../dashboard/grid";
@@ -116,6 +120,8 @@ function stepSummary(step: {
       return `Install systemd unit ${step.unit ?? ""}`.trim();
     case "publish":
       return `Publish ${step.source ?? "dist"} → ${step.dest ?? ""}`.trim();
+    case "worker_apply":
+      return "Apply worker spec (create/start)";
     default:
       return step.type;
   }
@@ -189,6 +195,16 @@ function serviceKindLabel(kind: ServiceKind): string {
   return "Website";
 }
 
+function serviceKindHint(kind: ServiceKind): string {
+  if (kind === "api") {
+    return "An HTTP service. Health checks use a path like /health. A public URL is optional if it only listens locally.";
+  }
+  if (kind === "worker") {
+    return "A process that stays running without serving a page — queues, mailers, importers, watchers. Attach Docker, Compose, or systemd. Git is optional, only if you want pull-to-update.";
+  }
+  return "A public page with a git repo. You can embed a live preview of it on this project.";
+}
+
 function serviceKindIcon(kind: ServiceKind) {
   if (kind === "api") return <Server size={12} />;
   if (kind === "worker") return <Workflow size={12} />;
@@ -258,7 +274,18 @@ export function Projects() {
   const [connectOpen, setConnectOpen] = useState(false);
   const [cfOpen, setCfOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [purgePreview, setPurgePreview] = useState<{
+    containers: string[];
+    localPath: string | null;
+    unit: string | null;
+    scratch: string | null;
+    cloneOwned: boolean;
+  } | null>(null);
   const [accountOpen, setAccountOpen] = useState<GitAccountPublic | null>(null);
+  const [disconnectTarget, setDisconnectTarget] = useState<
+    { kind: "git"; account: GitAccountPublic } | { kind: "cloudflare" } | null
+  >(null);
   const [actionEdit, setActionEdit] = useState<ProjectAction | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const [logFullscreen, setLogFullscreen] = useState(false);
@@ -439,17 +466,27 @@ export function Projects() {
 
   async function onDeleteProject(): Promise<void> {
     if (selectedId == null) return;
-    if (!window.confirm(`Remove this project from ${APP_NAME}? Files on disk are not deleted.`)) {
-      return;
+    setDeleteOpen(true);
+    try {
+      const preview = await fetchPurgePreview(selectedId);
+      setPurgePreview(preview);
+    } catch {
+      setPurgePreview(null);
     }
+  }
+
+  async function confirmDelete(purge: boolean): Promise<void> {
+    if (selectedId == null) return;
     setBusy(true);
     try {
-      await deleteProjectApi(selectedId);
+      await deleteProjectApi(selectedId, { purge });
       persist({
         selectedId: null,
         projects: projects.filter((p) => p.id !== selectedId),
       });
       setDetail(null);
+      setDeleteOpen(false);
+      setPurgePreview(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -548,7 +585,7 @@ export function Projects() {
                     <S.ChipBtn
                       type="button"
                       title="Disconnect"
-                      onClick={() => void onDisconnect(a.id)}
+                      onClick={() => setDisconnectTarget({ kind: "git", account: a })}
                       disabled={busy}
                     >
                       <Unplug size={13} />
@@ -569,7 +606,7 @@ export function Projects() {
                     <S.ChipBtn
                       type="button"
                       title="Disconnect"
-                      onClick={() => void onDisconnectCloudflare()}
+                      onClick={() => setDisconnectTarget({ kind: "cloudflare" })}
                       disabled={busy}
                     >
                       <Unplug size={13} />
@@ -592,7 +629,8 @@ export function Projects() {
             <Loading>Loading projects…</Loading>
           ) : projects.length === 0 ? (
             <S.Empty>
-              Link a website or API from git, or attach a background worker to a
+              Link a website or API from git, or attach a background worker (a
+              queue, mailer, importer, or other process with no public URL) to a
               Docker container or systemd unit — no repo required.
               {canManage && (
                 <>
@@ -815,13 +853,30 @@ export function Projects() {
               </div>
             )}
 
-            {selectedPreview && <LivePreview url={selectedPreview} />}
+            <ProjectHealth
+              project={selected}
+              status={selectedStatus}
+              cloudflare={cloudflare}
+              busy={busy}
+              onRecheck={() => void loadSites(true)}
+            />
+
+            {serviceKindOf(selected) === "worker" ? (
+              <WorkerLogs projectId={selected.id} />
+            ) : (
+              selectedPreview && <LivePreview url={selectedPreview} />
+            )}
 
             {detail && (
               <>
-                <S.SectionLabel>
-                  {serviceKindOf(selected) === "worker" ? "Runtime" : "Hosting"}
-                </S.SectionLabel>
+                <S.SectionLabel>Configuration</S.SectionLabel>
+                {serviceKindOf(selected) === "worker" && (
+                  <S.Banner style={{ margin: "0 16px 12px" }}>
+                    A worker has no public URL or port — it counts as healthy for as
+                    long as its process stays up. Everything it needs to run lives
+                    below.
+                  </S.Banner>
+                )}
                 <SiteEditor
                   project={detail}
                   capabilities={
@@ -830,6 +885,7 @@ export function Projects() {
                       git: true,
                       systemd: false,
                       compose: false,
+                      docker: false,
                     }
                   }
                   ingress={ingress}
@@ -843,117 +899,6 @@ export function Projects() {
                 />
               </>
             )}
-
-            <S.SectionHead>
-              <S.SectionLabel>Health</S.SectionLabel>
-              <S.Btn
-                type="button"
-                onClick={() => void loadSites(true)}
-                disabled={busy}
-              >
-                <RefreshCw size={14} />
-                Recheck
-              </S.Btn>
-            </S.SectionHead>
-            <S.HealthPanel>
-              <S.HealthCell>
-                <span className="label">Public</span>
-                <span className="value">
-                  <S.HealthDot $state={probeDot(selectedStatus?.public?.state)} />
-                  {selectedStatus?.public
-                    ? healthLabel(
-                        selectedStatus.public.state === "skipped"
-                          ? "unknown"
-                          : selectedStatus.public.state
-                      )
-                    : selected?.siteUrl
-                      ? "Checking…"
-                      : "No URL"}
-                </span>
-                <span className="meta">
-                  {selectedStatus?.public
-                    ? probeSummary(selectedStatus.public)
-                    : selected?.siteUrl
-                      ? selected.healthPath
-                        ? `${selected.siteUrl}${selected.healthPath}`
-                        : selected.siteUrl
-                      : serviceKindOf(selected ?? { serviceKind: "website" }) === "api"
-                        ? "Set a public URL to probe the API, or leave it local-only."
-                        : "Set a public URL to probe the live service."}
-                </span>
-              </S.HealthCell>
-              <S.HealthCell>
-                <span className="label">Origin</span>
-                <span className="value">
-                  <S.HealthDot $state={probeDot(selectedStatus?.origin?.state)} />
-                  {selectedStatus?.origin
-                    ? healthLabel(
-                        selectedStatus.origin.state === "skipped"
-                          ? "unknown"
-                          : selectedStatus.origin.state
-                      )
-                    : selected?.port
-                      ? "Checking…"
-                      : "No port"}
-                </span>
-                <span className="meta">
-                  {selectedStatus?.origin
-                    ? probeSummary(selectedStatus.origin)
-                    : selected?.port
-                      ? `127.0.0.1:${selected.port}${selected.healthPath ?? ""}`
-                      : "Set a port to check the local process."}
-                </span>
-              </S.HealthCell>
-              <S.HealthCell>
-                <span className="label">Runtime</span>
-                <span className="value">
-                  <S.HealthDot
-                    $state={
-                      selectedStatus?.runtime.state === "running"
-                        ? "up"
-                        : selectedStatus?.runtime.state === "stopped" ||
-                            selectedStatus?.runtime.state === "missing"
-                          ? "down"
-                          : "unknown"
-                    }
-                  />
-                  {selectedStatus
-                    ? selectedStatus.runtime.state === "skipped"
-                      ? selectedStatus.runtime.kind
-                      : selectedStatus.runtime.state
-                    : "—"}
-                </span>
-                <span className="meta">
-                  {selectedStatus?.runtime.detail ||
-                    (selected?.runKind === "none"
-                      ? "No runtime configured."
-                      : selected?.runKind ?? "")}
-                </span>
-              </S.HealthCell>
-              <S.HealthCell>
-                <span className="label">Visits · 24h</span>
-                <span className="value">
-                  {selectedStatus?.traffic?.visits24h != null
-                    ? formatCompact(selectedStatus.traffic.visits24h)
-                    : cloudflare?.connected
-                      ? "—"
-                      : "Not connected"}
-                </span>
-                <span className="meta">
-                  {selectedStatus?.traffic?.visits24h != null
-                    ? `${formatCompact(selectedStatus.traffic.requests24h ?? 0)} requests${
-                        selectedStatus.traffic.bytes24h
-                          ? ` · ${formatBytes(selectedStatus.traffic.bytes24h)}`
-                          : ""
-                      }`
-                    : selectedStatus?.traffic?.error
-                      ? selectedStatus.traffic.error
-                      : cloudflare?.connected
-                        ? "No analytics for this hostname yet."
-                        : "Connect Cloudflare (Zone Analytics) to see visits."}
-                </span>
-              </S.HealthCell>
-            </S.HealthPanel>
 
             <S.SectionLabel>Actions</S.SectionLabel>
             {detail && detail.actions.length === 0 && (
@@ -1084,6 +1029,60 @@ export function Projects() {
           }}
         />
       )}
+      {disconnectTarget && (
+        <ConfirmDisconnectModal
+          target={disconnectTarget}
+          onClose={() => setDisconnectTarget(null)}
+          onConfirm={async () => {
+            if (disconnectTarget.kind === "git") {
+              await onDisconnect(disconnectTarget.account.id);
+            } else {
+              await onDisconnectCloudflare();
+            }
+            setDisconnectTarget(null);
+          }}
+        />
+      )}
+      {deleteOpen && selected && (
+        <ModalOverlay onClick={() => !busy && setDeleteOpen(false)}>
+          <S.WideModal onClick={(e) => e.stopPropagation()}>
+            <ModalHead>
+              <h3>Remove {selected.name}?</h3>
+              <ModalClose type="button" onClick={() => setDeleteOpen(false)} aria-label="Close">
+                <X size={14} />
+              </ModalClose>
+            </ModalHead>
+            <ModalSub>
+              Both options remove this project from {APP_NAME}. Choose whether files Beacon
+              created should stay on disk.
+            </ModalSub>
+            {purgePreview && (
+              <S.FieldHint>
+                Beacon-owned items:{" "}
+                {[
+                  ...(purgePreview.containers ?? []),
+                  purgePreview.unit,
+                  purgePreview.scratch,
+                  purgePreview.cloneOwned ? purgePreview.localPath : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "none listed (unlink still safe)"}
+              </S.FieldHint>
+            )}
+            <ModalActions>
+              <ModalBtn type="button" onClick={() => setDeleteOpen(false)} disabled={busy}>
+                Cancel
+              </ModalBtn>
+              <ModalBtn type="button" onClick={() => void confirmDelete(false)} disabled={busy}>
+                Remove from dashboard
+              </ModalBtn>
+              <ModalBtn type="button" $variant="danger" onClick={() => void confirmDelete(true)} disabled={busy}>
+                Delete Beacon files too
+              </ModalBtn>
+            </ModalActions>
+          </S.WideModal>
+        </ModalOverlay>
+      )}
       {addOpen && (
         <AddProjectModal
           accounts={accounts}
@@ -1102,7 +1101,7 @@ export function Projects() {
         <ActionEditorModal
           existing={actionEdit === "new" ? null : actionEdit}
           capabilities={
-            capabilities ?? { platform: "", git: true, systemd: false, compose: false }
+            capabilities ?? { platform: "", git: true, systemd: false, compose: false, docker: false }
           }
           projectPath={selected?.localPath ?? ""}
           hasGit={!!selected && hasGit(selected)}
@@ -1220,7 +1219,14 @@ function runKindOptions(
     label: "Static website files",
   };
   const none: { value: RunKind; label: string } = { value: "none", label: "Not set yet" };
-  if (purpose === "worker") return docker;
+  if (purpose === "worker") {
+    const worker: { value: RunKind; label: string }[] = [
+      { value: "docker", label: "Docker" },
+      { value: "process", label: "Native process" },
+      ...docker.filter((o) => o.value !== "docker"),
+    ];
+    return worker;
+  }
   if (purpose === "api") return [none, ...docker];
   return [none, staticOpt, ...docker];
 }
@@ -1449,304 +1455,312 @@ function RunProfileFields({
   return (
     <>
       {showKind && (
+        <S.FormSection>
+          <S.FormSectionTitle>Service</S.FormSectionTitle>
+          <S.Field>
+            What is this
+            <Dropdown
+              value={draft.serviceKind}
+              options={
+                projectHasGitRemote === false
+                  ? [{ value: "worker", label: "Background worker" }]
+                  : [
+                      { value: "website", label: "Website" },
+                      { value: "api", label: "API / backend" },
+                      { value: "worker", label: "Background worker" },
+                    ]
+              }
+              onChange={(serviceKind) => {
+                onChange(kindChangePatch(serviceKind as ServiceKind, draft));
+              }}
+              variant="underline"
+            />
+            <S.FieldHint>{serviceKindHint(draft.serviceKind)}</S.FieldHint>
+          </S.Field>
+        </S.FormSection>
+      )}
+
+      <S.FormSection>
+        <S.FormSectionTitle>How it runs</S.FormSectionTitle>
         <S.Field>
-          What is this
+          Backend
           <Dropdown
-            value={draft.serviceKind}
-            options={
-              projectHasGitRemote === false
-                ? [{ value: "worker", label: "Background worker" }]
-                : [
-                    { value: "website", label: "Website" },
-                    { value: "api", label: "API / backend" },
-                    { value: "worker", label: "Background worker" },
-                  ]
-            }
-            onChange={(serviceKind) => {
-              onChange(kindChangePatch(serviceKind as ServiceKind, draft));
+            value={draft.runKind}
+            options={runKindOptions(capabilities, draft.serviceKind)}
+            onChange={(runKind) => {
+              const next = runKind as RunKind;
+              onChange({
+                runKind: next,
+                ...(next === "compose" && !draft.composeFile.trim()
+                  ? { composeFile: "compose.yaml" }
+                  : {}),
+                ...(next === "static" && !draft.publishFrom.trim()
+                  ? { publishFrom: "dist" }
+                  : {}),
+              });
             }}
             variant="underline"
           />
           <S.FieldHint>
-            {draft.serviceKind === "api"
-              ? "An HTTP service. Health checks use a path like /health. A public URL is optional if it only listens locally."
-              : draft.serviceKind === "worker"
-                ? "A process to keep alive. Attach a Docker container or systemd unit — git is optional."
-                : "A public page with a git repo. You can embed a live preview of it on this project."}
+            {isWorker
+              ? "Health is whether this container or unit is running. No public URL or iframe."
+              : draft.serviceKind === "api"
+                ? "APIs usually run as a Docker container, Compose stack, or systemd unit."
+                : "Static files copy a build folder. Docker, Compose, or systemd keep a process running."}
           </S.FieldHint>
         </S.Field>
-      )}
-      {showHttp && (
-        <>
-      <S.Field>
-        {publicUrlLabel(draft.serviceKind)}
-        <input
-          value={draft.siteUrl}
-          onChange={(e) => onChange({ siteUrl: e.target.value })}
-          placeholder={
-            draft.serviceKind === "api"
-              ? "https://api.example.com"
-              : "https://app.example.com"
-          }
-        />
-        {ingress && ingress.routes.length > 0 ? (
-          <S.FieldHint>
-            Click a hostname to fill URL and port, or type a new one. Save writes
-            it to the local cloudflared config — no file editing.
-          </S.FieldHint>
-        ) : (
-          <S.FieldHint>
-            {ingress?.note ??
-              (draft.serviceKind === "api"
-                ? "Optional. Only needed if this API is reachable over HTTP from outside."
-                : "Public https:// URL. With a port, Save can add it to the local cloudflared tunnel.")}
-          </S.FieldHint>
-        )}
-      </S.Field>
-      {ingress && ingress.routes.length > 0 && (
-        <S.RepoList>
-          {sortedIngress(ingress.routes, draft.port).map((r) => {
-            const matchesPort =
-              draft.port.trim() !== "" && r.port === Number(draft.port);
-            return (
-              <S.RepoRow
-                key={r.url}
-                type="button"
-                $active={draft.siteUrl.replace(/\/+$/, "") === r.url}
-                onClick={() =>
-                  onChange({
-                    siteUrl: r.url,
-                    ...(r.port != null ? { port: String(r.port) } : {}),
-                  })
-                }
-              >
-                {r.hostname}
-                <span>
-                  {serviceHint(r.service)}
-                  {matchesPort ? " · matches port" : ""}
-                </span>
-              </S.RepoRow>
-            );
-          })}
-        </S.RepoList>
-      )}
-        </>
-      )}
-      <S.Field>
-        How it runs
-        <Dropdown
-          value={draft.runKind}
-          options={runKindOptions(capabilities, draft.serviceKind)}
-          onChange={(runKind) => {
-            const next = runKind as RunKind;
-            onChange({
-              runKind: next,
-              ...(next === "compose" && !draft.composeFile.trim()
-                ? { composeFile: "compose.yaml" }
-                : {}),
-              ...(next === "static" && !draft.publishFrom.trim()
-                ? { publishFrom: "dist" }
-                : {}),
-            });
-          }}
-          variant="underline"
-        />
-        <S.FieldHint>
-          {isWorker
-            ? "Health is whether this container or unit is running. No public URL or iframe."
-            : draft.serviceKind === "api"
-              ? "APIs usually run as a Docker container, Compose stack, or systemd unit."
-              : "Static files copy a build folder. Docker, Compose, or systemd keep a process running."}
-        </S.FieldHint>
-      </S.Field>
-      {showHttp && (
-        <>
-      <S.Field>
-        Port
-        <input
-          value={draft.port}
-          onChange={(e) => onChange({ port: e.target.value })}
-          placeholder="optional"
-          inputMode="numeric"
-        />
-      </S.Field>
-      {onAddCloudflared && pendingIngress && (
-        <S.CheckRow>
-          <input
-            type="checkbox"
-            checked={!!addCloudflared}
-            onChange={(e) => onAddCloudflared(e.target.checked)}
-          />
-          <S.Switch $on={!!addCloudflared}>
-            <S.SwitchKnob $on={!!addCloudflared} />
-          </S.Switch>
-          {pendingIngress.kind === "update"
-            ? `Update cloudflared: ${pendingIngress.hostname} → 127.0.0.1:${pendingIngress.port}${
-                pendingIngress.previousPort != null
-                  ? ` (now ${pendingIngress.previousPort})`
-                  : ""
-              }`
-            : `Add ${pendingIngress.hostname} to cloudflared → 127.0.0.1:${pendingIngress.port}`}
-        </S.CheckRow>
-      )}
-      {liveMatch && existingForHost && (
-        <S.FieldHint>
-          Already in cloudflared → {serviceHint(existingForHost.service)}
-        </S.FieldHint>
-      )}
-      {needPortForIngress && (
-        <S.FieldHint>
-          {existingForHost
-            ? `Set a port to update cloudflared for ${hostForUrl} (now ${serviceHint(existingForHost.service)}).`
-            : "Set a port to add this hostname to the local cloudflared config."}
-        </S.FieldHint>
-      )}
-      <TunnelDnsHint
-        target={ingress?.dnsTarget}
-        hostname={hostForUrl}
-        dnsMessage={dnsMessage}
-      />
-        </>
-      )}
-      {draft.runKind !== "none" && (
-        <S.CheckRow>
-          <input
-            type="checkbox"
-            checked={draft.boot}
-            onChange={(e) => onChange({ boot: e.target.checked })}
-          />
-          <S.Switch $on={draft.boot}>
-            <S.SwitchKnob $on={draft.boot} />
-          </S.Switch>
-          Start when this machine boots
-        </S.CheckRow>
-      )}
-            {draft.runKind === "docker" && (
-        <S.Field>
-          Container name
-          <input
-            value={draft.container}
-            onChange={(e) => onChange({ container: e.target.value })}
-            placeholder="my-app"
-            required={isWorker}
-          />
-        </S.Field>
-      )}
-      {draft.runKind === "compose" && (
-        <S.Field>
-          Compose file in the project folder
-          <input
-            value={draft.composeFile}
-            onChange={(e) => onChange({ composeFile: e.target.value })}
-            placeholder="compose.yaml"
-            required={isWorker}
-          />
-          <S.FieldHint>
-            Looks for <code>{joinProjectRel(projectPath, draft.composeFile)}</code>
-            . Type a path under this project, e.g. <code>compose.yaml</code> or{" "}
-            <code>deploy/compose.yaml</code>.
-          </S.FieldHint>
-        </S.Field>
-      )}
-      {draft.runKind === "systemd" && (
-        <>
+        {draft.runKind === "docker" && (
           <S.Field>
-            Unit
+            Container name
             <input
-              value={draft.unit}
-              onChange={(e) => onChange({ unit: e.target.value })}
-              placeholder="my-app.service"
+              value={draft.container}
+              onChange={(e) => onChange({ container: e.target.value })}
+              placeholder="my-app"
               required={isWorker}
             />
           </S.Field>
+        )}
+        {draft.runKind === "compose" && (
           <S.Field>
-            Start command
+            Compose file in the project folder
             <input
-              value={draft.startCommand}
-              onChange={(e) => onChange({ startCommand: e.target.value })}
-              placeholder="/usr/bin/node server.js"
-            />
-          </S.Field>
-        </>
-      )}
-      {draft.runKind === "static" && (
-        <>
-          <S.Field>
-            Publish from (folder in this project)
-            <input
-              value={draft.publishFrom}
-              onChange={(e) => onChange({ publishFrom: e.target.value })}
-              placeholder="dist"
+              value={draft.composeFile}
+              onChange={(e) => onChange({ composeFile: e.target.value })}
+              placeholder="compose.yaml"
+              required={isWorker}
             />
             <S.FieldHint>
-              Copies <code>{joinProjectRel(projectPath, draft.publishFrom, "dist")}</code>
-              . Type a folder under this project, e.g. <code>dist</code> or{" "}
-              <code>build</code>.
+              Looks for <code>{joinProjectRel(projectPath, draft.composeFile)}</code>
+              . Type a path under this project, e.g. <code>compose.yaml</code> or{" "}
+              <code>deploy/compose.yaml</code>.
             </S.FieldHint>
           </S.Field>
-          <HostPathField
-            label="Publish to (on this machine)"
-            value={draft.publishTo}
-            platform={capabilities.platform}
-            onChange={(publishTo) => onChange({ publishTo })}
-          />
-        </>
-      )}
+        )}
+        {draft.runKind === "systemd" && (
+          <>
+            <S.Field>
+              Unit
+              <input
+                value={draft.unit}
+                onChange={(e) => onChange({ unit: e.target.value })}
+                placeholder="my-app.service"
+                required={isWorker}
+              />
+            </S.Field>
+            <S.Field>
+              Start command
+              <input
+                value={draft.startCommand}
+                onChange={(e) => onChange({ startCommand: e.target.value })}
+                placeholder="/usr/bin/node server.js"
+              />
+            </S.Field>
+          </>
+        )}
+        {draft.runKind === "static" && (
+          <>
+            <S.Field>
+              Publish from (folder in this project)
+              <input
+                value={draft.publishFrom}
+                onChange={(e) => onChange({ publishFrom: e.target.value })}
+                placeholder="dist"
+              />
+              <S.FieldHint>
+                Copies <code>{joinProjectRel(projectPath, draft.publishFrom, "dist")}</code>
+                . Type a folder under this project, e.g. <code>dist</code> or{" "}
+                <code>build</code>.
+              </S.FieldHint>
+            </S.Field>
+            <HostPathField
+              label="Publish to (on this machine)"
+              value={draft.publishTo}
+              platform={capabilities.platform}
+              onChange={(publishTo) => onChange({ publishTo })}
+            />
+          </>
+        )}
+        {draft.runKind !== "none" && (
+          <S.CheckRow>
+            <input
+              type="checkbox"
+              checked={draft.boot}
+              onChange={(e) => onChange({ boot: e.target.checked })}
+            />
+            <S.Switch $on={draft.boot}>
+              <S.SwitchKnob $on={draft.boot} />
+            </S.Switch>
+            Start when this machine boots
+          </S.CheckRow>
+        )}
+      </S.FormSection>
+
       {showHttp && (
-        <S.Field>
-          Health check path
-          <input
-            value={draft.healthPath}
-            onChange={(e) => onChange({ healthPath: e.target.value })}
-            placeholder={draft.serviceKind === "website" ? "/" : "/health"}
-          />
+        <S.FormSection>
+          <S.FormSectionTitle>Public address</S.FormSectionTitle>
+          <S.Field>
+            {publicUrlLabel(draft.serviceKind)}
+            <input
+              value={draft.siteUrl}
+              onChange={(e) => onChange({ siteUrl: e.target.value })}
+              placeholder={
+                draft.serviceKind === "api"
+                  ? "https://api.example.com"
+                  : "https://app.example.com"
+              }
+            />
+            {ingress && ingress.routes.length > 0 ? (
+              <S.FieldHint>
+                Click a hostname to fill URL and port, or type a new one. Save writes
+                it to the local cloudflared config — no file editing.
+              </S.FieldHint>
+            ) : (
+              <S.FieldHint>
+                {ingress?.note ??
+                  (draft.serviceKind === "api"
+                    ? "Optional. Only needed if this API is reachable over HTTP from outside."
+                    : "Public https:// URL. With a port, Save can add it to the local cloudflared tunnel.")}
+              </S.FieldHint>
+            )}
+          </S.Field>
+          {ingress && ingress.routes.length > 0 && (
+            <S.RepoList>
+              {sortedIngress(ingress.routes, draft.port).map((r) => {
+                const matchesPort =
+                  draft.port.trim() !== "" && r.port === Number(draft.port);
+                return (
+                  <S.RepoRow
+                    key={r.url}
+                    type="button"
+                    $active={draft.siteUrl.replace(/\/+$/, "") === r.url}
+                    onClick={() =>
+                      onChange({
+                        siteUrl: r.url,
+                        ...(r.port != null ? { port: String(r.port) } : {}),
+                      })
+                    }
+                  >
+                    {r.hostname}
+                    <span>
+                      {serviceHint(r.service)}
+                      {matchesPort ? " · matches port" : ""}
+                    </span>
+                  </S.RepoRow>
+                );
+              })}
+            </S.RepoList>
+          )}
+          <S.FieldPair>
+            <S.Field>
+              Port
+              <input
+                value={draft.port}
+                onChange={(e) => onChange({ port: e.target.value })}
+                placeholder="optional"
+                inputMode="numeric"
+              />
+            </S.Field>
+            <S.Field>
+              Health check path
+              <input
+                value={draft.healthPath}
+                onChange={(e) => onChange({ healthPath: e.target.value })}
+                placeholder={draft.serviceKind === "website" ? "/" : "/health"}
+              />
+            </S.Field>
+          </S.FieldPair>
           <S.FieldHint>
             {draft.serviceKind === "api"
-              ? "Probed on the public URL and on 127.0.0.1:port. Use /health or /api/status if / is not a useful check."
-              : "Optional. Leave blank to probe the public URL (or / on the local port)."}
+              ? "The health path is probed on the public URL and on 127.0.0.1:port. Use /health or /api/status if / is not a useful check."
+              : "Leave the health path blank to probe the public URL (or / on the local port)."}
           </S.FieldHint>
-        </S.Field>
-      )}
-      {draft.serviceKind === "website" && (
-        <>
-      <S.CheckRow>
-        <input
-          type="checkbox"
-          checked={draft.embedPreview}
-          onChange={(e) => onChange({ embedPreview: e.target.checked })}
-        />
-        <S.Switch $on={draft.embedPreview}>
-          <S.SwitchKnob $on={draft.embedPreview} />
-        </S.Switch>
-        Show live preview (iframe)
-      </S.CheckRow>
-      {draft.embedPreview && (
-        <S.Field>
-          Preview URL
-          <input
-            value={draft.embedUrl}
-            onChange={(e) => onChange({ embedUrl: e.target.value })}
-            placeholder={draft.siteUrl.trim() || "https://app.example.com"}
+          {onAddCloudflared && pendingIngress && (
+            <S.CheckRow>
+              <input
+                type="checkbox"
+                checked={!!addCloudflared}
+                onChange={(e) => onAddCloudflared(e.target.checked)}
+              />
+              <S.Switch $on={!!addCloudflared}>
+                <S.SwitchKnob $on={!!addCloudflared} />
+              </S.Switch>
+              {pendingIngress.kind === "update"
+                ? `Update cloudflared: ${pendingIngress.hostname} → 127.0.0.1:${pendingIngress.port}${
+                    pendingIngress.previousPort != null
+                      ? ` (now ${pendingIngress.previousPort})`
+                      : ""
+                  }`
+                : `Add ${pendingIngress.hostname} to cloudflared → 127.0.0.1:${pendingIngress.port}`}
+            </S.CheckRow>
+          )}
+          {liveMatch && existingForHost && (
+            <S.FieldHint>
+              Already in cloudflared → {serviceHint(existingForHost.service)}
+            </S.FieldHint>
+          )}
+          {needPortForIngress && (
+            <S.FieldHint>
+              {existingForHost
+                ? `Set a port to update cloudflared for ${hostForUrl} (now ${serviceHint(existingForHost.service)}).`
+                : "Set a port to add this hostname to the local cloudflared config."}
+            </S.FieldHint>
+          )}
+          <TunnelDnsHint
+            target={ingress?.dnsTarget}
+            hostname={hostForUrl}
+            dnsMessage={dnsMessage}
           />
-          <S.FieldHint>
-            Shown on this project page and as a thumbnail on the project card. Loaded in
-            your browser, so this must be a URL you can reach — usually the public
-            hostname, not 127.0.0.1. If the main site blocks iframes, point this at a
-            page that allows embedding.
-          </S.FieldHint>
+        </S.FormSection>
+      )}
+
+      {draft.serviceKind === "website" && (
+        <S.FormSection>
+          <S.FormSectionTitle>Preview</S.FormSectionTitle>
+          <S.CheckRow>
+            <input
+              type="checkbox"
+              checked={draft.embedPreview}
+              onChange={(e) => onChange({ embedPreview: e.target.checked })}
+            />
+            <S.Switch $on={draft.embedPreview}>
+              <S.SwitchKnob $on={draft.embedPreview} />
+            </S.Switch>
+            Show live preview (iframe)
+          </S.CheckRow>
+          {draft.embedPreview && (
+            <S.Field>
+              Preview URL
+              <input
+                value={draft.embedUrl}
+                onChange={(e) => onChange({ embedUrl: e.target.value })}
+                placeholder={draft.siteUrl.trim() || "https://app.example.com"}
+              />
+              <S.FieldHint>
+                Shown on this project page and as a thumbnail on the project card. Loaded in
+                your browser, so this must be a URL you can reach — usually the public
+                hostname, not 127.0.0.1. If the main site blocks iframes, point this at a
+                page that allows embedding.
+              </S.FieldHint>
+            </S.Field>
+          )}
+        </S.FormSection>
+      )}
+
+      <S.FormSection>
+        <S.FormSectionTitle>Notes</S.FormSectionTitle>
+        <S.Field as="div">
+          <textarea
+            value={draft.notes}
+            onChange={(e) => onChange({ notes: e.target.value })}
+            placeholder={
+              isWorker
+                ? "What this job does, which queue or folder it watches, anything you want on the card."
+                : "What this is, how to reach it, anything you want on the project card."
+            }
+            rows={3}
+          />
         </S.Field>
-      )}
-        </>
-      )}
-      <S.Field>
-        Notes
-        <textarea
-          value={draft.notes}
-          onChange={(e) => onChange({ notes: e.target.value })}
-          placeholder="What this is, how to reach it, anything you want on the project card."
-          rows={3}
-        />
-      </S.Field>
+      </S.FormSection>
     </>
   );
 }
@@ -1850,7 +1864,14 @@ function SiteEditor({
     );
   }
 
-  return (
+  return serviceKindOf(project) === "worker" ? (
+    <WorkerSiteForm
+      project={project}
+      capabilities={capabilities}
+      disabled={disabled}
+      onSaved={onSaved}
+    />
+  ) : (
     <S.SiteForm
       onSubmit={(e) => {
         e.preventDefault();
@@ -1886,11 +1907,204 @@ function SiteEditor({
         onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
       />
       {error && <AuthError $inline>{error}</AuthError>}
-      <div>
+      <S.FormActions>
         <S.Btn type="submit" disabled={disabled || busy}>
-          {busy ? "Saving…" : "Save hosting"}
+          {busy ? "Saving…" : "Save configuration"}
         </S.Btn>
-      </div>
+      </S.FormActions>
+    </S.SiteForm>
+  );
+}
+
+function ProjectHealth({
+  project,
+  status,
+  cloudflare,
+  busy,
+  onRecheck,
+}: {
+  project: ProjectSummary;
+  status: ProjectSiteStatus | null;
+  cloudflare: CloudflareAccountPublic | null;
+  busy: boolean;
+  onRecheck: () => void;
+}) {
+  const worker = serviceKindOf(project) === "worker";
+  return (
+    <>
+      <S.SectionHead>
+        <S.SectionLabel>Health</S.SectionLabel>
+        <S.Btn type="button" onClick={onRecheck} disabled={busy}>
+          <RefreshCw size={14} />
+          Recheck
+        </S.Btn>
+      </S.SectionHead>
+      <S.HealthPanel>
+        {!worker && (
+          <>
+            <S.HealthCell>
+              <span className="label">Public</span>
+              <span className="value">
+                <S.HealthDot $state={probeDot(status?.public?.state)} />
+                {status?.public
+                  ? healthLabel(
+                      status.public.state === "skipped" ? "unknown" : status.public.state
+                    )
+                  : project.siteUrl
+                    ? "Checking…"
+                    : "No URL"}
+              </span>
+              <span className="meta">
+                {status?.public
+                  ? probeSummary(status.public)
+                  : project.siteUrl
+                    ? project.healthPath
+                      ? `${project.siteUrl}${project.healthPath}`
+                      : project.siteUrl
+                    : serviceKindOf(project) === "api"
+                      ? "Set a public URL to probe the API, or leave it local-only."
+                      : "Set a public URL to probe the live service."}
+              </span>
+            </S.HealthCell>
+            <S.HealthCell>
+              <span className="label">Origin</span>
+              <span className="value">
+                <S.HealthDot $state={probeDot(status?.origin?.state)} />
+                {status?.origin
+                  ? healthLabel(
+                      status.origin.state === "skipped" ? "unknown" : status.origin.state
+                    )
+                  : project.port
+                    ? "Checking…"
+                    : "No port"}
+              </span>
+              <span className="meta">
+                {status?.origin
+                  ? probeSummary(status.origin)
+                  : project.port
+                    ? `127.0.0.1:${project.port}${project.healthPath ?? ""}`
+                    : "Set a port to check the local process."}
+              </span>
+            </S.HealthCell>
+          </>
+        )}
+        <S.HealthCell>
+          <span className="label">Runtime</span>
+          <span className="value">
+            <S.HealthDot
+              $state={
+                status?.runtime.state === "running"
+                  ? "up"
+                  : status?.runtime.state === "stopped" || status?.runtime.state === "missing"
+                    ? "down"
+                    : "unknown"
+              }
+            />
+            {status
+              ? status.runtime.state === "skipped"
+                ? status.runtime.kind
+                : status.runtime.state
+              : "—"}
+          </span>
+          <span className="meta">
+            {status?.runtime.detail ||
+              (project.runKind === "none"
+                ? "No runtime configured."
+                : worker
+                  ? `${project.runKind} · process running = healthy`
+                  : project.runKind)}
+          </span>
+        </S.HealthCell>
+        {worker ? (
+          <S.HealthCell>
+            <span className="label">Boot</span>
+            <span className="value">{project.boot ? "Starts on boot" : "Manual start"}</span>
+            <span className="meta">
+              {project.boot
+                ? "Docker restart policy or systemd enable keeps this worker up after a reboot."
+                : "Turn on “Start when this machine boots” under Configuration if this job should survive a reboot."}
+            </span>
+          </S.HealthCell>
+        ) : (
+          <S.HealthCell>
+            <span className="label">Visits · 24h</span>
+            <span className="value">
+              {status?.traffic?.visits24h != null
+                ? formatCompact(status.traffic.visits24h)
+                : cloudflare?.connected
+                  ? "—"
+                  : "Not connected"}
+            </span>
+            <span className="meta">
+              {status?.traffic?.visits24h != null
+                ? `${formatCompact(status.traffic.requests24h ?? 0)} requests${
+                    status.traffic.bytes24h ? ` · ${formatBytes(status.traffic.bytes24h)}` : ""
+                  }`
+                : status?.traffic?.error
+                  ? status.traffic.error
+                  : cloudflare?.connected
+                    ? "No analytics for this hostname yet."
+                    : "Connect Cloudflare (Zone Analytics) to see visits."}
+            </span>
+          </S.HealthCell>
+        )}
+      </S.HealthPanel>
+    </>
+  );
+}
+
+function WorkerSiteForm({
+  project,
+  capabilities,
+  disabled,
+  onSaved,
+}: {
+  project: ProjectDetail;
+  capabilities: ProjectsCapabilities;
+  disabled: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<WorkerDraft>(() => workerDraftFromProject(project, capabilities));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setDraft(workerDraftFromProject(project, capabilities));
+  }, [project, capabilities]);
+  return (
+    <S.SiteForm
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        void (async () => {
+          try {
+            await updateProjectApi(project.id, {
+              serviceKind: "worker",
+              ...workerPayload(draft),
+            });
+            await saveProjectEnvApi(project.id, envPayload(draft.env));
+            await onSaved();
+          } catch (err) {
+            setError((err as Error).message);
+            void onSaved();
+          } finally {
+            setBusy(false);
+          }
+        })();
+      }}
+    >
+      <WorkerConfig
+        draft={draft}
+        capabilities={capabilities}
+        disabled={disabled || busy}
+        onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
+      />
+      {error && <AuthError $inline>{error}</AuthError>}
+      <S.FormActions>
+        <S.Btn type="submit" disabled={disabled || busy}>
+          {busy ? "Saving…" : "Save configuration"}
+        </S.Btn>
+      </S.FormActions>
     </S.SiteForm>
   );
 }
@@ -2073,6 +2287,55 @@ function GitAccountModal({
           </>
         )}
       </S.WideModal>
+    </ModalOverlay>
+  );
+}
+
+function ConfirmDisconnectModal({
+  target,
+  onClose,
+  onConfirm,
+}: {
+  target: { kind: "git"; account: GitAccountPublic } | { kind: "cloudflare" };
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <ModalOverlay onClick={onClose}>
+      <ModalCard onClick={(e) => e.stopPropagation()}>
+        <ModalHead>
+          <h3>
+            Disconnect {target.kind === "git" ? target.account.provider : "Cloudflare"}?
+          </h3>
+          <ModalClose type="button" onClick={onClose} aria-label="Close">
+            <X size={14} />
+          </ModalClose>
+        </ModalHead>
+        <ModalSub>
+          {target.kind === "git"
+            ? `${APP_NAME} will forget the token for ${target.account.login}. Projects already cloned stay on disk, but pulls and repo browsing stop working until you reconnect.`
+            : `${APP_NAME} will forget the Cloudflare API token. Traffic stats for public hostnames stop updating until you reconnect.`}
+        </ModalSub>
+        <ModalActions>
+          <ModalBtn type="button" onClick={onClose}>
+            Cancel
+          </ModalBtn>
+          <ModalBtn
+            type="button"
+            $variant="danger"
+            disabled={busy}
+            autoFocus
+            onClick={() => {
+              setBusy(true);
+              void onConfirm().finally(() => setBusy(false));
+            }}
+          >
+            {busy ? "Disconnecting…" : "Disconnect"}
+          </ModalBtn>
+        </ModalActions>
+      </ModalCard>
     </ModalOverlay>
   );
 }
@@ -2279,6 +2542,11 @@ function AddProjectModal({
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchesError, setBranchesError] = useState<string | null>(null);
+  const [workerDraft, setWorkerDraft] = useState<WorkerDraft>(() =>
+    defaultWorkerDraft(
+      capabilities ?? { platform: "", git: true, systemd: false, compose: false, docker: false }
+    )
+  );
   const [runDraft, setRunDraft] = useState<RunProfileDraft>({
     serviceKind: "website",
     siteUrl: "",
@@ -2379,19 +2647,26 @@ function AddProjectModal({
     setBusy(true);
     setError(null);
     try {
+      const isWorker = runDraft.serviceKind === "worker";
       const folderNeeded =
-        runDraft.serviceKind !== "worker" ||
+        !isWorker ||
         !!remoteUrl.trim() ||
-        runDraft.runKind === "compose";
+        workerDraft.runKind === "compose" ||
+        !!workerDraft.dockerfile.trim();
       const { project } = await createProjectApi({
         name,
         localPath: folderNeeded ? localPath.trim() || null : null,
         remoteUrl: remoteUrl.trim(),
         branch: remoteUrl.trim() ? branch.trim() : "",
-        ...profilePayload(runDraft),
+        ...(isWorker
+          ? { serviceKind: "worker" as const, ...workerPayload(workerDraft) }
+          : profilePayload(runDraft)),
       });
+      if (isWorker && workerDraft.env.length) {
+        await saveProjectEnvApi(project.id, envPayload(workerDraft.env));
+      }
       const pending = pendingCloudflaredChange(ingress, runDraft.siteUrl, runDraft.port);
-      if (addCloudflared && pending && runDraft.serviceKind !== "worker") {
+      if (addCloudflared && pending && !isWorker) {
         await addCloudflaredIngressApi(pending);
       }
       await onCreated(project.id);
@@ -2405,7 +2680,10 @@ function AddProjectModal({
   const providerAccounts = accounts.length > 0;
   const gitRequired = runDraft.serviceKind !== "worker";
   const showFolder =
-    gitRequired || !!remoteUrl.trim() || runDraft.runKind === "compose";
+    gitRequired ||
+    !!remoteUrl.trim() ||
+    workerDraft.runKind === "compose" ||
+    !!workerDraft.dockerfile.trim();
 
   return (
     <ModalOverlay onClick={onClose}>
@@ -2419,164 +2697,195 @@ function AddProjectModal({
         <ModalSub>
           {gitRequired
             ? "Clone into the folder if it is empty, or attach an existing checkout of the same remote."
-            : "Attach a running Docker container or systemd unit. A git repo is optional — only if you want pull-to-update."}
+            : "Workers have no public URL. Beacon starts the process from the spec below — image + command, or a native command. Git is optional."}
         </ModalSub>
         <form onSubmit={(e) => void submit(e)}>
           <S.FormStack>
-            <S.Field>
-              Name
-              <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </S.Field>
-            <S.Field>
-              What is this
-              <Dropdown
-                value={runDraft.serviceKind}
-                options={[
-                  { value: "website", label: "Website" },
-                  { value: "api", label: "API / backend" },
-                  { value: "worker", label: "Background worker" },
-                ]}
-                onChange={(serviceKind) => {
-                  setRunDraft((prev) => ({ ...prev, ...kindChangePatch(serviceKind as ServiceKind, prev) }));
-                }}
-                variant="underline"
-              />
-              <S.FieldHint>
-                {runDraft.serviceKind === "api"
-                  ? "Git repo required. Health checks use a path like /health."
-                  : runDraft.serviceKind === "worker"
-                    ? "No git repo required. Pick a Docker container or systemd unit to keep alive."
-                    : "Git repo required. Public page with optional live preview."}
-              </S.FieldHint>
-            </S.Field>
-            {gitRequired && providerAccounts && (
-              <>
+            <S.FormSection>
+              <S.FormSectionTitle>Project</S.FormSectionTitle>
+              <S.Field>
+                Name
+                <input value={name} onChange={(e) => setName(e.target.value)} required />
+              </S.Field>
+              <S.Field>
+                What is this
+                <Dropdown
+                  value={runDraft.serviceKind}
+                  options={[
+                    { value: "website", label: "Website" },
+                    { value: "api", label: "API / backend" },
+                    { value: "worker", label: "Background worker" },
+                  ]}
+                  onChange={(serviceKind) => {
+                    setRunDraft((prev) => ({ ...prev, ...kindChangePatch(serviceKind as ServiceKind, prev) }));
+                    if (serviceKind === "worker") {
+                      setWorkerDraft(
+                        defaultWorkerDraft(
+                          capabilities ?? {
+                            platform: "",
+                            git: true,
+                            systemd: false,
+                            compose: false,
+                            docker: false,
+                          }
+                        )
+                      );
+                    }
+                  }}
+                  variant="underline"
+                />
+                <S.FieldHint>{serviceKindHint(runDraft.serviceKind)}</S.FieldHint>
+              </S.Field>
+            </S.FormSection>
+
+            <S.FormSection>
+              <S.FormSectionTitle>Source</S.FormSectionTitle>
+              {gitRequired && providerAccounts && (
+                <>
+                  <S.Field>
+                    Pick from connected account
+                    <Dropdown
+                      value={provider}
+                      options={accounts.map((a) => ({
+                        value: a.provider,
+                        label: `${a.provider} (${a.login})`,
+                      }))}
+                      onChange={setProvider}
+                      variant="underline"
+                    />
+                  </S.Field>
+                  {connected.length > 0 && (
+                    <>
+                      <S.PathRow>
+                        <S.RepoSearch
+                          value={repoQuery}
+                          onChange={(e) => setRepoQuery(e.target.value)}
+                          placeholder={reposLoading ? "Loading repos…" : "Search repos"}
+                        />
+                        <S.IconBtn
+                          type="button"
+                          title="Refresh repo list from the git host"
+                          aria-label="Refresh repo list"
+                          disabled={reposLoading}
+                          onClick={() => {
+                            setReposLoading(true);
+                            void fetchGitRepos(provider, { refresh: true })
+                              .then((list) => {
+                                setRepos(list);
+                                setError(null);
+                              })
+                              .catch((e) => setError((e as Error).message))
+                              .finally(() => setReposLoading(false));
+                          }}
+                        >
+                          <RefreshCw size={14} />
+                        </S.IconBtn>
+                      </S.PathRow>
+                      {filtered.length > 0 && (
+                        <S.RepoList>
+                          {filtered.map((r) => (
+                            <S.RepoRow
+                              key={r.fullName}
+                              type="button"
+                              $active={remoteUrl === r.url}
+                              onClick={() => pickRepo(r)}
+                            >
+                              {r.fullName}
+                              <span>
+                                {r.defaultBranch}
+                                {r.private ? " · private" : ""}
+                              </span>
+                            </S.RepoRow>
+                          ))}
+                        </S.RepoList>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {(gitRequired || runDraft.serviceKind === "worker") && (
                 <S.Field>
-                  Pick from connected account
-                  <Dropdown
-                    value={provider}
-                    options={accounts.map((a) => ({
-                      value: a.provider,
-                      label: `${a.provider} (${a.login})`,
-                    }))}
-                    onChange={setProvider}
-                    variant="underline"
+                  {gitRequired ? "Repo URL" : "Repo URL (optional)"}
+                  <input
+                    value={remoteUrl}
+                    onChange={(e) => setRemoteUrl(e.target.value)}
+                    placeholder="https://github.com/you/app.git"
+                    required={gitRequired}
                   />
                 </S.Field>
-                {connected.length > 0 && (
-                  <>
-                    <S.PathRow>
-                      <S.RepoSearch
-                        value={repoQuery}
-                        onChange={(e) => setRepoQuery(e.target.value)}
-                        placeholder={reposLoading ? "Loading repos…" : "Search repos"}
-                      />
-                      <S.IconBtn
-                        type="button"
-                        title="Refresh repo list from the git host"
-                        aria-label="Refresh repo list"
-                        disabled={reposLoading}
-                        onClick={() => {
-                          setReposLoading(true);
-                          void fetchGitRepos(provider, { refresh: true })
-                            .then((list) => {
-                              setRepos(list);
-                              setError(null);
-                            })
-                            .catch((e) => setError((e as Error).message))
-                            .finally(() => setReposLoading(false));
-                        }}
-                      >
-                        <RefreshCw size={14} />
-                      </S.IconBtn>
-                    </S.PathRow>
-                    {filtered.length > 0 && (
-                      <S.RepoList>
-                        {filtered.map((r) => (
-                          <S.RepoRow
-                            key={r.fullName}
-                            type="button"
-                            $active={remoteUrl === r.url}
-                            onClick={() => pickRepo(r)}
-                          >
-                            {r.fullName}
-                            <span>
-                              {r.defaultBranch}
-                              {r.private ? " · private" : ""}
-                            </span>
-                          </S.RepoRow>
-                        ))}
-                      </S.RepoList>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-            {(gitRequired || runDraft.serviceKind === "worker") && (
-              <S.Field>
-                {gitRequired ? "Repo URL" : "Repo URL (optional)"}
-                <input
-                  value={remoteUrl}
-                  onChange={(e) => setRemoteUrl(e.target.value)}
-                  placeholder="https://github.com/you/app.git"
-                  required={gitRequired}
-                />
-              </S.Field>
-            )}
-            {showFolder && (
-              <S.Field>
-                Local folder
-                <S.PathRow>
-                  <input
-                    value={localPath}
-                    onChange={(e) => setLocalPath(e.target.value)}
-                    placeholder={defaultPath}
-                    required={showFolder}
-                  />
-                  <S.Btn type="button" onClick={() => setBrowseOpen(true)}>
-                    Browse
-                  </S.Btn>
-                </S.PathRow>
-              </S.Field>
-            )}
-            {(gitRequired || !!remoteUrl.trim()) && (
-              <S.Field>
-                Branch
-                {branches.length > 0 ? (
-                  <Dropdown
-                    value={branch}
-                    options={branches.map((b) => ({ value: b, label: b }))}
-                    onChange={setBranch}
-                    variant="underline"
-                    ariaLabel="Branch"
-                  />
-                ) : (
-                  <input
-                    value={branch}
-                    onChange={(e) => setBranch(e.target.value)}
-                    placeholder={branchesLoading ? "Loading branches…" : "main"}
-                    required={gitRequired || !!remoteUrl.trim()}
-                  />
-                )}
-              </S.Field>
-            )}
-            <RunProfileFields
-              draft={runDraft}
-              capabilities={
-                capabilities ?? {
-                  platform: "",
-                  git: true,
-                  systemd: false,
-                  compose: false,
+              )}
+              {showFolder && (
+                <S.Field>
+                  Local folder
+                  <S.PathRow>
+                    <input
+                      value={localPath}
+                      onChange={(e) => setLocalPath(e.target.value)}
+                      placeholder={defaultPath}
+                      required={showFolder}
+                    />
+                    <S.Btn type="button" onClick={() => setBrowseOpen(true)}>
+                      Browse
+                    </S.Btn>
+                  </S.PathRow>
+                </S.Field>
+              )}
+              {(gitRequired || !!remoteUrl.trim()) && (
+                <S.Field>
+                  Branch
+                  {branches.length > 0 ? (
+                    <Dropdown
+                      value={branch}
+                      options={branches.map((b) => ({ value: b, label: b }))}
+                      onChange={setBranch}
+                      variant="underline"
+                      ariaLabel="Branch"
+                    />
+                  ) : (
+                    <input
+                      value={branch}
+                      onChange={(e) => setBranch(e.target.value)}
+                      placeholder={branchesLoading ? "Loading branches…" : "main"}
+                      required={gitRequired || !!remoteUrl.trim()}
+                    />
+                  )}
+                </S.Field>
+              )}
+            </S.FormSection>
+            {runDraft.serviceKind === "worker" ? (
+              <WorkerConfig
+                draft={workerDraft}
+                capabilities={
+                  capabilities ?? {
+                    platform: "",
+                    git: true,
+                    systemd: false,
+                    compose: false,
+                    docker: false,
+                  }
                 }
-              }
-              projectPath={localPath}
-              ingress={ingress}
-              addCloudflared={addCloudflared}
-              onAddCloudflared={setAddCloudflared}
-              showKind={false}
-              onChange={(patch) => setRunDraft((prev) => ({ ...prev, ...patch }))}
-            />
+                onChange={(patch) => setWorkerDraft((prev) => ({ ...prev, ...patch }))}
+              />
+            ) : (
+              <RunProfileFields
+                draft={runDraft}
+                capabilities={
+                  capabilities ?? {
+                    platform: "",
+                    git: true,
+                    systemd: false,
+                    compose: false,
+                    docker: false,
+                  }
+                }
+                projectPath={localPath}
+                ingress={ingress}
+                addCloudflared={addCloudflared}
+                onAddCloudflared={setAddCloudflared}
+                showKind={false}
+                onChange={(patch) => setRunDraft((prev) => ({ ...prev, ...patch }))}
+              />
+            )}
             {branchesLoading && branches.length === 0 && (
               <S.StatusLine>Reading branches from the remote…</S.StatusLine>
             )}
@@ -2636,7 +2945,9 @@ function ActionEditorModal({
       ? [{ type: "systemd_restart", unit }]
       : runKind === "compose"
         ? [{ type: "compose_up", source: "compose.yaml" }]
-        : [{ type: "docker_ensure", container: container || "" }];
+    : runKind === "process"
+      ? [{ type: "worker_apply" }]
+      : [{ type: "docker_ensure", container: container || "" }];
   const [name, setName] = useState(existing?.name ?? (projectGit ? "Pull" : "Start"));
   const [steps, setSteps] = useState<StepInput[]>(
     existing?.steps.map((s) => ({
@@ -2670,6 +2981,7 @@ function ActionEditorModal({
         { value: "systemd_restart", label: "Restart systemd unit" }
       );
     }
+    opts.push({ value: "worker_apply", label: "Apply worker spec" });
     return opts;
   }, [capabilities.systemd, projectGit, projectPath]);
 
