@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FileText,
   Play,
@@ -39,6 +40,7 @@ const POLL_MS = 3000;
 
 export function Containers() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const canManage = hasRole(user, "user");
   const [status, setStatus] = useState<DockerStatus | null>(() => cache.containers.status);
   const [containers, setContainers] = useState<DockerContainer[]>(
@@ -156,7 +158,8 @@ export function Containers() {
         c.name.toLowerCase().includes(q) ||
         c.image.toLowerCase().includes(q) ||
         c.ports.toLowerCase().includes(q) ||
-        c.status.toLowerCase().includes(q)
+        c.status.toLowerCase().includes(q) ||
+        (c.projectName ?? "").toLowerCase().includes(q)
     );
   }, [containers, query]);
 
@@ -240,8 +243,9 @@ export function Containers() {
 
       {status.available && containers.length === 0 && !error && (
         <S.DockerBanner>
-          No containers found. Game panels such as Pterodactyl run servers as Docker containers —
-          they show up here once {APP_NAME} can run <code>docker ps</code> on the host.
+          No containers found. Game panels such as Pterodactyl run servers as Docker containers,
+          and Beacon workers that use Docker show up here too — they appear once {APP_NAME} can
+          run <code>docker ps</code> on the host.
         </S.DockerBanner>
       )}
 
@@ -270,6 +274,20 @@ export function Containers() {
                   <div className="mono-sm" title={c.id}>
                     {c.name}
                   </div>
+                  {(c.projectName || c.managed) && (
+                    <button
+                      type="button"
+                      className="project-link"
+                      disabled={!c.projectId}
+                      onClick={() => {
+                        if (!c.projectId) return;
+                        cache.projects.selectedId = c.projectId;
+                        navigate("/projects");
+                      }}
+                    >
+                      {c.projectName || "Beacon worker"}
+                    </button>
+                  )}
                 </td>
                 <td className="muted">{c.image}</td>
                 <td>
@@ -408,6 +426,14 @@ export function Containers() {
                 <span className="modal-warn">
                   {" "}
                   It is still running — it will be force-stopped and removed.
+                </span>
+              )}
+              {(removeTarget.managed || removeTarget.projectName) && (
+                <span className="modal-warn">
+                  {" "}
+                  This is a Beacon worker
+                  {removeTarget.projectName ? ` (${removeTarget.projectName})` : ""}. Removing
+                  it here only deletes the container — Run on the project creates it again.
                 </span>
               )}
             </ModalMessage>

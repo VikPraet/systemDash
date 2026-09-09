@@ -134,6 +134,27 @@ export const DockerTable = styled.table`
     font-size: 12px;
   }
 
+  .project-link {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: ${({ theme }) => theme.color.accent};
+    font-size: 11px;
+    cursor: pointer;
+    text-align: left;
+
+    &:hover:not(:disabled) {
+      text-decoration: underline;
+    }
+
+    &:disabled {
+      color: ${({ theme }) => theme.color.muted};
+      cursor: default;
+    }
+  }
+
   .row-actions {
     display: inline-flex;
     gap: 4px;

@@ -100,6 +100,9 @@ export interface DockerContainer {
   state: string;
   ports: string;
   running: boolean;
+  projectId?: number | null;
+  projectName?: string | null;
+  managed?: boolean;
 }
 
 export interface DockerContainerList {

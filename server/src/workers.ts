@@ -21,6 +21,7 @@ import {
   ensureContainer,
   findContainer,
   listLabeledContainers,
+  PROJECT_MOUNT,
   removeContainer,
   replicaName,
   removeLabeledResources,
@@ -252,11 +253,21 @@ function detectWorkerRuntime(project: ProjectSummary): {
   return { dockerfile: null, image: FALLBACK_IMAGE, reason: "nothing to go on" };
 }
 
-/** The image to run, building the Dockerfile when there is one. Never requires the user to set it. */
-async function resolveImage(project: ProjectSummary, onChunk?: (t: string) => void): Promise<string> {
+interface RunPlan {
+  image: string;
+  mountSource: string | null;
+  workDir: string | null;
+}
+
+/**
+ * What to run and where. A Dockerfile build already contains the code; a plain image
+ * does not, so the project folder is mounted in and becomes the working directory.
+ */
+async function resolveRunPlan(project: ProjectSummary, onChunk?: (t: string) => void): Promise<RunPlan> {
   let dockerfile = project.dockerfile;
   let context = project.buildContext || ".";
-  if (!dockerfile && !project.image) {
+  let image = project.image;
+  if (!dockerfile && !image) {
     const guess = detectWorkerRuntime(project);
     if (guess.dockerfile) {
       onChunk?.(`no image set — building ${guess.dockerfile} (${guess.reason})\n`);
@@ -270,14 +281,24 @@ async function resolveImage(project: ProjectSummary, onChunk?: (t: string) => vo
         );
       }
       onChunk?.(`no image set — using ${guess.image} (${guess.reason})\n`);
-      return guess.image;
+      image = guess.image;
     }
   }
   if (dockerfile) {
     if (!projectHasFolder(project)) throw new ProjectsError(400, "Dockerfile build needs a project folder");
-    return buildManagedImage(project.id, project.localPath, dockerfile, context, onChunk);
+    return {
+      image: await buildManagedImage(project.id, project.localPath, dockerfile, context, onChunk),
+      mountSource: null,
+      workDir: project.workDir,
+    };
   }
-  return project.image as string;
+  const mountSource = projectHasFolder(project) ? project.localPath : null;
+  if (mountSource) onChunk?.(`mounting ${mountSource} at ${PROJECT_MOUNT}\n`);
+  return {
+    image: image as string,
+    mountSource,
+    workDir: project.workDir || (mountSource ? PROJECT_MOUNT : null),
+  };
 }
 
 /**
@@ -293,15 +314,16 @@ async function reconcileAttached(project: ProjectSummary, onChunk?: (t: string) 
     return;
   }
   onChunk?.(`container ${name} does not exist — creating it\n`);
-  const image = await resolveImage(project, onChunk);
+  const plan = await resolveRunPlan(project, onChunk);
   await runManagedContainer({
     projectId: project.id,
     replica: 0,
     name,
-    image,
+    image: plan.image,
     command: project.startCommand,
     envFile: writeWorkerEnvFile(project.id),
-    workDir: project.workDir,
+    workDir: plan.workDir,
+    mountSource: plan.mountSource,
     cpuLimit: project.cpuLimit,
     memoryLimitMb: project.memoryLimitMb,
     restart: project.restartPolicy,
@@ -316,7 +338,7 @@ async function reconcileDocker(project: ProjectSummary, want: number, onChunk?: 
     await reconcileAttached(project, onChunk);
     return;
   }
-  const image = await resolveImage(project, onChunk);
+  const plan = await resolveRunPlan(project, onChunk);
   const envFile = writeWorkerEnvFile(project.id);
   const labeled = await listLabeledContainers(project.id);
   const keep = new Set<string>();
@@ -328,10 +350,11 @@ async function reconcileDocker(project: ProjectSummary, want: number, onChunk?: 
       projectId: project.id,
       replica: i,
       name,
-      image,
+      image: plan.image,
       command: project.startCommand,
       envFile,
-      workDir: project.workDir,
+      workDir: plan.workDir,
+      mountSource: plan.mountSource,
       cpuLimit: project.cpuLimit,
       memoryLimitMb: project.memoryLimitMb,
       restart: project.restartPolicy,

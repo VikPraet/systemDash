@@ -5,6 +5,9 @@ import { APP_NAME } from "./brand.js";
 
 const ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,255}$/;
 
+export const BEACON_PROJECT_LABEL = "beacon.project";
+export const BEACON_MANAGED_LABEL = "beacon.managed";
+
 /** Resolves the Docker CLI binary. On Windows, uses the default install path when PATH is stale. */
 function resolveDockerBin(): string {
   if (process.env.DOCKER_BIN) return process.env.DOCKER_BIN;
@@ -50,6 +53,9 @@ export interface DockerContainer {
   state: string;
   ports: string;
   running: boolean;
+  projectId: number | null;
+  projectName: string | null;
+  managed: boolean;
 }
 
 interface PsRow {
@@ -59,6 +65,7 @@ interface PsRow {
   Status: string;
   State: string;
   Ports: string;
+  Labels?: string | Record<string, string>;
 }
 
 function runDocker(
@@ -186,6 +193,45 @@ export async function getDockerStatus(): Promise<DockerStatus> {
   }
 }
 
+function parsePsLabels(raw: PsRow["Labels"]): Record<string, string> {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  const out: Record<string, string> = {};
+  for (const part of raw.split(",")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    out[part.slice(0, eq)] = part.slice(eq + 1);
+  }
+  return out;
+}
+
+function containerFromPs(raw: PsRow): DockerContainer {
+  const labels = parsePsLabels(raw.Labels);
+  const projectRaw = Number(labels[BEACON_PROJECT_LABEL]);
+  return {
+    id: raw.ID,
+    name: raw.Names?.replace(/^\//, "").split(",")[0]?.trim() || raw.ID.slice(0, 12),
+    image: raw.Image,
+    status: raw.Status,
+    state: raw.State,
+    ports: raw.Ports || "",
+    running: raw.State === "running",
+    projectId: Number.isInteger(projectRaw) && projectRaw > 0 ? projectRaw : null,
+    projectName: null,
+    managed: labels[BEACON_MANAGED_LABEL] === "1",
+  };
+}
+
+export function withProjectNames(
+  containers: DockerContainer[],
+  names: Map<number, string>
+): DockerContainer[] {
+  return containers.map((c) => ({
+    ...c,
+    projectName: c.projectId != null ? names.get(c.projectId) ?? c.projectName : c.projectName,
+  }));
+}
+
 /** Lists all containers on the host (running and stopped). */
 export async function listContainers(): Promise<DockerContainer[]> {
   const out = await runDocker(["ps", "-a", "--no-trunc", "--format", "{{json .}}"]);
@@ -194,18 +240,7 @@ export async function listContainers(): Promise<DockerContainer[]> {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const raw = JSON.parse(trimmed) as PsRow;
-      const primaryName =
-        raw.Names?.replace(/^\//, "").split(",")[0]?.trim() || raw.ID.slice(0, 12);
-      rows.push({
-        id: raw.ID,
-        name: primaryName,
-        image: raw.Image,
-        status: raw.Status,
-        state: raw.State,
-        ports: raw.Ports || "",
-        running: raw.State === "running",
-      });
+      rows.push(containerFromPs(JSON.parse(trimmed) as PsRow));
     } catch {
       // Skip malformed lines rather than failing the whole listing.
     }
@@ -352,9 +387,6 @@ export function dockerAvailable(): boolean {
   }
 }
 
-export const BEACON_PROJECT_LABEL = "beacon.project";
-export const BEACON_MANAGED_LABEL = "beacon.managed";
-
 export function replicaName(projectId: number, replica: number, base?: string | null): string {
   const prefix = (base && ID_RE.test(base) ? base : `beacon-w-${projectId}`).slice(0, 200);
   return replica <= 0 ? prefix : `${prefix}-${replica}`;
@@ -375,18 +407,7 @@ export async function listLabeledContainers(projectId: number): Promise<DockerCo
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      const raw = JSON.parse(trimmed) as PsRow;
-      const primaryName =
-        raw.Names?.replace(/^\//, "").split(",")[0]?.trim() || raw.ID.slice(0, 12);
-      rows.push({
-        id: raw.ID,
-        name: primaryName,
-        image: raw.Image,
-        status: raw.Status,
-        state: raw.State,
-        ports: raw.Ports || "",
-        running: raw.State === "running",
-      });
+      rows.push(containerFromPs(JSON.parse(trimmed) as PsRow));
     } catch {
       // skip
     }
@@ -448,6 +469,9 @@ export async function buildManagedImage(
   return tag;
 }
 
+/** Where a project folder is mounted when the container is not built from a Dockerfile. */
+export const PROJECT_MOUNT = "/app";
+
 export async function runManagedContainer(opts: {
   projectId: number;
   replica: number;
@@ -456,6 +480,7 @@ export async function runManagedContainer(opts: {
   command?: string | null;
   envFile?: string | null;
   workDir?: string | null;
+  mountSource?: string | null;
   cpuLimit?: number | null;
   memoryLimitMb?: number | null;
   restart: "always" | "on-failure" | "no";
@@ -479,6 +504,7 @@ export async function runManagedContainer(opts: {
     opts.restart === "always" ? "unless-stopped" : opts.restart === "on-failure" ? "on-failure" : "no",
   ];
   if (opts.envFile) args.push("--env-file", opts.envFile);
+  if (opts.mountSource) args.push("-v", `${opts.mountSource}:${PROJECT_MOUNT}`);
   if (opts.workDir) args.push("-w", opts.workDir);
   if (opts.cpuLimit && opts.cpuLimit > 0) args.push("--cpus", String(opts.cpuLimit));
   if (opts.memoryLimitMb && opts.memoryLimitMb > 0) args.push("--memory", `${opts.memoryLimitMb}m`);

@@ -224,11 +224,13 @@ export function WorkerConfig({
                 value={draft.image}
                 disabled={disabled}
                 onChange={(e) => onChange({ image: e.target.value })}
-                placeholder="auto — from your project files"
+                placeholder="e.g. redis:7 — or blank to auto-detect"
               />
               <S.FieldHint>
-                Leave blank and Beacon picks one: a Dockerfile in the folder is built, otherwise the
-                image matches what it finds (package.json, requirements.txt, go.mod…).
+                Any published image runs with no files on this machine. Leave it blank to use the
+                project folder instead: a Dockerfile there is built, otherwise the image matches what
+                it finds (package.json, requirements.txt, go.mod…) and the folder is mounted at{" "}
+                <code>/app</code>.
               </S.FieldHint>
             </S.Field>
             <S.Field>
@@ -354,10 +356,11 @@ export function WorkerConfig({
                   value={draft.workDir}
                   disabled={disabled}
                   onChange={(e) => onChange({ workDir: e.target.value })}
-                  placeholder="image default, usually /app"
+                  placeholder={draft.dockerfile.trim() ? "image default" : "/app"}
                 />
                 <S.FieldHint>
-                  A path in the container's own filesystem, not a folder on this machine.
+                  A path in the container's own filesystem, not a folder on this machine. Without a
+                  Dockerfile, your project folder is mounted at <code>/app</code> and runs from there.
                 </S.FieldHint>
               </S.Field>
             ) : (

@@ -6,7 +6,9 @@ import {
   getDockerStatus,
   listContainers,
   removeContainer,
+  withProjectNames,
 } from "../docker.js";
+import { listProjects } from "../projects.js";
 import { clientIp, recordAudit, requireRole } from "../auth.js";
 
 export const dockerRouter = Router();
@@ -39,7 +41,8 @@ dockerRouter.get("/containers", async (_req, res) => {
       res.status(503).json({ error: status.error ?? "Docker is not available" });
       return;
     }
-    const containers = await listContainers();
+    const names = new Map(listProjects().map((p) => [p.id, p.name]));
+    const containers = withProjectNames(await listContainers(), names);
     res.json({ timestamp: Date.now(), containers });
   } catch (err) {
     sendError(res, err);
