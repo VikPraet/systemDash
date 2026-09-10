@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchHistory, fetchHistoryStats, fetchSnapshot } from "../../api";
+import { fetchHistory, fetchHistoryStats } from "../../api";
 import { cache } from "../../cache";
+import { subscribeSystemSnapshot } from "../../systemStream";
 import type { HistorySeries, HistoryStats, SystemSnapshot } from "../../types";
+import { liveSnapshots, overlayLiveHistory, pushLiveSnapshot } from "./liveOverlay";
 
 export interface RangePreset {
   id: string;
@@ -23,11 +25,14 @@ export const HISTORY_RANGES: RangePreset[] = [
 
 export function useHistoryFeed(enabled = true) {
   const [rangeId, setRangeId] = useState<string>(() => cache.history.rangeId);
+  const [recorded, setRecorded] = useState<HistorySeries | null>(() => cache.history.data);
   const [data, setData] = useState<HistorySeries | null>(() => cache.history.data);
   const [stats, setStats] = useState<HistoryStats | null>(() => cache.history.stats);
   const [snap, setSnap] = useState<SystemSnapshot | null>(() => cache.snapshot);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
+  const recordedRef = useRef<HistorySeries | null>(recorded);
+  const rangeIdRef = useRef(rangeId);
 
   const range = useMemo(
     () => HISTORY_RANGES.find((r) => r.id === rangeId) ?? HISTORY_RANGES[0],
@@ -40,15 +45,31 @@ export function useHistoryFeed(enabled = true) {
   }
 
   useEffect(() => {
+    recordedRef.current = recorded;
+  }, [recorded]);
+
+  useEffect(() => {
+    rangeIdRef.current = rangeId;
+  }, [rangeId]);
+
+  useEffect(() => {
     if (!enabled) return;
-    const ctrl = new AbortController();
-    fetchSnapshot(ctrl.signal)
-      .then((s) => {
+    return subscribeSystemSnapshot({
+      onSnapshot(s) {
         cache.snapshot = s;
         setSnap(s);
-      })
-      .catch(() => {});
-    return () => ctrl.abort();
+        pushLiveSnapshot(s);
+        if (rangeIdRef.current !== "live") return;
+        const next = overlayLiveHistory(
+          recordedRef.current,
+          liveSnapshots(),
+          HISTORY_RANGES[0].ms,
+          Date.now()
+        );
+        cache.history.data = next;
+        setData(next);
+      },
+    });
   }, [enabled]);
 
   const intervalSeconds = stats?.intervalSeconds ?? 5;
@@ -59,8 +80,23 @@ export function useHistoryFeed(enabled = true) {
     const ctrl = new AbortController();
     const intervalMs = Math.max(1000, intervalSeconds * 1000);
     const points = Math.min(range.points, Math.max(2, Math.floor(range.ms / intervalMs)));
-    const refreshMs =
-      range.id === "live" ? Math.min(10_000, Math.max(1000, intervalMs)) : range.refreshMs;
+    // Live charts get 1s samples from SSE. The recorder still writes at
+    // intervalSeconds; we only refresh that SQLite series at the save cadence.
+    const refreshMs = range.id === "live" ? intervalMs : range.refreshMs;
+
+    function applyRecorded(series: HistorySeries, st: HistoryStats) {
+      recordedRef.current = series;
+      setRecorded(series);
+      cache.history.stats = st;
+      setStats(st);
+      const next =
+        range.id === "live"
+          ? overlayLiveHistory(series, liveSnapshots(), range.ms, Date.now())
+          : series;
+      cache.history.data = next;
+      setData(next);
+      setError(null);
+    }
 
     async function load() {
       if (inFlight.current) return;
@@ -71,13 +107,7 @@ export function useHistoryFeed(enabled = true) {
           fetchHistory(now - range.ms, now, points, ctrl.signal),
           fetchHistoryStats(ctrl.signal),
         ]);
-        if (!cancelled) {
-          cache.history.data = series;
-          cache.history.stats = st;
-          setData(series);
-          setStats(st);
-          setError(null);
-        }
+        if (!cancelled) applyRecorded(series, st);
       } catch (e) {
         if (!cancelled && (e as Error).name !== "AbortError") {
           setError((e as Error).message);

@@ -49,10 +49,13 @@ function paint(): void {
 }
 
 export function applyConnectionFavicon(state: ConnectionFaviconState): void {
+  const unchanged = listening && current === state;
   current = state;
   if (!listening) {
     listening = true;
     window.addEventListener("systemdash-appearance", () => paint());
   }
+  // Snapshot ticks must not rebuild the tab icon; only good/bad/idle changes.
+  if (unchanged) return;
   paint();
 }

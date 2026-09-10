@@ -116,8 +116,8 @@ export function History() {
             )}
             {data && t.length > 0 && (
               <>
-                {stats ? " · " : ""}chart {formatResolution(data.bucketMs)} · {t.length}{" "}
-                pts
+                {stats ? " · " : ""}chart {formatResolution(data.bucketMs)}
+                {rangeId === "live" ? " live" : ""} · {t.length} pts
               </>
             )}
           </S.HistoryMeta>
