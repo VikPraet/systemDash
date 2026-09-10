@@ -37,6 +37,7 @@ import type {
 import { cache, type DirSize } from "../../cache";
 import { Bar } from "../widgets";
 import { FileEditor, type FileEditorMode } from "../Editor";
+import { isTextEditable } from "../Editor/media";
 import { useAuth, hasRole } from "../../auth/AuthContext";
 import {
   Modal,
@@ -762,6 +763,7 @@ export function Files() {
 
       {filePanel && (
         <FileEditor
+          key={filePanel.entry.path}
           entry={filePanel.entry}
           mode={filePanel.mode}
           canEdit={canWrite}
@@ -1142,7 +1144,7 @@ function FileRow({
               </button>
             </Tooltip>
           )}
-          {!isDir && canWrite && (
+          {!isDir && canWrite && isTextEditable(e.name, e.ext) && (
             <Tooltip label="Edit">
               <button className="row-act" onClick={onEdit} disabled={busy}>
                 <EditIcon />

@@ -1,11 +1,12 @@
 import styled from "styled-components";
 import { ModalOverlay } from "../ui/styles";
 
-export const EditorOverlay = styled.div`
+export const EditorOverlay = styled.div<{ $media?: boolean }>`
   position: fixed;
   inset: 0;
   background: ${({ theme }) => theme.color.overlay};
-  backdrop-filter: blur(2px);
+  /* Native PDF/video plugins don't paint inside a backdrop-filter ancestor. */
+  backdrop-filter: ${({ $media }) => ($media ? "none" : "blur(2px)")};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -14,9 +15,9 @@ export const EditorOverlay = styled.div`
   animation: modal-fade 0.12s ease;
 `;
 
-export const EditorPanel = styled.div`
+export const EditorPanel = styled.div<{ $wide?: boolean }>`
   width: 100%;
-  max-width: 1000px;
+  max-width: ${({ $wide }) => ($wide ? "1200px" : "1000px")};
   height: 100%;
   max-height: 85vh;
   display: flex;
@@ -103,6 +104,13 @@ export const EditorActions = styled.div`
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+    box-sizing: border-box;
+  }
 `;
 
 export const EditorSaved = styled.span`
@@ -120,7 +128,7 @@ export const EditorError = styled.div`
   flex-shrink: 0;
 `;
 
-export const EditorBody = styled.div<{ $readOnly?: boolean }>`
+export const EditorBody = styled.div<{ $readOnly?: boolean; $media?: boolean }>`
   flex: 1;
   min-height: 0;
   display: flex;
@@ -130,11 +138,15 @@ export const EditorBody = styled.div<{ $readOnly?: boolean }>`
   border-top: 1px solid ${({ theme }) => theme.color.border};
 
   /* @uiw/react-codemirror root wrapper */
-  & > div {
-    flex: 1;
-    min-height: 0;
-    height: 100%;
-  }
+  ${({ $media }) =>
+    !$media &&
+    `
+    & > div {
+      flex: 1;
+      min-height: 0;
+      height: 100%;
+    }
+  `}
 
   .cm-editor {
     height: 100%;
@@ -367,5 +379,76 @@ export const MarkdownArticle = styled.article`
   input[type="checkbox"] {
     margin-right: 0.45em;
     accent-color: ${({ theme }) => theme.color.accent};
+  }
+`;
+
+export const MediaStage = styled.div<{ $fill?: boolean }>`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: ${({ $fill }) => ($fill ? "stretch" : "center")};
+  justify-content: ${({ $fill }) => ($fill ? "stretch" : "center")};
+  overflow: hidden;
+  padding: ${({ $fill }) => ($fill ? 0 : "16px")};
+  background: ${({ theme }) => theme.color.panel2};
+
+  img,
+  video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: ${({ theme }) => theme.radius.sm};
+  }
+
+  video {
+    background: #000;
+  }
+
+  iframe,
+  embed {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    background: #fff;
+    color-scheme: light;
+  }
+`;
+
+export const MediaEmpty = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  text-align: center;
+  color: ${({ theme }) => theme.color.muted};
+
+  strong {
+    color: ${({ theme }) => theme.color.text};
+    font-size: 14px;
+    word-break: break-all;
+  }
+
+  p {
+    margin: 0;
+    font-size: 13px;
+    max-width: 380px;
+    line-height: 1.45;
+  }
+
+  a {
+    text-decoration: none;
+  }
+`;
+
+export const MediaPlayer = styled.div`
+  width: min(480px, 100%);
+  margin: 8px 0 4px;
+
+  audio {
+    width: 100%;
   }
 `;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { keymap, EditorView } from "@codemirror/view";
 import { indentWithTab } from "@codemirror/commands";
-import { readTextFile, writeTextFile } from "../../api";
+import { downloadUrl, readTextFile, writeTextFile } from "../../api";
 import type { FsEntry } from "../../types";
 import {
   Modal,
@@ -14,6 +14,14 @@ import {
 import { languageForFile } from "./language";
 import { isMarkdownFile, type MarkdownView } from "./markdown";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { MediaPreview } from "./MediaPreview";
+import {
+  isBinaryReadError,
+  isSvgFile,
+  isTextEditable,
+  kindLabel,
+  previewKind,
+} from "./media";
 import { createEditorTheme, editorHighlight } from "./theme";
 import { useAppearance } from "../../theme/AppearanceContext";
 import * as S from "./styles";
@@ -47,16 +55,36 @@ export function FileEditor({
   const [discardAction, setDiscardAction] = useState<DiscardAction | null>(null);
   const [editorHeight, setEditorHeight] = useState(0);
   const [markdownView, setMarkdownView] = useState<MarkdownView>("preview");
+  const [binaryFallback, setBinaryFallback] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const dirty = content !== original;
   const editing = mode === "edit";
+  const kind = useMemo(
+    () => previewKind(entry.name, entry.ext),
+    [entry.name, entry.ext]
+  );
+  const canEditText = useMemo(
+    () => isTextEditable(entry.name, entry.ext),
+    [entry.name, entry.ext]
+  );
+  const showMedia =
+    (kind !== "text" || binaryFallback) &&
+    !(isSvgFile(entry.name, entry.ext) && editing);
+  const mediaKind = binaryFallback
+    ? "binary"
+    : kind === "text"
+      ? "binary"
+      : kind;
   const isMarkdown = useMemo(() => isMarkdownFile(entry.name), [entry.name]);
-  const showPreview = isMarkdown && markdownView === "preview";
+  const showPreview = isMarkdown && markdownView === "preview" && !showMedia;
+  const loadText =
+    kind === "text" || isSvgFile(entry.name, entry.ext);
 
   const language = useMemo(() => languageForFile(entry.name), [entry.name]);
 
   useEffect(() => {
     setMarkdownView("preview");
+    setBinaryFallback(false);
   }, [entry.path]);
 
   useEffect(() => {
@@ -64,9 +92,21 @@ export function FileEditor({
   }, [editing]);
 
   useEffect(() => {
+    if (!canEditText && mode === "edit") onModeChange("view");
+  }, [canEditText, mode, onModeChange]);
+
+  useEffect(() => {
+    if (!loadText) {
+      setLoading(false);
+      setError(null);
+      setContent("");
+      setOriginal("");
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setBinaryFallback(false);
     readTextFile(entry.path)
       .then((r) => {
         if (!cancelled) {
@@ -74,16 +114,26 @@ export function FileEditor({
           setOriginal(r.content);
         }
       })
-      .catch((e) => !cancelled && setError((e as Error).message))
+      .catch((e) => {
+        if (cancelled) return;
+        const message = (e as Error).message;
+        if (isBinaryReadError(message)) {
+          setBinaryFallback(true);
+          setError(null);
+        } else {
+          setError(message);
+        }
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [entry.path]);
+  }, [entry.path, loadText]);
 
   // CodeMirror needs a concrete pixel height; percentage height alone does not
   // constrain the scroller, so long files expand past the panel with no scroll.
   useEffect(() => {
+    if (showMedia) return;
     const el = bodyRef.current;
     if (!el || loading) return;
     const measure = () => setEditorHeight(el.clientHeight);
@@ -91,7 +141,7 @@ export function FileEditor({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [loading, showPreview]);
+  }, [loading, showPreview, showMedia]);
 
   const save = useCallback(async (): Promise<boolean> => {
     if (!editing || saving || content === original) return true;
@@ -137,9 +187,9 @@ export function FileEditor({
   const switchToView = useCallback(() => requestAction("view"), [requestAction]);
 
   const switchToEdit = useCallback(() => {
-    if (!canEdit) return;
+    if (!canEdit || !canEditText) return;
     onModeChange("edit");
-  }, [canEdit, onModeChange]);
+  }, [canEdit, canEditText, onModeChange]);
 
   const confirmDiscard = useCallback(() => {
     const action = discardAction;
@@ -161,6 +211,15 @@ export function FileEditor({
   const closeRef = useRef(requestClose);
   saveRef.current = save;
   closeRef.current = requestClose;
+
+  useEffect(() => {
+    if (!showMedia) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showMedia]);
 
   const editorTheme = useMemo(
     () => createEditorTheme(appearance === "dark"),
@@ -213,11 +272,15 @@ export function FileEditor({
 
   return (
     <S.EditorOverlay
+      $media={showMedia}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) requestClose();
       }}
     >
-      <S.EditorPanel onMouseDown={(e) => e.stopPropagation()}>
+      <S.EditorPanel
+        $wide={showMedia}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <S.EditorHead>
           <S.EditorTitle>
             <S.EditorNameRow>
@@ -232,14 +295,16 @@ export function FileEditor({
                   <S.EditorMode $view={!editing}>
                     {editing ? "Edit" : "View"}
                   </S.EditorMode>
-                  <S.EditorLang>{language.label}</S.EditorLang>
+                  <S.EditorLang>
+                    {showMedia ? kindLabel(mediaKind) : language.label}
+                  </S.EditorLang>
                 </>
               )}
             </S.EditorNameRow>
             <S.EditorPath>{entry.path}</S.EditorPath>
           </S.EditorTitle>
           <S.EditorActions>
-            {isMarkdown && (
+            {isMarkdown && !showMedia && (
               <S.MarkdownToggle>
                 <button
                   type="button"
@@ -258,10 +323,16 @@ export function FileEditor({
               </S.MarkdownToggle>
             )}
             {editing && saved && !dirty && <S.EditorSaved>Saved</S.EditorSaved>}
+            {showMedia && (
+              <ModalBtn as="a" href={downloadUrl(entry.path)} download>
+                Download
+              </ModalBtn>
+            )}
             {editing ? (
               <ModalBtn onClick={switchToView}>View</ModalBtn>
             ) : (
-              canEdit && (
+              canEdit &&
+              canEditText && (
                 <ModalBtn $variant="primary" onClick={switchToEdit}>
                   Edit
                 </ModalBtn>
@@ -283,8 +354,10 @@ export function FileEditor({
         {loading ? (
           <S.EditorMessage>Loading…</S.EditorMessage>
         ) : (
-          <S.EditorBody ref={bodyRef} $readOnly={!editing}>
-            {showPreview ? (
+          <S.EditorBody ref={bodyRef} $readOnly={!editing} $media={showMedia}>
+            {showMedia ? (
+              <MediaPreview entry={entry} kind={mediaKind} />
+            ) : showPreview ? (
               <MarkdownPreview content={content} />
             ) : (
               editorHeight > 0 && (

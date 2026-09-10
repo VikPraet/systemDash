@@ -725,6 +725,52 @@ export async function resolveFile(input: string, role: Role = "admin"): Promise<
   return file;
 }
 
+/** Extra MIME types browsers need for inline preview that mime-db often misses. */
+const EXTRA_MIME: Record<string, string> = {
+  mkv: "video/x-matroska",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  avi: "video/x-msvideo",
+  wmv: "video/x-ms-wmv",
+  ogv: "video/ogg",
+  heic: "image/heic",
+  heif: "image/heif",
+  jfif: "image/jpeg",
+  pdf: "application/pdf",
+  flac: "audio/flac",
+  opus: "audio/opus",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  oga: "audio/ogg",
+};
+
+export function mimeTypeForName(filePath: string): string | undefined {
+  const ext = path.extname(filePath).slice(1).toLowerCase();
+  return EXTRA_MIME[ext];
+}
+
+/** RFC 5987 Content-Disposition so unicode names still download/preview cleanly. */
+export function contentDisposition(
+  type: "inline" | "attachment",
+  filePath: string
+): string {
+  const name = path.basename(filePath);
+  const ascii = name.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_") || "file";
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/** Headers for streaming a file in the browser (images, video, PDF) instead of downloading. */
+export function inlineFileHeaders(filePath: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Disposition": contentDisposition("inline", filePath),
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, max-age=0, must-revalidate",
+  };
+  const mime = mimeTypeForName(filePath);
+  if (mime) headers["Content-Type"] = mime;
+  return headers;
+}
+
 // ---------------------------------------------------------------------------
 // Text editing (read / write)
 // ---------------------------------------------------------------------------

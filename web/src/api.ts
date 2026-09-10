@@ -759,6 +759,13 @@ export function downloadUrl(path: string): string {
   return `/api/fs/download?path=${encodeURIComponent(path)}`;
 }
 
+/** Same-origin URL that streams a file inline (images, video, PDF). */
+export function previewUrl(path: string, modifiedMs?: number | null): string {
+  const q = new URLSearchParams({ path });
+  if (modifiedMs != null) q.set("t", String(modifiedMs));
+  return `/api/fs/preview?${q}`;
+}
+
 export async function readTextFile(
   path: string,
   signal?: AbortSignal

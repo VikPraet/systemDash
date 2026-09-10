@@ -22,6 +22,7 @@ import {
   resolveUploadTarget,
   readTextFile,
   writeTextFile,
+  inlineFileHeaders,
   HttpError,
 } from "./files.js";
 import {
@@ -452,6 +453,21 @@ app.get("/api/fs/download", async (req, res) => {
       console.error("Failed to download file:", err);
       res.status(500).json({ error: "failed to download file" });
     }
+  }
+});
+
+// Inline stream for the in-app media viewer. Separate from download so video
+// range requests are not audited as downloads and PDFs can render in an iframe.
+app.get("/api/fs/preview", async (req, res) => {
+  const target = String(req.query.path ?? "");
+  try {
+    const file = await resolveFile(target);
+    res.sendFile(file, { headers: inlineFileHeaders(file) }, (err) => {
+      if (!err || res.headersSent) return;
+      sendError(res, err, "failed to preview file");
+    });
+  } catch (err) {
+    sendError(res, err, "failed to preview file");
   }
 });
 
