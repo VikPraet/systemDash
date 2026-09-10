@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, type ReactElement } from "react";
+﻿import { useEffect, useState, type ReactElement } from "react";
 import {
   Activity as ActivityIcon,
   Box,
@@ -26,11 +26,8 @@ import {
   useNavigate,
   useOutletContext,
 } from "react-router-dom";
-import {
-  fetchSnapshot,
-  formatClock,
-  formatRelative,
-} from "./api";
+import { formatClock, formatRelative, notifyUnauthorized } from "./api";
+import { subscribeSystemSnapshot } from "./systemStream";
 import type { Role, SystemSnapshot } from "./types";
 import { Overview } from "./components/Overview";
 import { Processes } from "./components/Processes";
@@ -76,8 +73,6 @@ import { AuthLayout } from "./components/AuthLayout";
 import { AuthScreen } from "./components/AuthLayout/styles";
 import * as S from "./App.styles";
 
-const POLL_MS = 1000;
-const SNAPSHOT_TIMEOUT_MS = 8000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECOVERY_NUDGE_SNOOZE: { label: string; ms: number; primary?: boolean }[] = [
   { label: "1 day", ms: DAY_MS },
@@ -129,7 +124,7 @@ const NAV: NavItem[] = [
 ];
 
 // Snapshot data (used by the Overview page and the sidebar status indicator) is
-// polled once in the layout and shared with child routes via the Outlet context.
+// streamed in the layout and shared with child routes via the Outlet context.
 interface DashboardContext {
   snap: SystemSnapshot | null;
   error: string | null;
@@ -255,7 +250,6 @@ function DashboardLayout() {
   const [snap, setSnap] = useState<SystemSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const inFlight = useRef(false);
 
   const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
   const canUseTerminal = hasRole(user, "user");
@@ -303,44 +297,16 @@ function DashboardLayout() {
   useReloadOnNewVersion(!!error);
 
   useEffect(() => {
-    let cancelled = false;
-    const ctrl = new AbortController();
-
-    async function tick() {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      const tickCtrl = new AbortController();
-      const timer = window.setTimeout(() => tickCtrl.abort(), SNAPSHOT_TIMEOUT_MS);
-      const onUnmount = () => tickCtrl.abort();
-      ctrl.signal.addEventListener("abort", onUnmount);
-      try {
-        const data = await fetchSnapshot(tickCtrl.signal);
-        if (!cancelled) {
-          setSnap(data);
-          setError(null);
-        }
-      } catch (e) {
-        if (cancelled) return;
-        if ((e as Error).name === "AbortError" && ctrl.signal.aborted) return;
-        setError(
-          (e as Error).name === "AbortError"
-            ? "Timed out waiting for the host"
-            : (e as Error).message
-        );
-      } finally {
-        window.clearTimeout(timer);
-        ctrl.signal.removeEventListener("abort", onUnmount);
-        inFlight.current = false;
-      }
-    }
-
-    tick();
-    const id = setInterval(tick, POLL_MS);
-    return () => {
-      cancelled = true;
-      ctrl.abort();
-      clearInterval(id);
-    };
+    return subscribeSystemSnapshot({
+      onSnapshot(data) {
+        setSnap(data);
+        setError(null);
+      },
+      onError(message) {
+        setError(message);
+      },
+      onUnauthorized: notifyUnauthorized,
+    });
   }, []);
 
   useEffect(() => {

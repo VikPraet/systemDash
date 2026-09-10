@@ -62,6 +62,11 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn;
 }
 
+/** Same path as a 401 from a gated /api call (SSE cannot reuse the fetch wrapper). */
+export function notifyUnauthorized(): void {
+  onUnauthorized?.();
+}
+
 // Centralise the 401 handling by wrapping window.fetch once. Cookies are sent
 // automatically for same-origin requests (the SPA is served from the API host,
 // and the dev server proxies /api), so we only need to watch responses.

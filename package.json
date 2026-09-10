@@ -1,6 +1,6 @@
 {
   "name": "systemdash",
-  "version": "0.4.4-beta",
+  "version": "0.4.5-beta",
   "private": true,
   "description": "Beacon — self-hosted host console. Live stats, customizable dashboard, themes, files, terminal, containers, and deploys.",
   "workspaces": [
@@ -13,7 +13,10 @@
     "dev:web": "yarn workspace @systemdash/web dev",
     "dev:remote": "yarn workspace @systemdash/web dev:remote",
     "build": "yarn workspace @systemdash/web build && yarn workspace @systemdash/server build",
-    "start": "yarn workspace @systemdash/server start"
+    "start": "yarn workspace @systemdash/server start",
+    "test": "yarn test:server && yarn test:web",
+    "test:server": "yarn workspace @systemdash/server test",
+    "test:web": "yarn workspace @systemdash/web test"
   },
   "packageManager": "yarn@1.22.22",
   "resolutions": {

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { getSnapshot } from "./stats.js";
+import { handleSystemStream, SYSTEM_STREAM_PATH } from "./systemStream.js";
 import { APP_NAME } from "./brand.js";
 import { getProcesses, killProcess, ProcessError, type KillMode } from "./processes.js";
 import {
@@ -235,6 +236,12 @@ app.get("/api/system", async (_req, res) => {
     console.error("Failed to collect system snapshot:", err);
     res.status(500).json({ error: "failed to collect system stats" });
   }
+});
+
+// Live system telemetry. Cookie session is checked by requireAuth on connect
+// and re-checked on each sample so a revoked session cannot linger.
+app.get(SYSTEM_STREAM_PATH, (req, res) => {
+  handleSystemStream(req, res);
 });
 
 app.get("/api/processes", async (_req, res) => {
