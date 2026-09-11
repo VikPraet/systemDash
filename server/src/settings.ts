@@ -30,6 +30,18 @@ export type { ActivitySettings } from "./auth.js";
 
 const USERNAME_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
+/** Empty string means "use the platform default". Invalid paths fall back. */
+export function sanitizeProjectsDir(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const p = path.normalize(trimmed);
+  if (!path.isAbsolute(p)) return fallback;
+  if (path.parse(p).root === p) return fallback;
+  if (p.length > 500) return fallback;
+  return p;
+}
+
 /** Empty string means "do not switch". Invalid names fall back to `fallback`. */
 export function sanitizeOsUsername(raw: unknown, fallback: string): string {
   if (typeof raw !== "string") return fallback;
@@ -47,6 +59,14 @@ export interface TerminalSettings {
    * Per-machine — never ships with a username filled in.
    */
   osUser: string;
+}
+
+export interface ProjectsSettings {
+  /**
+   * Parent folder for new git clones. Empty means /home/vadmin on Linux
+   * when that account exists, otherwise the process home (C:\Projects on Windows).
+   */
+  defaultDir: string;
 }
 
 export type DashRole = "viewer" | "user" | "admin";
@@ -75,6 +95,7 @@ export interface Settings {
   activity: ActivitySettings;
   terminal: TerminalSettings;
   dashboard: DashboardSettings;
+  projects: ProjectsSettings;
 }
 
 const DEFAULTS: Settings = {
@@ -93,6 +114,9 @@ const DEFAULTS: Settings = {
     themeId: "classic",
     appearance: "dark",
     layouts: {},
+  },
+  projects: {
+    defaultDir: "",
   },
 };
 
@@ -118,6 +142,11 @@ function sanitize(input: unknown, previous?: Settings): Settings {
     dashboardIn && typeof dashboardIn === "object"
       ? dashboardIn
       : (previous?.dashboard ?? DEFAULTS.dashboard);
+  const projectsIn = (input as Settings)?.projects;
+  const projects =
+    projectsIn && typeof projectsIn === "object"
+      ? projectsIn
+      : (previous?.projects ?? DEFAULTS.projects);
   const bool = (v: unknown, fallback: boolean) =>
     typeof v === "boolean" ? v : fallback;
   const intIn = (
@@ -174,6 +203,12 @@ function sanitize(input: unknown, previous?: Settings): Settings {
       osUser: sanitizeOsUsername(terminal.osUser, DEFAULTS.terminal.osUser),
     },
     dashboard: sanitizeDashboard(dashboard, previous?.dashboard ?? DEFAULTS.dashboard),
+    projects: {
+      defaultDir: sanitizeProjectsDir(
+        projects.defaultDir,
+        previous?.projects?.defaultDir ?? DEFAULTS.projects.defaultDir
+      ),
+    },
   };
 }
 
@@ -284,6 +319,7 @@ const SECTION_LABELS: Record<string, string> = {
   activity: "Activity",
   terminal: "Terminal",
   dashboard: "Dashboard",
+  projects: "Projects",
 };
 
 const FIELD_LABELS: Record<string, Record<string, string>> = {
@@ -311,6 +347,9 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
     themeId: "Theme",
     appearance: "Appearance",
     layouts: "Layouts",
+  },
+  projects: {
+    defaultDir: "Clone folder",
   },
 };
 

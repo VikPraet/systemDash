@@ -4,6 +4,23 @@ import { getSnapshot, type SystemSnapshot } from "./stats.js";
 
 export const SYSTEM_STREAM_PATH = "/api/system/stream";
 export const SYSTEM_STREAM_INTERVAL_MS = 1000;
+const COLLECT_TIMEOUT_MS = 6_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
 
 export type SnapshotCollector = () => Promise<SystemSnapshot>;
 export type SessionVerifier = (token: string | undefined) => boolean;
@@ -85,6 +102,16 @@ export class SystemTelemetryHub {
     res.on("close", onClose);
     req.on("aborted", onClose);
 
+    // First body byte so reverse proxies (Cloudflare) flush instead of holding
+    // an empty stream until the first snapshot — the dashboard otherwise shows
+    // "host isn't responding" while /api/health is fine.
+    try {
+      res.write(":\n\n");
+    } catch {
+      this.removeClient(client);
+      return;
+    }
+
     if (this.lastSnapshot) {
       this.send(client, "snapshot", this.lastSnapshot);
     }
@@ -92,7 +119,14 @@ export class SystemTelemetryHub {
     this.ensureLoop();
   }
 
-  /** Drop every client and stop sampling. Used by tests. */
+  async prime(): Promise<void> {
+    if (this.lastSnapshot) return;
+    try {
+      this.lastSnapshot = await withTimeout(this.collect(), COLLECT_TIMEOUT_MS, "system snapshot");
+    } catch (err) {
+      console.error("Failed to prime system telemetry:", err);
+    }
+  }
   dispose(): void {
     for (const client of [...this.clients]) {
       this.removeClient(client);
@@ -127,7 +161,7 @@ export class SystemTelemetryHub {
 
       let snapshot: SystemSnapshot;
       try {
-        snapshot = await this.collect();
+        snapshot = await withTimeout(this.collect(), COLLECT_TIMEOUT_MS, "system snapshot");
       } catch (err) {
         console.error("Failed to collect system snapshot:", err);
         this.broadcast("error", { error: "failed to collect system stats" });
@@ -218,4 +252,9 @@ function getDefaultHub(): SystemTelemetryHub {
 /** Express handler for `GET /api/system/stream`. */
 export function handleSystemStream(req: Request, res: Response): void {
   getDefaultHub().handle(req, res);
+}
+
+/** Take one snapshot at boot so the first Cloudflare client is not an empty stream. */
+export function primeSystemTelemetry(): Promise<void> {
+  return getDefaultHub().prime();
 }

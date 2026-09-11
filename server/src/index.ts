@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { getSnapshot } from "./stats.js";
-import { handleSystemStream, SYSTEM_STREAM_PATH } from "./systemStream.js";
+import { handleSystemStream, SYSTEM_STREAM_PATH, primeSystemTelemetry } from "./systemStream.js";
 import { APP_NAME } from "./brand.js";
 import { getProcesses, killProcess, ProcessError, type KillMode } from "./processes.js";
 import {
@@ -74,6 +74,8 @@ import {
   layoutsDiffer,
   touchLayoutLock,
 } from "./dashboardLock.js";
+import { ProjectsError } from "./projects.js";
+import { installProcessGuards } from "./processGuard.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -221,12 +223,18 @@ function numParam(value: unknown, fallback: number): number {
 
 /** Sends a thrown error as an HTTP response, mapping HttpError to its status. */
 function sendError(res: express.Response, err: unknown, fallback: string): void {
-  if (err instanceof HttpError || err instanceof ShareError || err instanceof DashboardLockError) {
-    res.status(err.status).json({ error: err.message });
-  } else {
-    console.error(`${fallback}:`, err);
-    res.status(500).json({ error: fallback });
+  if (
+    err instanceof HttpError ||
+    err instanceof ShareError ||
+    err instanceof DashboardLockError ||
+    err instanceof ProjectsError ||
+    err instanceof ProcessError
+  ) {
+    if (!res.headersSent) res.status(err.status).json({ error: err.message });
+    return;
   }
+  console.error(`${fallback}:`, err);
+  if (!res.headersSent) res.status(500).json({ error: fallback });
 }
 
 app.get("/api/system", async (_req, res) => {
@@ -745,6 +753,17 @@ if (fs.existsSync(webDist)) {
   });
 }
 
+  // Last: turn unexpected throws in request handlers into JSON, not a process crash.
+  app.use(
+    (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+      if (res.headersSent) {
+        console.error("Error after response started:", err);
+        return;
+      }
+      sendError(res, err, "request failed");
+    }
+  );
+
   return app;
 }
 
@@ -754,9 +773,18 @@ export function attachRealtime(server: http.Server): void {
 }
 
 if (process.env.SYSTEMDASH_LISTEN !== "0") {
+installProcessGuards();
 const server = http.createServer(createApp());
-attachRealtime(server);
-startWorkerSupervisor();
+try {
+  attachRealtime(server);
+} catch (err) {
+  console.error("Failed to attach realtime (terminal/logs):", err);
+}
+try {
+  startWorkerSupervisor();
+} catch (err) {
+  console.error("Failed to start worker supervisor:", err);
+}
 
 // Start the background metrics recorder before accepting requests so a 24/7
 // server keeps collecting history even when no browser is connected.
@@ -770,20 +798,34 @@ initShares().catch((err) => {
 
 // Periodically drop expired sessions and trim the activity log so the auth DB
 // doesn't grow unbounded.
-pruneSessions();
-pruneAudit();
+try {
+  pruneSessions();
+  pruneAudit();
+} catch (err) {
+  console.error("Failed initial session/audit prune:", err);
+}
 pruneTrash().catch((err) => {
   console.error("Failed to prune trash:", err);
 });
 setInterval(() => {
-  pruneSessions();
-  pruneAudit();
+  try {
+    pruneSessions();
+    pruneAudit();
+  } catch (err) {
+    console.error("maintenance tick failed:", err);
+  }
   pruneTrash().catch((err) => {
     console.error("Failed to prune trash:", err);
   });
 }, 60 * 60 * 1000).unref?.();
 
+server.on("error", (err) => {
+  console.error("HTTP server error:", err);
+  if (!server.listening) process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`${APP_NAME} server listening on http://localhost:${PORT}`);
+  void primeSystemTelemetry();
 });
 }

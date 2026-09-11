@@ -225,6 +225,10 @@ export interface TerminalSettings {
   osUser: string;
 }
 
+export interface ProjectsSettings {
+  defaultDir: string;
+}
+
 export type DashRole = "viewer" | "user" | "admin";
 
 export interface DashboardLayoutItem {
@@ -254,6 +258,7 @@ export interface Settings {
   activity: ActivitySettings;
   terminal: TerminalSettings;
   dashboard: DashboardSettings;
+  projects: ProjectsSettings;
 }
 
 export interface HistoryGpuSeries {
@@ -671,6 +676,9 @@ export interface ProjectsCapabilities {
   systemd: boolean;
   compose: boolean;
   docker: boolean;
+  homeDir?: string;
+  projectsDir?: string;
+  username?: string;
 }
 
 export interface IngressRoute {

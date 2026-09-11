@@ -162,12 +162,69 @@ function needsSudo(): boolean {
   );
 }
 
-function unitFileName(unit: string): string {
+export function unitFileName(unit: string): string {
   return unit.endsWith(".service") ? unit : `${unit}.service`;
 }
 
 export function systemdUnitPath(unit: string): string {
   return path.join(projectsDataDir(), "units", unitFileName(unit));
+}
+
+export function installedSystemUnitPath(unit: string): string {
+  return `/etc/systemd/system/${unitFileName(unit)}`;
+}
+
+export function systemdWorkDir(project: Pick<ProjectSummary, "workDir" | "localPath">): string | null {
+  const wd = (project.workDir || project.localPath || "").trim();
+  return wd || null;
+}
+
+/**
+ * Refuse to enable a unit that systemd would crash-loop (missing folder or
+ * start file). Throws ProjectsError — does not process.exit.
+ */
+export function assertSystemdUnitReady(
+  project: Pick<ProjectSummary, "workDir" | "localPath">,
+  startCommand: string
+): void {
+  const start = startCommand.trim();
+  if (!start) {
+    throw new ProjectsError(400, "Cannot enable systemd: start command is empty.");
+  }
+  const wd = systemdWorkDir(project);
+  if (wd) {
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(wd);
+    } catch {
+      throw new ProjectsError(
+        400,
+        `Cannot enable systemd: working directory does not exist (${wd}). Clone or publish the app first.`
+      );
+    }
+    if (!st.isDirectory()) {
+      throw new ProjectsError(
+        400,
+        `Cannot enable systemd: working directory is not a folder (${wd}).`
+      );
+    }
+  }
+  const nodeScript = start.match(/^(?:\/usr\/bin\/)?node\s+(\S+)/);
+  if (nodeScript && !path.isAbsolute(nodeScript[1])) {
+    if (!wd) {
+      throw new ProjectsError(
+        400,
+        `Cannot enable systemd: ${nodeScript[1]} is relative but no working directory is set.`
+      );
+    }
+    const script = path.join(wd, nodeScript[1]);
+    if (!fs.existsSync(script)) {
+      throw new ProjectsError(
+        400,
+        `Cannot enable systemd: start file not found (${script}). Build the app before enabling start-on-boot.`
+      );
+    }
+  }
 }
 
 export function renderSystemdUnit(project: ProjectSummary, startCommand: string): string {
@@ -179,7 +236,8 @@ export function renderSystemdUnit(project: ProjectSummary, startCommand: string)
   const desc = project.name.replace(/[\n\r]/g, " ").slice(0, 80);
   const envFile = path.join(projectsDataDir(), "workers", String(project.id), "env");
   const extras: string[] = [];
-  if (fs.existsSync(envFile)) extras.push(`EnvironmentFile=${envFile}`);
+  // "-" means systemd ignores a missing file instead of failing spawn (Result=resources).
+  extras.push(`EnvironmentFile=-${envFile}`);
   if (project.cpuLimit && project.cpuLimit > 0) {
     extras.push(`CPUQuota=${Math.round(project.cpuLimit * 100)}%`);
   }
@@ -187,13 +245,16 @@ export function renderSystemdUnit(project: ProjectSummary, startCommand: string)
     extras.push(`MemoryMax=${project.memoryLimitMb}M`);
   }
   const extraBlock = extras.length ? `${extras.join("\n")}\n` : "";
+  const wd = systemdWorkDir(project);
   return `[Unit]
 Description=${APP_NAME}: ${desc}
 After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-${project.workDir || project.localPath ? `WorkingDirectory=${project.workDir || project.localPath}\n` : ""}ExecStart=${exec}
+${wd ? `WorkingDirectory=${wd}\n` : ""}ExecStart=${exec}
 Restart=${restart}
 RestartSec=${Math.max(1, Math.round((project.restartBackoffMs || 3000) / 1000))}
 ${extraBlock}
@@ -276,6 +337,28 @@ export async function runSystemctl(
   }
 }
 
+async function confirmOrDisableUnit(
+  fileName: string,
+  user: boolean,
+  onChunk: (text: string) => void
+): Promise<void> {
+  await new Promise((r) => setTimeout(r, 1500));
+  try {
+    await runSystemctl(["is-active", "--quiet", fileName], onChunk, user);
+  } catch {
+    onChunk("Unit did not stay active — disabling so it cannot crash-loop.\n");
+    try {
+      await runSystemctl(["disable", "--now", fileName], onChunk, user);
+    } catch {
+      // still report the start failure
+    }
+    throw new ProjectsError(
+      400,
+      `${fileName} failed to stay running. Beacon disabled it so systemd will not restart it every few seconds. Fix the working directory and start command, then apply again.`
+    );
+  }
+}
+
 export async function applySystemdUnit(
   project: ProjectSummary,
   unit: string,
@@ -285,6 +368,7 @@ export async function applySystemdUnit(
   if (process.platform !== "linux") {
     throw new ProjectsError(400, "systemd apply is only available on Linux");
   }
+  assertSystemdUnitReady(project, startCommand);
   const generated = await writeSystemdUnit(project, unit, startCommand, onChunk);
   const fileName = unitFileName(unit);
   const userDir = path.join(os.homedir(), ".config", "systemd", "user");
@@ -296,6 +380,7 @@ export async function applySystemdUnit(
     await fsp.copyFile(generated, userDest);
     await runSystemctl(["daemon-reload"], onChunk, true);
     await runSystemctl(["enable", "--now", fileName], onChunk, true);
+    await confirmOrDisableUnit(fileName, true, onChunk);
     onChunk(`Enabled user unit ${fileName}\n`);
     if (project.boot) {
       onChunk(
@@ -304,16 +389,18 @@ export async function applySystemdUnit(
     }
     return;
   } catch (err) {
+    if (err instanceof ProjectsError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     onChunk(`User systemd failed: ${msg}\n`);
   }
 
-  const systemDest = `/etc/systemd/system/${fileName}`;
+  const systemDest = installedSystemUnitPath(unit);
   onChunk("Trying system systemd via sudo -n…\n");
   const copy = await trySpawn("sudo", ["-n", "cp", generated, systemDest], onChunk);
   if (copy.ok) {
     await runSystemctl(["daemon-reload"], onChunk, false);
     await runSystemctl(["enable", "--now", fileName], onChunk, false);
+    await confirmOrDisableUnit(fileName, false, onChunk);
     onChunk(`Enabled system unit ${fileName}\n`);
     return;
   }
@@ -333,4 +420,36 @@ export async function applySystemdUnit(
     403,
     `unit written to ${generated} — copy it into systemd with the commands in the log`
   );
+}
+
+export async function disableManagedSystemdUnit(
+  unit: string,
+  onChunk: (text: string) => void
+): Promise<void> {
+  if (process.platform !== "linux") return;
+  const fileName = unitFileName(unit);
+  try {
+    await runSystemctl(["disable", "--now", fileName], onChunk, true);
+    return;
+  } catch {
+    // try system unit
+  }
+  await runSystemctl(["disable", "--now", fileName], onChunk, false);
+}
+
+export async function removeInstalledSystemUnit(
+  unit: string,
+  onChunk: (text: string) => void
+): Promise<void> {
+  if (process.platform !== "linux") return;
+  const dest = installedSystemUnitPath(unit);
+  const rm = await trySpawn("sudo", ["-n", "rm", "-f", dest], onChunk);
+  if (rm.ok) {
+    try {
+      await runSystemctl(["daemon-reload"], onChunk, false);
+    } catch {
+      // ignore
+    }
+    onChunk(`removed ${dest}\n`);
+  }
 }

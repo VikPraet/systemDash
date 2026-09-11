@@ -156,6 +156,18 @@ export function ReconnectOverlay({
   );
 }
 
+/** Shown when /api/health still works but the live stats stream dropped. */
+export function StreamStaleBanner() {
+  return (
+    <Banner role="status">
+      Live stats paused — the host is still up. Overview numbers may be stale.
+      <GhostBtn type="button" onClick={() => window.location.reload()}>
+        Reload
+      </GhostBtn>
+    </Banner>
+  );
+}
+
 const Overlay = styled.div`
   position: fixed;
   inset: 0;
@@ -270,4 +282,25 @@ const Meta = styled.div`
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: ${({ theme }) => theme.color.muted};
+`;
+
+const Banner = styled.div`
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.warn};
+  background: ${({ theme }) => theme.color.panel2};
+  border-bottom: 1px solid ${({ theme }) => theme.color.border};
+
+  ${GhostBtn} {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
 `;

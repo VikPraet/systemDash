@@ -254,6 +254,20 @@ export function parseCloudflaredConfig(text: string): { hostname: string; servic
   return parseYamlIngress(text);
 }
 
+/** Refuse a patched config that would drop hostnames already in the file. */
+export function assertIngressPreserved(original: string, next: string): void {
+  const before = parseCloudflaredConfig(original);
+  const after = parseCloudflaredConfig(next);
+  const afterHosts = new Set(after.map((r) => r.hostname.toLowerCase()));
+  const dropped = before.filter((r) => !afterHosts.has(r.hostname.toLowerCase()));
+  if (dropped.length > 0) {
+    throw new ProjectsError(
+      400,
+      `refusing to save cloudflared config — would drop ${dropped.map((d) => d.hostname).join(", ")}`
+    );
+  }
+}
+
 function parseJsonConfig(text: string): { hostname: string; service: string }[] {
   try {
     const data = JSON.parse(text) as { ingress?: unknown };
@@ -822,6 +836,7 @@ export async function addCloudflaredIngress(opts: {
     throw new ProjectsError(400, `could not read ${file}`);
   }
   const next = patchIngressText(original, hostname, service, existing ? "update" : "insert");
+  assertIngressPreserved(original, next);
   writeConfigFile(file, next);
 
   const reloaded = await reloadCloudflared();

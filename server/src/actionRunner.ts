@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import {
   finishRun,
   getLatestRun,
@@ -27,6 +28,9 @@ import {
 import { applySystemdUnit, composeUp, publishFolder, runSystemctl } from "./siteDeploy.js";
 import { reconcileWorker } from "./workers.js";
 import { mergeProjectEnv } from "./projectEnv.js";
+import { getSettings } from "./settings.js";
+import { resolveOsUser } from "./osUser.js";
+import { fallbackProjectsDir } from "./projectPaths.js";
 
 export interface ActionJob {
   running: boolean;
@@ -139,19 +143,28 @@ function commandExists(bin: string): boolean {
   return false;
 }
 
-export function projectsCapabilities(): {
+export async function projectsCapabilities(): Promise<{
   platform: string;
   git: boolean;
   systemd: boolean;
   compose: boolean;
   docker: boolean;
-} {
+  homeDir: string;
+  projectsDir: string;
+  username: string;
+}> {
+  const [settings, osUser] = await Promise.all([getSettings(), resolveOsUser()]);
+  const homeDir = osUser.home || os.homedir();
+  const stored = settings.projects.defaultDir.trim();
   return {
     platform: process.platform,
     git: gitAvailable(),
     systemd: process.platform === "linux" && commandExists("systemctl"),
     compose: dockerComposeAvailable(),
     docker: dockerAvailable(),
+    homeDir,
+    projectsDir: stored || fallbackProjectsDir(homeDir),
+    username: osUser.username,
   };
 }
 

@@ -38,6 +38,7 @@ import type {
   ProjectAction,
   ProjectDetail,
   ProjectEnvVar,
+  ProjectsCapabilities,
   ProjectsOverview,
   CloudflareAccountPublic,
   SitesStatusResponse,
@@ -267,6 +268,9 @@ export const DEFAULT_SETTINGS: Settings = {
     themeId: "classic",
     appearance: "dark",
     layouts: {},
+  },
+  projects: {
+    defaultDir: "",
   },
 };
 
@@ -826,6 +830,12 @@ export async function fetchProjectsOverview(
     throw new Error(body.error ?? `Request failed: ${res.status}`);
   }
   return (await res.json()) as ProjectsOverview;
+}
+
+export async function setProjectsCloneDirApi(
+  dir: string
+): Promise<ProjectsCapabilities> {
+  return sendJson("/api/projects/clone-dir", "PUT", { path: dir });
 }
 
 export async function fetchProject(id: number): Promise<ProjectDetail> {

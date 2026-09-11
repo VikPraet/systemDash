@@ -31,7 +31,8 @@ import {
   applySystemdUnit,
   composeDown,
   composeUp,
-  runSystemctl,
+  disableManagedSystemdUnit,
+  removeInstalledSystemUnit,
   systemdUnitPath,
 } from "./siteDeploy.js";
 import { checkRemote, gitPull } from "./gitRemote.js";
@@ -568,9 +569,14 @@ export async function purgeWorker(project: ProjectSummary): Promise<string[]> {
   if (project.managed && project.runKind === "systemd" && project.unit) {
     const unit = project.unit;
     try {
-      await runSystemctl(["disable", "--now", unit], (t) => notes.push(t.trim()));
+      await disableManagedSystemdUnit(unit, (t) => notes.push(t.trim()));
     } catch (err) {
       notes.push(`systemctl: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      await removeInstalledSystemUnit(unit, (t) => notes.push(t.trim()));
+    } catch (err) {
+      notes.push(`system unit: ${err instanceof Error ? err.message : String(err)}`);
     }
     const generated = systemdUnitPath(unit);
     try {

@@ -10,10 +10,14 @@ export function FolderPicker({
   initialPath,
   onPick,
   onClose,
+  title = "Choose folder",
+  subtitle,
 }: {
   initialPath: string;
   onPick: (path: string) => void;
   onClose: () => void;
+  title?: string;
+  subtitle?: string;
 }) {
   const [path, setPath] = useState<string | null>(null);
   const [roots, setRoots] = useState<FsRoot[]>([]);
@@ -115,7 +119,7 @@ export function FolderPicker({
     <S.PickerOverlay onClick={onClose}>
       <S.WideModal onClick={(e) => e.stopPropagation()}>
         <ModalHead>
-          <h3>Choose folder</h3>
+          <h3>{title}</h3>
           <ModalClose type="button" onClick={onClose} aria-label="Close">
             <X size={14} />
           </ModalClose>
@@ -123,7 +127,9 @@ export function FolderPicker({
         <ModalSub>
           {atDriveRoot
             ? "Open a folder on this drive — the drive root itself cannot be a project path."
-            : "Same filesystem as the Files tab. Pick a folder to clone into or attach."}
+            : subtitle
+              ? subtitle
+              : "Same filesystem as the Files tab. Pick a folder to clone into or attach."}
         </ModalSub>
         <S.PickerNav>
           <S.IconBtn

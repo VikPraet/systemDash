@@ -81,6 +81,15 @@ describe("system telemetry SSE", () => {
     stream.ctrl.abort();
   });
 
+  it("primes a snapshot so the first client is not an empty stream", async () => {
+    const hub = createHub({
+      intervalMs: 30_000,
+      collect: async () => fakeSnap(9),
+    });
+    await hub.prime();
+    assert.equal(hub.latestSnapshot?.timestamp, 9);
+  });
+
   it("pushes repeated snapshot updates from one sampling loop", async () => {
     let collects = 0;
     const hub = createHub({

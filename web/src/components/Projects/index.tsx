@@ -42,6 +42,7 @@ import {
   formatDate,
   formatRelative,
   runProjectActionApi,
+  setProjectsCloneDirApi,
   updateProjectActionApi,
   updateProjectApi,
 } from "../../api";
@@ -274,6 +275,7 @@ export function Projects() {
   const [connectOpen, setConnectOpen] = useState(false);
   const [cfOpen, setCfOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [cloneBrowse, setCloneBrowse] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [purgePreview, setPurgePreview] = useState<{
     containers: string[];
@@ -552,9 +554,17 @@ export function Projects() {
               <span className="muted">
                 {projects.length} project{projects.length === 1 ? "" : "s"}
               </span>
+              {canManage && capabilities?.projectsDir && (
+                <span className="muted" title="New git clones land in this folder">
+                  · clone under <code>{capabilities.projectsDir}</code>
+                </span>
+              )}
             </S.HeadLeft>
             {canManage && (
               <S.HeadActions>
+                <S.Btn type="button" onClick={() => setCloneBrowse(true)}>
+                  Clone folder
+                </S.Btn>
                 <S.Btn type="button" onClick={() => setConnectOpen(true)}>
                   Connect Git
                 </S.Btn>
@@ -1097,6 +1107,20 @@ export function Projects() {
           }}
         />
       )}
+      {cloneBrowse && (
+        <FolderPicker
+          title="Clone folder"
+          subtitle="New git clones are created as a subfolder of this path — on Pulse that is /home/vadmin, so Hook becomes /home/vadmin/hook."
+          initialPath={capabilities?.projectsDir || capabilities?.homeDir || ""}
+          onClose={() => setCloneBrowse(false)}
+          onPick={(next) => {
+            setCloneBrowse(false);
+            void setProjectsCloneDirApi(next)
+              .then((caps) => persist({ capabilities: caps }))
+              .catch((e) => setError((e as Error).message));
+          }}
+        />
+      )}
       {actionEdit && selectedId != null && (
         <ActionEditorModal
           existing={actionEdit === "new" ? null : actionEdit}
@@ -1303,6 +1327,43 @@ function joinProjectRel(root: string, rel: string, fallback = "compose.yaml"): s
 
 function destExample(platform: string): string {
   return platform === "win32" ? "C:\\www\\my-app" : "/var/www/my-app";
+}
+
+function cloneRootOf(capabilities: ProjectsCapabilities | null): string {
+  const stored = capabilities?.projectsDir?.trim();
+  if (stored) return stored.replace(/[\\/]+$/, "");
+  if (capabilities?.platform === "win32") return "C:\\Projects";
+  const login = capabilities?.username?.trim();
+  if (login && login !== "root") return `/home/${login}`;
+  const home = capabilities?.homeDir?.trim();
+  if (home && home !== "/root" && !home.startsWith("/opt/")) {
+    return home.replace(/[\\/]+$/, "");
+  }
+  return "/home/vadmin";
+}
+
+function hostPathSep(root: string, platform?: string): string {
+  if (platform === "win32") return "\\";
+  if (platform === "linux" || platform === "darwin") return "/";
+  return /\\/.test(root) && !root.startsWith("/") ? "\\" : "/";
+}
+
+function joinHostPath(root: string, name: string, platform?: string): string {
+  const sep = hostPathSep(root, platform);
+  const base = root.replace(/[\\/]+$/, "");
+  const leaf =
+    name
+      .trim()
+      .replace(/[<>:"|?*]/g, "-")
+      .replace(/[\\/]+/g, "-")
+      .replace(/^\.+/, "") || "project";
+  return base ? `${base}${sep}${leaf}` : leaf;
+}
+
+function pathLeaf(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, "");
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || "";
 }
 
 function hostnameFromSiteUrl(raw: string): string | null {
@@ -2521,10 +2582,14 @@ function AddProjectModal({
   onClose: () => void;
   onCreated: (id: number) => Promise<void>;
 }) {
-  const defaultPath =
-    capabilities?.platform === "win32" ? "C:\\Projects\\my-app" : "/opt/my-app";
   const [name, setName] = useState("");
+  const autoRoot = cloneRootOf(capabilities);
+  const [cloneRoot, setCloneRoot] = useState(autoRoot);
+  const [rootTouched, setRootTouched] = useState(false);
+  const placeholderName = "my-app";
+  const defaultPath = joinHostPath(cloneRoot, placeholderName, capabilities?.platform);
   const [localPath, setLocalPath] = useState(defaultPath);
+  const [pathTouched, setPathTouched] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [branch, setBranch] = useState("main");
   const [provider, setProvider] = useState<GitProvider>(
@@ -2538,6 +2603,7 @@ function AddProjectModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [browseRoot, setBrowseRoot] = useState(false);
   const [addCloudflared, setAddCloudflared] = useState(true);
   const [branches, setBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -2626,19 +2692,38 @@ function AddProjectModal({
     };
   }, [remoteUrl]);
 
+  useEffect(() => {
+    if (rootTouched) return;
+    const next = cloneRootOf(capabilities);
+    setCloneRoot(next);
+    if (pathTouched) return;
+    setLocalPath((prev) => {
+      const leaf = pathLeaf(prev) || placeholderName;
+      return joinHostPath(next, leaf, capabilities?.platform);
+    });
+  }, [capabilities, rootTouched, pathTouched]);
+
   const filtered = useMemo(() => {
     const q = repoQuery.trim().toLowerCase();
     if (!q) return repos.slice(0, 40);
     return repos.filter((r) => r.fullName.toLowerCase().includes(q)).slice(0, 40);
   }, [repos, repoQuery]);
 
+  function applyCloneRoot(next: string): void {
+    setCloneRoot(next);
+    setRootTouched(true);
+    const leaf = pathTouched ? pathLeaf(localPath) : name.trim() || placeholderName;
+    if (!pathTouched || pathLeaf(localPath) === placeholderName) {
+      setLocalPath(joinHostPath(next, leaf || placeholderName, capabilities?.platform));
+    }
+  }
+
   function pickRepo(repo: GitRepoInfo): void {
     setRemoteUrl(repo.url);
     setBranch(repo.defaultBranch || "main");
     if (!name.trim()) setName(repo.name);
-    if (localPath === defaultPath || localPath.endsWith("my-app")) {
-      const base = capabilities?.platform === "win32" ? "C:\\Projects\\" : "/opt/";
-      setLocalPath(`${base}${repo.name}`);
+    if (!pathTouched || localPath === defaultPath || pathLeaf(localPath) === placeholderName) {
+      setLocalPath(joinHostPath(cloneRoot, repo.name, capabilities?.platform));
     }
   }
 
@@ -2815,20 +2900,48 @@ function AddProjectModal({
                 </S.Field>
               )}
               {showFolder && (
-                <S.Field>
-                  Local folder
-                  <S.PathRow>
-                    <input
-                      value={localPath}
-                      onChange={(e) => setLocalPath(e.target.value)}
-                      placeholder={defaultPath}
-                      required={showFolder}
-                    />
-                    <S.Btn type="button" onClick={() => setBrowseOpen(true)}>
-                      Browse
-                    </S.Btn>
-                  </S.PathRow>
-                </S.Field>
+                <>
+                  <S.Field>
+                    Clone under
+                    <S.PathRow>
+                      <input
+                        value={cloneRoot}
+                        onChange={(e) => applyCloneRoot(e.target.value)}
+                        placeholder={cloneRootOf(capabilities)}
+                      />
+                      <S.Btn type="button" onClick={() => setBrowseRoot(true)}>
+                        Browse
+                      </S.Btn>
+                    </S.PathRow>
+                    <S.FieldHint>
+                      vadmin's home on this host. Beacon remembers it. A repo named
+                      hook becomes{" "}
+                      <code>{joinHostPath(cloneRoot || cloneRootOf(capabilities), name.trim() || "hook", capabilities?.platform)}</code>
+                      .
+                    </S.FieldHint>
+                  </S.Field>
+                  <S.Field>
+                    Project folder
+                    <S.PathRow>
+                      <input
+                        value={localPath}
+                        onChange={(e) => {
+                          setPathTouched(true);
+                          setLocalPath(e.target.value);
+                        }}
+                        placeholder={defaultPath}
+                        required={showFolder}
+                      />
+                      <S.Btn type="button" onClick={() => setBrowseOpen(true)}>
+                        Browse
+                      </S.Btn>
+                    </S.PathRow>
+                    <S.FieldHint>
+                      Full path Beacon will clone into or attach. Must be empty, or
+                      already a checkout of this repo.
+                    </S.FieldHint>
+                  </S.Field>
+                </>
               )}
               {(gitRequired || !!remoteUrl.trim()) && (
                 <S.Field>
@@ -2903,11 +3016,26 @@ function AddProjectModal({
             </ModalActions>
           </S.FormStack>
         </form>
+        {browseRoot && (
+          <FolderPicker
+            title="Clone under"
+            subtitle="Pick the parent folder on this host. New repos are cloned as a subfolder of this path."
+            initialPath={cloneRoot}
+            onClose={() => setBrowseRoot(false)}
+            onPick={(next) => {
+              applyCloneRoot(next);
+              setBrowseRoot(false);
+            }}
+          />
+        )}
         {browseOpen && (
           <FolderPicker
+            title="Project folder"
+            subtitle="Pick the folder Beacon should clone into, or an existing checkout of this repo."
             initialPath={localPath}
             onClose={() => setBrowseOpen(false)}
             onPick={(next) => {
+              setPathTouched(true);
               setLocalPath(next);
               setBrowseOpen(false);
             }}

@@ -26,7 +26,7 @@ import {
   useNavigate,
   useOutletContext,
 } from "react-router-dom";
-import { formatClock, formatRelative, notifyUnauthorized } from "./api";
+import { formatClock, formatRelative, fetchHealth, notifyUnauthorized } from "./api";
 import { subscribeSystemSnapshot } from "./systemStream";
 import type { Role, SystemSnapshot } from "./types";
 import { Overview } from "./components/Overview";
@@ -62,6 +62,7 @@ import {
 } from "./components/ui/styles";
 import {
   ReconnectOverlay,
+  StreamStaleBanner,
   useReconnectGate,
   useReloadOnNewVersion,
 } from "./components/ui/ReconnectOverlay";
@@ -249,6 +250,7 @@ function DashboardLayout() {
   const location = useLocation();
   const [snap, setSnap] = useState<SystemSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hostReachable, setHostReachable] = useState(true);
   const [now, setNow] = useState(() => Date.now());
 
   const visibleNav = NAV.filter((t) => !t.minRole || hasRole(user, t.minRole));
@@ -293,8 +295,32 @@ function DashboardLayout() {
     if (onTerminalRoute && canUseTerminal) setTerminalMounted(true);
   }, [onTerminalRoute, canUseTerminal]);
 
-  const reconnect = useReconnectGate(!!error);
+  const hostDown = !!error && !hostReachable;
+  const streamStale = !!error && hostReachable;
+  const reconnect = useReconnectGate(hostDown);
   useReloadOnNewVersion(!!error);
+
+  useEffect(() => {
+    if (!error) {
+      setHostReachable(true);
+      return;
+    }
+    let cancelled = false;
+    async function tick() {
+      try {
+        const health = await fetchHealth();
+        if (!cancelled) setHostReachable(health.ok);
+      } catch {
+        if (!cancelled) setHostReachable(false);
+      }
+    }
+    void tick();
+    const id = window.setInterval(tick, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [error]);
 
   useEffect(() => {
     return subscribeSystemSnapshot({
@@ -433,6 +459,7 @@ function DashboardLayout() {
             onClick={() => setNavOpen(false)}
           />
         )}
+        {streamStale && <StreamStaleBanner />}
         <S.ContentPad>
           {showRecoveryNudge && (
             <S.RecoveryNudge>

@@ -83,6 +83,8 @@ import {
 } from "../cloudflareAnalytics.js";
 import { invalidateSiteStatus, listSiteStatus } from "../siteStatus.js";
 import { purgePreview, purgeWorker, reconcileWorker, stopAllReplicas } from "../workers.js";
+import { disableManagedSystemdUnit } from "../siteDeploy.js";
+import { rememberProjectsDirFromPath, setProjectsDir } from "../projectPaths.js";
 
 export const projectsRouter = Router();
 
@@ -188,8 +190,23 @@ function sendError(res: import("express").Response, err: unknown): void {
   res.status(500).json({ error: "project request failed" });
 }
 
-projectsRouter.get("/capabilities", (_req, res) => {
-  res.json(projectsCapabilities());
+projectsRouter.get("/capabilities", async (_req, res) => {
+  try {
+    res.json(await projectsCapabilities());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+projectsRouter.put("/clone-dir", mutate, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { path?: unknown };
+    const dir = sanitizeLocalPath(body.path);
+    await setProjectsDir(dir);
+    res.json(await projectsCapabilities());
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 projectsRouter.get("/accounts", (_req, res) => {
@@ -314,13 +331,17 @@ projectsRouter.get("/branches", mutate, async (req, res) => {
 });
 
 projectsRouter.get("/", async (_req, res) => {
-  res.json({
-    projects: listProjects(),
-    accounts: listAccounts(),
-    capabilities: projectsCapabilities(),
-    ingress: await discoverCloudflaredIngress(),
-    cloudflare: getCloudflareAccountPublic(),
-  });
+  try {
+    res.json({
+      projects: listProjects(),
+      accounts: listAccounts(),
+      capabilities: await projectsCapabilities(),
+      ingress: await discoverCloudflaredIngress(),
+      cloudflare: getCloudflareAccountPublic(),
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 projectsRouter.get("/status", async (req, res) => {
@@ -461,6 +482,11 @@ projectsRouter.post("/", mutate, async (req, res) => {
       clonedByBeacon,
       ...profile,
     });
+    if (localPath) {
+      await rememberProjectsDirFromPath(localPath).catch((err) => {
+        console.error("could not remember clone folder:", err);
+      });
+    }
     invalidateSiteStatus();
     if (project.serviceKind === "worker") {
       void reconcileWorker(project.id).catch((err) => {
@@ -583,8 +609,17 @@ projectsRouter.delete("/:id", mutate, async (req, res) => {
       (req.body as { purge?: unknown } | undefined)?.purge === true;
     let notes: string[] = [];
     stopAllReplicas(id);
+    if (project.runKind === "systemd" && project.unit) {
+      try {
+        await disableManagedSystemdUnit(project.unit, (t) => notes.push(t.trim()));
+      } catch (err) {
+        notes.push(
+          `systemctl disable: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
     if (purge) {
-      notes = await purgeWorker(project);
+      notes = [...notes, ...(await purgeWorker(project))];
     }
     deleteProject(id);
     invalidateSiteStatus();
