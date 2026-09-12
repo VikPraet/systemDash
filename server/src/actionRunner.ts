@@ -300,9 +300,10 @@ async function runStep(
       const unit = step.unit || project.unit;
       if (!unit) throw new ProjectsError(400, "unit is empty");
       appendLog(job, `Enabling ${unit}…\n`);
-      await runSystemctl(["enable", "--now", unit], onChunk);
+      await runSystemctl([project.boot ? "enable" : "disable", unit], onChunk);
+      await runSystemctl(["start", unit], onChunk);
       await runSystemctlRestart(unit, onChunk);
-      appendLog(job, "Service enabled and running.\n");
+      appendLog(job, "Service running; startup setting applied.\n");
       return;
     }
     case "systemd_apply": {

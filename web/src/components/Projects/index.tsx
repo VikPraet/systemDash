@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { APP_NAME } from "../../brand";
 import {
+  controlProjectRuntimeApi,
   checkProjectRemoteApi,
   connectGitAccountApi,
   connectCloudflareApi,
@@ -679,12 +680,13 @@ export function Projects() {
                       tabIndex={0}
                       onClick={() => persist({ selectedId: p.id })}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
+                        if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
                           e.preventDefault();
                           persist({ selectedId: p.id });
                         }
                       }}
                     >
+                      <S.CardContent>
                       {previewSrc && (
                         <S.CardPreview>
                           <S.CardFrame
@@ -766,6 +768,30 @@ export function Projects() {
                           )}
                         </S.CardMeta>
                       </S.CardBody>
+                      </S.CardContent>
+                        {canManage && ["docker", "compose", "systemd", "process"].includes(p.runKind) && (
+                          <S.CardFooter>
+                            {([status?.runtime.state === "running" ? "stop" : "start"] as const).map(action => (
+                              <S.Btn key={action} type="button" disabled={busy || running || !["running", "stopped"].includes(status?.runtime.state ?? "")}
+                                title={action === "stop" ? "Stop now; the start-on-boot setting is unchanged" : "Start the configured runtime"}
+                                                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          await controlProjectRuntimeApi(p.id, action);
+                          if (selectedId === p.id) await loadDetail(p.id);
+                          await reload();
+                          await loadSites(true);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setBusy(false); }
+                      }}>
+                                {action === "start" ? <Play size={14} /> : <Unplug size={14} />}
+                                {status?.runtime.state === "running" ? "Suspend" : status?.runtime.state === "stopped" ? "Turn on" : !status ? "Checking…" : "Runtime unavailable"}
+                              </S.Btn>
+                            ))}
+                          </S.CardFooter>
+                        )}
                     </S.Card>
                   ),
                 };
@@ -838,6 +864,24 @@ export function Projects() {
               </S.DetailTitle>
               {canManage && (
                 <S.HeadActions>
+                  {["docker", "compose", "systemd", "process"].includes(selected.runKind) && ([selectedStatus?.runtime.state === "running" ? "stop" : "start"] as const).map((action) => (
+                    <S.Btn key={action} type="button" disabled={busy || running}
+                      title={action === "stop" ? "Stop now; the start-on-boot setting is unchanged" : "Start the configured runtime"}
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        try {
+                          await controlProjectRuntimeApi(selected.id, action);
+                          await loadDetail(selected.id);
+                          await reload();
+                          await loadSites(true);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setBusy(false); }
+                      }}>
+                      {action === "start" ? <Play size={14} /> : <Unplug size={14} />}
+                      {selectedStatus?.runtime.state === "running" ? "Suspend" : selectedStatus?.runtime.state === "stopped" ? "Turn on" : !selectedStatus ? "Checking…" : "Runtime unavailable"}
+                    </S.Btn>
+                  ))}
                   {hasGit(selected) && (
                     <S.Btn type="button" onClick={() => void onCheck()} disabled={busy || running}>
                       <RefreshCw size={14} />

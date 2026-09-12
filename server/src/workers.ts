@@ -1,3 +1,4 @@
+import { suspendedProjects } from "./projectSuspension.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -204,7 +205,7 @@ function spawnNative(project: ProjectSummary, replica: number): void {
     setTimeout(() => {
       try {
         const now = requireProject(project.id);
-        if (now.runKind === "process") spawnNative(now, replica);
+        if (now.runKind === "process" && !suspendedProjects.has(now.id)) spawnNative(now, replica);
       } catch {
         // deleted
       }
@@ -327,7 +328,7 @@ async function reconcileAttached(project: ProjectSummary, onChunk?: (t: string) 
     mountSource: plan.mountSource,
     cpuLimit: project.cpuLimit,
     memoryLimitMb: project.memoryLimitMb,
-    restart: project.restartPolicy,
+    restart: project.boot ? "always" : project.restartPolicy === "on-failure" ? "on-failure" : "no",
   });
   updateProject(project.id, { managed: true, container: name });
   onChunk?.(`created ${name} — Beacon manages it from here\n`);
@@ -358,7 +359,7 @@ async function reconcileDocker(project: ProjectSummary, want: number, onChunk?: 
       mountSource: plan.mountSource,
       cpuLimit: project.cpuLimit,
       memoryLimitMb: project.memoryLimitMb,
-      restart: project.restartPolicy,
+      restart: project.boot ? "always" : project.restartPolicy === "on-failure" ? "on-failure" : "no",
     });
   }
   for (const c of labeled) {
@@ -386,6 +387,7 @@ async function reconcileCompose(project: ProjectSummary, onChunk?: (t: string) =
 }
 
 export async function reconcileWorker(projectId: number, onChunk?: (t: string) => void): Promise<void> {
+  if (suspendedProjects.has(projectId)) return;
   const project = requireProject(projectId);
   if (project.serviceKind !== "worker") return;
   const log = (t: string) => {
@@ -489,7 +491,7 @@ async function tick(): Promise<void> {
   ticking = true;
   try {
     for (const p of listProjects()) {
-      if (p.serviceKind !== "worker") continue;
+      if (p.serviceKind !== "worker" || suspendedProjects.has(p.id)) continue;
       await maybeAutodeploy(p);
       await maybeCron(p);
       if (p.autoscaleEnabled && !p.schedule) {

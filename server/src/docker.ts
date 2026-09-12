@@ -353,9 +353,7 @@ export async function ensureContainer(idOrName: string, boot: boolean): Promise<
     );
   }
   await runDocker([found.running ? "restart" : "start", found.id]);
-  if (boot) {
-    await runDocker(["update", "--restart", "unless-stopped", found.id]);
-  }
+  await runDocker(["update", "--restart", boot ? "unless-stopped" : "no", found.id]);
 }
 
 export function dockerBinPath(): string {

@@ -379,7 +379,8 @@ export async function applySystemdUnit(
     await fsp.mkdir(userDir, { recursive: true });
     await fsp.copyFile(generated, userDest);
     await runSystemctl(["daemon-reload"], onChunk, true);
-    await runSystemctl(["enable", "--now", fileName], onChunk, true);
+    await runSystemctl([project.boot ? "enable" : "disable", fileName], onChunk, true);
+    await runSystemctl(["start", fileName], onChunk, true);
     await confirmOrDisableUnit(fileName, true, onChunk);
     onChunk(`Enabled user unit ${fileName}\n`);
     if (project.boot) {
@@ -399,7 +400,8 @@ export async function applySystemdUnit(
   const copy = await trySpawn("sudo", ["-n", "cp", generated, systemDest], onChunk);
   if (copy.ok) {
     await runSystemctl(["daemon-reload"], onChunk, false);
-    await runSystemctl(["enable", "--now", fileName], onChunk, false);
+    await runSystemctl([project.boot ? "enable" : "disable", fileName], onChunk, false);
+    await runSystemctl(["start", fileName], onChunk, false);
     await confirmOrDisableUnit(fileName, false, onChunk);
     onChunk(`Enabled system unit ${fileName}\n`);
     return;

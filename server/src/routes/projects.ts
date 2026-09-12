@@ -1,3 +1,5 @@
+import { syncProjectBoot, setProjectBoot, controlExternalProject } from "../projectRuntime.js";
+import { suspendedProjects } from "../projectSuspension.js";
 import fs from "node:fs";
 import { Router } from "express";
 import { clientIp, recordAudit, requireRole } from "../auth.js";
@@ -333,7 +335,7 @@ projectsRouter.get("/branches", mutate, async (req, res) => {
 projectsRouter.get("/", async (_req, res) => {
   try {
     res.json({
-      projects: listProjects(),
+      projects: await Promise.all(listProjects().map(syncProjectBoot)),
       accounts: listAccounts(),
       capabilities: await projectsCapabilities(),
       ingress: await discoverCloudflaredIngress(),
@@ -549,15 +551,39 @@ projectsRouter.post("/:id/check", mutate, async (req, res) => {
   }
 });
 
-projectsRouter.get("/:id", (req, res) => {
+projectsRouter.get("/:id", async (req, res) => {
   try {
-    res.json({ project: getProjectDetail(parseId(req.params.id)) });
+    res.json({ project: await syncProjectBoot(getProjectDetail(parseId(req.params.id))) });
   } catch (err) {
     sendError(res, err);
   }
 });
 
-projectsRouter.patch("/:id", mutate, (req, res) => {
+projectsRouter.post("/:id/runtime", mutate, async (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    const project = requireProject(id);
+    const action = req.body?.action;
+    if (action !== "start" && action !== "stop") throw new ProjectsError(400, "action must be start or stop");
+    if (getProjectJob(id).running) throw new ProjectsError(409, "Wait for the current project action to finish");
+    if (action === "stop") suspendedProjects.add(id);
+    else suspendedProjects.delete(id);
+    try {
+      if (project.runKind === "process") {
+        if (action === "stop") stopAllReplicas(id);
+        else await reconcileWorker(id);
+      } else await controlExternalProject(project, action);
+    } catch (err) {
+      if (action === "stop") suspendedProjects.delete(id);
+      throw err;
+    }
+    invalidateSiteStatus();
+    recordAudit({ userId: req.user!.id, username: req.user!.username, action: "project." + action, detail: project.name, status: 200, ip: clientIp(req) });
+    res.json({ project: await syncProjectBoot(getProjectDetail(id)) });
+  } catch (err) { sendError(res, err); }
+});
+
+projectsRouter.patch("/:id", mutate, async (req, res) => {
   try {
     const id = parseId(req.params.id);
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -578,12 +604,11 @@ projectsRouter.patch("/:id", mutate, (req, res) => {
           ? null
           : parseId(String(body.accountId));
     }
+    if (patch.boot !== undefined) await setProjectBoot({ ...requireProject(id), ...patch }, patch.boot);
     const project = updateProject(id, patch);
     invalidateSiteStatus();
-    if (project.serviceKind === "worker") {
-      void reconcileWorker(project.id).catch((err) => {
-        console.error("worker reconcile after update failed:", err);
-      });
+    if (project.serviceKind === "worker" && Object.keys(patch).some(key => key !== "boot")) {
+      await reconcileWorker(project.id);
     }
     recordAudit({
       userId: req.user!.id,

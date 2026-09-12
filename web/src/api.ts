@@ -1231,3 +1231,7 @@ export function formatUptime(seconds: number): string {
   parts.push(`${m}m`);
   return parts.join(" ");
 }
+
+export function controlProjectRuntimeApi(id: number, action: "start" | "stop"): Promise<{ project: ProjectDetail }> {
+  return postJson(`/api/projects/${id}/runtime`, { action });
+}

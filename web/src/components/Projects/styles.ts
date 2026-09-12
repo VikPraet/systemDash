@@ -226,12 +226,28 @@ export const Card = styled.div<{ $wide?: boolean }>`
   }
 `;
 
+export const CardContent = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+`;
+
+export const CardFooter = styled(HeadActions)`
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-top: 1px solid ${({ theme }) => theme.color.border};
+  background: ${({ theme }) => theme.color.panel};
+`;
+
 export const CardPreview = styled.div`
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 96px;
-  max-height: 360px;
+  flex: 1 1 128px;
+  min-height: 128px;
+  max-height: 220px;
   overflow: hidden;
   background: ${({ theme }) => theme.color.bg};
   border-bottom: 1px solid ${({ theme }) => theme.color.border};
@@ -252,6 +268,7 @@ export const CardFrame = styled.iframe`
 `;
 
 export const CardBody = styled.div`
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -260,8 +277,6 @@ export const CardBody = styled.div`
   width: 100%;
   min-height: 0;
   box-sizing: border-box;
-  overflow-y: auto;
-  overscroll-behavior: contain;
 `;
 
 export const CardTitle = styled.div`

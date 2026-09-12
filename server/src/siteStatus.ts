@@ -159,13 +159,13 @@ async function systemdRuntime(unit: string): Promise<RuntimeStatus> {
   if (process.platform !== "linux") {
     return { kind: "systemd", state: "unknown", detail: "systemd is only on Linux" };
   }
-  const show = ["show", "-p", "ActiveState", "-p", "LoadState", "--value", name];
+  const show = ["show", "-p", "ActiveState", "-p", "LoadState", name];
   for (const args of [show, ["--user", ...show]]) {
     const result = await execQuiet("systemctl", args);
-    if (!result.ok && !result.text) continue;
+    if (!result.ok) continue;
     const lines = result.text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const active = lines[0] || "";
-    const load = lines[1] || "";
+    const active = lines.find(line => line.startsWith("ActiveState="))?.slice("ActiveState=".length) ?? "";
+    const load = lines.find(line => line.startsWith("LoadState="))?.slice("LoadState=".length) ?? "";
     if (load === "not-found") {
       continue;
     }
