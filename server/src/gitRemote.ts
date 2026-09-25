@@ -802,6 +802,38 @@ export async function ensureLocalRepo(opts: {
   return { cloned: true };
 }
 
+/** Point the checkout's `origin` at a new HTTPS URL (create if missing). */
+export async function setOriginRemote(opts: {
+  localPath: string;
+  remoteUrl: string;
+  account: GitAccountRecord | null;
+}): Promise<void> {
+  const url = normalizeRemoteUrl(opts.remoteUrl);
+  if (!url) throw new ProjectsError(400, "repo URL is required");
+  if (!fs.existsSync(opts.localPath) || !(await isGitDir(opts.localPath))) {
+    throw new ProjectsError(400, "project folder is missing or is not a git checkout");
+  }
+  const creds = credentialsForRemote(url, opts.account);
+  let current: string | null = null;
+  try {
+    current = await runGit(["remote", "get-url", "origin"], { cwd: opts.localPath });
+  } catch {
+    current = null;
+  }
+  if (current && remotesMatch(current, url)) return;
+  if (current) {
+    await spawnGit(["remote", "set-url", "origin", url], {
+      cwd: opts.localPath,
+      ...creds,
+    });
+  } else {
+    await spawnGit(["remote", "add", "origin", url], {
+      cwd: opts.localPath,
+      ...creds,
+    });
+  }
+}
+
 export async function gitPull(
   opts: {
     localPath: string;
@@ -812,6 +844,11 @@ export async function gitPull(
   }
 ): Promise<void> {
   const creds = credentialsForRemote(opts.remoteUrl, opts.account);
+  await setOriginRemote({
+    localPath: opts.localPath,
+    remoteUrl: opts.remoteUrl,
+    account: opts.account,
+  });
   await spawnGit(["fetch", "origin"], {
     cwd: opts.localPath,
     ...creds,

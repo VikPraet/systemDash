@@ -39,7 +39,11 @@ updatesRouter.get("/job", adminOnly, (_req, res) => {
 });
 
 updatesRouter.post("/start", adminOnly, (req, res) => {
-  const body = (req.body ?? {}) as { scope?: unknown; packages?: unknown };
+  const body = (req.body ?? {}) as {
+    scope?: unknown;
+    packages?: unknown;
+    forcePhased?: unknown;
+  };
   const scope = body.scope;
   if (scope !== "packages" && scope !== "all") {
     res.status(400).json({ error: 'scope must be "packages" or "all"' });
@@ -49,16 +53,20 @@ updatesRouter.post("/start", adminOnly, (req, res) => {
   const packages = Array.isArray(body.packages)
     ? body.packages.filter((p): p is string => typeof p === "string" && p.length > 0)
     : undefined;
+  const forcePhased = body.forcePhased === true;
 
   try {
-    startUpdateJob({ scope: scope as UpdateScope, packages });
+    startUpdateJob({ scope: scope as UpdateScope, packages, forcePhased });
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
       action: "updates.run",
-      detail: packages?.length
-        ? `${scope}: ${packages.length} selected`
-        : String(scope),
+      detail: [
+        packages?.length ? `${scope}: ${packages.length} selected` : String(scope),
+        forcePhased ? "include phased" : "",
+      ]
+        .filter(Boolean)
+        .join(", "),
       status: 200,
       ip: clientIp(req),
     });

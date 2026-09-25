@@ -262,6 +262,26 @@ export const MetaRow = styled.div`
 `;
 
 /* ---- Banners, notes, progress, log -------------------------------------- */
+export const DeferredNote = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.color.panel2};
+  color: ${({ theme }) => theme.color.muted};
+  font-size: 12.5px;
+  line-height: 1.5;
+
+  strong {
+    color: ${({ theme }) => theme.color.text};
+    font-weight: 600;
+  }
+`;
+
 export const Banner = styled.div<{ $bad?: boolean }>`
   padding: 10px 12px;
   border: 1px solid

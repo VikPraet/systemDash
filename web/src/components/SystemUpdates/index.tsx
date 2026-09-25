@@ -21,6 +21,7 @@ import { DangerBtn, GhostBtn, Loading } from "../ui/styles";
 import { Tooltip } from "../ui/Tooltip";
 import { AppUpdatePanel } from "./AppUpdatePanel";
 import { BackupPanel } from "./BackupPanel";
+import { parsePhasedDeferred } from "./phasing";
 import * as S from "./styles";
 
 const JOB_POLL_MS = 800;
@@ -67,8 +68,21 @@ function PackagesCard() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [job, setJob] = useState<UpdateJob | null>(null);
+  const [logPhased, setLogPhased] = useState<string[]>([]);
   const [showLog, setShowLog] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
+  const logPhasedSet = useMemo(() => new Set(logPhased), [logPhased]);
+  const serverSplitDeferred = Array.isArray(status?.deferred);
+  const deferred = useMemo(() => {
+    if (serverSplitDeferred) return status?.deferred ?? [];
+    return (status?.items ?? []).filter((pkg) => logPhasedSet.has(pkg.name));
+  }, [serverSplitDeferred, status?.deferred, status?.items, logPhasedSet]);
+  const items = useMemo(() => {
+    const listed = status?.items ?? [];
+    if (serverSplitDeferred) return listed;
+    if (logPhasedSet.size === 0) return listed;
+    return listed.filter((pkg) => !logPhasedSet.has(pkg.name));
+  }, [serverSplitDeferred, status?.items, logPhasedSet]);
 
   const reload = useCallback(async (refresh = false, descriptions = false) => {
     setLoading(true);
@@ -76,7 +90,10 @@ function PackagesCard() {
     try {
       const next = await fetchUpdatesStatus({ refresh, descriptions });
       setStatus(next);
-      setSelected(new Set((next.items ?? []).map((p) => p.name)));
+      const held = new Set((next.deferred ?? []).map((p) => p.name));
+      setSelected(
+        new Set((next.items ?? []).map((p) => p.name).filter((name) => !held.has(name)))
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -87,6 +104,29 @@ function PackagesCard() {
   useEffect(() => {
     void reload(false, false);
   }, [reload]);
+
+  useEffect(() => {
+    void fetchUpdatesJob()
+      .then((next) => setLogPhased(parsePhasedDeferred(next.log ?? "")))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (job?.log) setLogPhased(parsePhasedDeferred(job.log));
+  }, [job?.log]);
+
+  useEffect(() => {
+    if (serverSplitDeferred || logPhasedSet.size === 0) return;
+    setSelected((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const name of prev) {
+        if (logPhasedSet.has(name)) changed = true;
+        else next.add(name);
+      }
+      return changed ? next : prev;
+    });
+  }, [serverSplitDeferred, logPhasedSet]);
 
   useEffect(() => {
     if (!job?.running && job?.phase !== "refresh" && job?.phase !== "apply") {
@@ -116,7 +156,6 @@ function PackagesCard() {
   }, [job?.log]);
 
   const rows = useMemo(() => {
-    const items = status?.items ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return items;
     return items.filter(
@@ -125,7 +164,7 @@ function PackagesCard() {
         (p.description ?? "").toLowerCase().includes(q) ||
         p.source.toLowerCase().includes(q)
     );
-  }, [status?.items, query]);
+  }, [items, query]);
 
   const allSelected = rows.length > 0 && rows.every((p) => selected.has(p.name));
 
@@ -146,12 +185,19 @@ function PackagesCard() {
     });
   }
 
-  async function runUpdate(scope: "packages" | "all", onlySelected: boolean): Promise<void> {
+  async function runUpdate(
+    scope: "packages" | "all",
+    onlySelected: boolean,
+    forcePhased = false
+  ): Promise<void> {
     if (!status?.canInstall) return;
-    const packages =
-      onlySelected && selected.size > 0 && selected.size < (status.items.length ?? 0)
+    const deferredNames = deferred.map((p) => p.name);
+    const packages = forcePhased
+      ? deferredNames
+      : onlySelected && selected.size > 0 && selected.size < items.length
         ? [...selected]
         : undefined;
+    if (forcePhased && (!packages || packages.length === 0)) return;
 
     setShowLog(true);
     setJob({
@@ -163,7 +209,7 @@ function PackagesCard() {
     });
 
     try {
-      await startSystemUpdates({ scope, packages });
+      await startSystemUpdates({ scope, packages, forcePhased });
       const first = await fetchUpdatesJob();
       setJob(first);
     } catch (e) {
@@ -178,9 +224,9 @@ function PackagesCard() {
   }
 
   const busy = job?.running ?? false;
-  const pending = status?.pendingCount ?? status?.items.length ?? 0;
   const available = status?.available ?? false;
-  const items = status?.items ?? [];
+  const filteringDeferred = serverSplitDeferred || logPhasedSet.size > 0;
+  const pending = filteringDeferred ? items.length : items.length || (status?.pendingCount ?? 0);
   const missingDescriptions = items.some((p) => p.description === null);
 
   return (
@@ -254,6 +300,30 @@ function PackagesCard() {
         ) : (
           <>
             {status?.hint && <S.Banner $bad>{status.hint}</S.Banner>}
+
+            {deferred.length > 0 && (
+              <S.DeferredNote>
+                <span>
+                  <strong>
+                    {deferred.length}{" "}
+                    {deferred.length === 1 ? "update is" : "updates are"} waiting
+                  </strong>{" "}
+                  on Ubuntu&apos;s phased rollout ({deferred.map((p) => p.name).join(", ")}).
+                  Apt installs {deferred.length === 1 ? "it" : "them"} once this machine is
+                  included.
+                </span>
+                <Tooltip label="Install these updates now, ahead of the phased rollout">
+                  <GhostBtn
+                    type="button"
+                    disabled={!status?.canInstall || busy}
+                    onClick={() => void runUpdate("packages", false, true)}
+                  >
+                    <Download size={14} />
+                    Install anyway
+                  </GhostBtn>
+                </Tooltip>
+              </S.DeferredNote>
+            )}
 
             {items.length > 0 && (
               <>
@@ -387,7 +457,7 @@ function PackagesCard() {
                 <SearchIcon size={20} strokeWidth={1.6} />
                 <strong>No packages match “{query}”</strong>
               </S.Empty>
-            ) : loading ? null : pending > 0 ? (
+            ) : loading || deferred.length > 0 ? null : pending > 0 ? (
               <S.Empty>
                 <PackageX size={20} strokeWidth={1.6} />
                 <strong>

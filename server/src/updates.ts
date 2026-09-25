@@ -28,6 +28,8 @@ export interface UpdatesStatus {
   manager: "apt" | "winget" | "softwareupdate" | null;
   pendingCount: number | null;
   items: PendingPackage[];
+  /** Upgradable, but `apt upgrade` will skip them until Ubuntu's rollout includes this machine. */
+  deferred: PendingPackage[];
   canInstall: boolean;
   hint: string | null;
 }
@@ -195,6 +197,51 @@ function detectManager(): UpdatesStatus["manager"] {
   return null;
 }
 
+const APT_PACKAGE_NAME = /^[a-z0-9][a-z0-9+.-]*$/;
+
+/** Package names apt printed under "deferred due to phasing". */
+export function parsePhasedDeferred(output: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let capturing = false;
+
+  const add = (raw: string) => {
+    for (const token of raw.trim().split(/\s+/)) {
+      if (!token) continue;
+      const name = token.split(":")[0] ?? token;
+      if (!APT_PACKAGE_NAME.test(name) || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+  };
+
+  for (const line of output.split(/\r?\n/)) {
+    const header = /deferred due to phasing:?\s*(.*)$/i.exec(line);
+    if (header) {
+      capturing = true;
+      if (header[1]) add(header[1]);
+      continue;
+    }
+    if (!capturing) continue;
+    if (/^\s+\S/.test(line)) {
+      add(line);
+      continue;
+    }
+    capturing = false;
+  }
+
+  return names;
+}
+
+function assertAptPackageNames(names: string[]): string[] {
+  for (const name of names) {
+    if (!APT_PACKAGE_NAME.test(name)) {
+      throw new UpdatesError(400, `Invalid package name: ${name}`);
+    }
+  }
+  return names;
+}
+
 function parseAptUpgradableLine(line: string): Omit<PendingPackage, "description"> | null {
   const m =
     /^([^/]+)\/(\S+)\s+(\S+)\s+\S+(?:\s+\[upgradable from:\s*([^\]]+)\])?/.exec(line);
@@ -233,17 +280,33 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   return results;
 }
 
+async function aptPhasedNames(): Promise<Set<string>> {
+  try {
+    const sim = await run(
+      "apt-get",
+      ["-s", "-o", "APT::Get::Assume-Yes=true", "upgrade"],
+      { timeout: 30_000, elevate: false }
+    );
+    return new Set(parsePhasedDeferred(sim));
+  } catch {
+    return new Set();
+  }
+}
+
 async function aptPending(opts?: {
   refresh?: boolean;
   descriptions?: boolean;
-}): Promise<PendingPackage[]> {
+}): Promise<{ installable: PendingPackage[]; deferred: PendingPackage[] }> {
   const refresh = opts?.refresh ?? false;
   const descriptions = opts?.descriptions ?? false;
 
   if (refresh) {
     await run("apt-get", ["update"], { timeout: 300_000, elevate: true });
   }
-  const list = await run("apt", ["list", "--upgradable"], { timeout: 60_000, elevate: false });
+  const [list, phased] = await Promise.all([
+    run("apt", ["list", "--upgradable"], { timeout: 60_000, elevate: false }),
+    aptPhasedNames(),
+  ]);
   const parsed = list
     .split("\n")
     .map((line) => line.trim())
@@ -251,17 +314,25 @@ async function aptPending(opts?: {
     .map(parseAptUpgradableLine)
     .filter((p): p is Omit<PendingPackage, "description"> => p !== null);
 
+  const installableRaw = parsed.filter((pkg) => !phased.has(pkg.name));
+  const deferred = parsed
+    .filter((pkg) => phased.has(pkg.name))
+    .map((pkg) => ({ ...pkg, description: null }));
+
   if (!descriptions) {
-    return parsed.map((pkg) => ({ ...pkg, description: null }));
+    return {
+      installable: installableRaw.map((pkg) => ({ ...pkg, description: null })),
+      deferred,
+    };
   }
 
-  const describe = parsed.slice(0, 24);
+  const describe = installableRaw.slice(0, 24);
   const described = await mapPool(describe, 3, async (pkg) => ({
     ...pkg,
     description: await packageDescription(pkg.name),
   }));
-  const tail = parsed.slice(24).map((pkg) => ({ ...pkg, description: null }));
-  return [...described, ...tail];
+  const undescribed = installableRaw.slice(24).map((pkg) => ({ ...pkg, description: null }));
+  return { installable: [...described, ...undescribed], deferred };
 }
 
 async function wingetPending(): Promise<PendingPackage[]> {
@@ -354,6 +425,7 @@ async function getUpdatesStatusInner(opts?: {
     manager,
     pendingCount: null,
     items: [],
+    deferred: [],
     canInstall: manager !== null,
     hint: null,
   };
@@ -386,16 +458,22 @@ async function getUpdatesStatusInner(opts?: {
       };
     }
 
-    const items =
+    const { installable, deferred } =
       manager === "apt"
         ? await aptPending({
             refresh,
             descriptions: opts?.descriptions ?? false,
           })
-        : manager === "winget"
-          ? await wingetPending()
-          : await macPending();
-    const result = { ...base, pendingCount: items.length, items };
+        : {
+            installable: manager === "winget" ? await wingetPending() : await macPending(),
+            deferred: [] as PendingPackage[],
+          };
+    const result = {
+      ...base,
+      pendingCount: installable.length,
+      items: installable,
+      deferred,
+    };
     if (!opts?.refresh) {
       statusCache = { at: Date.now(), key: cacheKey, data: result };
     }
@@ -413,6 +491,8 @@ function bumpApplyProgress(): void {
 export function startUpdateJob(opts: {
   scope: UpdateScope;
   packages?: string[];
+  /** Install packages Ubuntu is still phasing in. A normal upgrade skips them. */
+  forcePhased?: boolean;
 }): void {
   if (updateJob.running) {
     throw new UpdatesError(409, "An update is already running");
@@ -449,11 +529,15 @@ export function startUpdateJob(opts: {
           "-o",
           "Dpkg::Options::=--force-confold",
         ];
+        const phasedOpt = opts.forcePhased
+          ? ["-o", "APT::Get::Always-Include-Phased-Updates=true"]
+          : [];
 
         if (opts.packages?.length) {
+          const names = assertAptPackageNames(opts.packages);
           await runSpawn(
             "apt-get",
-            ["install", "-y", ...dpkgOpts, "--only-upgrade", ...opts.packages],
+            ["install", "-y", ...dpkgOpts, ...phasedOpt, "--only-upgrade", ...names],
             bumpApplyProgress
           );
         } else {
@@ -462,6 +546,7 @@ export function startUpdateJob(opts: {
             [
               "-y",
               ...dpkgOpts,
+              ...phasedOpt,
               opts.scope === "all" ? "full-upgrade" : "upgrade",
             ],
             bumpApplyProgress
@@ -499,6 +584,7 @@ export function startUpdateJob(opts: {
         err instanceof UpdatesError ? err.message : (err as Error).message;
     } finally {
       updateJob.running = false;
+      statusCache = null;
     }
   })();
 }

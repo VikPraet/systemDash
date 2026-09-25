@@ -1,3 +1,4 @@
+import { startSuspendedPage, stopSuspendedPage } from "../suspendedPage.js";
 import { syncProjectBoot, setProjectBoot, controlExternalProject } from "../projectRuntime.js";
 import { suspendedProjects } from "../projectSuspension.js";
 import fs from "node:fs";
@@ -52,6 +53,8 @@ import {
   sanitizeUnitName,
   sanitizeWorkDir,
   projectHasGit,
+  projectHasFolder,
+  remotesMatch,
   updateAction,
   updateProject,
   upsertAccount,
@@ -68,6 +71,7 @@ import {
   invalidateGitApiCache,
   listRemoteBranches,
   listRemoteRepos,
+  setOriginRemote,
   verifyGitToken,
 } from "../gitRemote.js";
 import {
@@ -566,6 +570,8 @@ projectsRouter.post("/:id/runtime", mutate, async (req, res) => {
     const action = req.body?.action;
     if (action !== "start" && action !== "stop") throw new ProjectsError(400, "action must be start or stop");
     if (getProjectJob(id).running) throw new ProjectsError(409, "Wait for the current project action to finish");
+    const wasSuspended = suspendedProjects.has(id);
+    if (action === "start") await stopSuspendedPage(id);
     if (action === "stop") suspendedProjects.add(id);
     else suspendedProjects.delete(id);
     try {
@@ -574,8 +580,18 @@ projectsRouter.post("/:id/runtime", mutate, async (req, res) => {
         else await reconcileWorker(id);
       } else await controlExternalProject(project, action);
     } catch (err) {
-      if (action === "stop") suspendedProjects.delete(id);
+      if (wasSuspended) {
+        suspendedProjects.add(id);
+        await startSuspendedPage(project).catch(() => {});
+      } else suspendedProjects.delete(id);
       throw err;
+    }
+    if (action === "stop") {
+      try { await startSuspendedPage(project); }
+      catch (err) {
+        invalidateSiteStatus();
+        throw new ProjectsError(503, `Project suspended, but its fallback page could not bind port ${project.port}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     invalidateSiteStatus();
     recordAudit({ userId: req.user!.id, username: req.user!.username, action: "project." + action, detail: project.name, status: 200, ip: clientIp(req) });
@@ -586,6 +602,7 @@ projectsRouter.post("/:id/runtime", mutate, async (req, res) => {
 projectsRouter.patch("/:id", mutate, async (req, res) => {
   try {
     const id = parseId(req.params.id);
+    const prev = requireProject(id);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const patch: {
       name?: string;
@@ -596,25 +613,61 @@ projectsRouter.patch("/:id", mutate, async (req, res) => {
       ...parseRunProfile(body),
     };
     if (body.name !== undefined) patch.name = sanitizeName(body.name);
-    if (body.remoteUrl !== undefined) patch.remoteUrl = sanitizeRemoteUrl(body.remoteUrl);
-    if (body.branch !== undefined) patch.branch = sanitizeBranch(body.branch);
+    if (body.remoteUrl !== undefined) {
+      patch.remoteUrl = sanitizeRemoteUrl(body.remoteUrl, {
+        optional: prev.serviceKind === "worker",
+      });
+    }
+    if (body.branch !== undefined) {
+      const nextRemote = patch.remoteUrl ?? prev.remoteUrl;
+      patch.branch = projectHasGit({ remoteUrl: nextRemote })
+        ? sanitizeBranch(body.branch)
+        : sanitizeOptionalBranch(body.branch);
+    }
     if (body.accountId !== undefined) {
       patch.accountId =
         body.accountId === null || body.accountId === ""
           ? null
           : parseId(String(body.accountId));
+    } else if (patch.remoteUrl !== undefined && patch.remoteUrl !== prev.remoteUrl) {
+      const provider = providerForUrl(patch.remoteUrl);
+      patch.accountId = provider ? (getAccountByProvider(provider)?.id ?? null) : null;
     }
-    if (patch.boot !== undefined) await setProjectBoot({ ...requireProject(id), ...patch }, patch.boot);
+    if (patch.boot !== undefined) await setProjectBoot({ ...prev, ...patch }, patch.boot);
+
+    const nextRemote = patch.remoteUrl ?? prev.remoteUrl;
+    const remoteChanged =
+      patch.remoteUrl !== undefined && !remotesMatch(prev.remoteUrl || "", nextRemote || "");
+    if (remoteChanged && projectHasFolder(prev) && projectHasGit({ remoteUrl: nextRemote })) {
+      if (!gitAvailable()) {
+        throw new ProjectsError(
+          503,
+          "git is not installed or not on PATH — install Git on this host first"
+        );
+      }
+      const accountId =
+        patch.accountId !== undefined ? patch.accountId : prev.accountId;
+      const account = accountId ? getAccountById(accountId) : null;
+      await setOriginRemote({
+        localPath: prev.localPath,
+        remoteUrl: nextRemote,
+        account,
+      });
+    }
+
     const project = updateProject(id, patch);
     invalidateSiteStatus();
-    if (project.serviceKind === "worker" && Object.keys(patch).some(key => key !== "boot")) {
+    if (project.serviceKind === "worker" && Object.keys(patch).some((key) => key !== "boot")) {
       await reconcileWorker(project.id);
     }
     recordAudit({
       userId: req.user!.id,
       username: req.user!.username,
       action: "project.update",
-      detail: project.name,
+      detail:
+        remoteChanged && nextRemote
+          ? `${project.name} remote → ${nextRemote}`
+          : project.name,
       status: 200,
       ip: clientIp(req),
     });
@@ -633,6 +686,7 @@ projectsRouter.delete("/:id", mutate, async (req, res) => {
       req.query.purge === "true" ||
       (req.body as { purge?: unknown } | undefined)?.purge === true;
     let notes: string[] = [];
+    await stopSuspendedPage(id);
     stopAllReplicas(id);
     if (project.runKind === "systemd" && project.unit) {
       try {
@@ -777,6 +831,7 @@ projectsRouter.post("/:id/actions/:actionId/run", mutate, (req, res) => {
   try {
     const id = parseId(req.params.id);
     const actionId = parseId(req.params.actionId);
+    if (suspendedProjects.has(id)) throw new ProjectsError(409, "Turn on this project before running deployment actions");
     const job = startActionRun(id, actionId);
     recordAudit({
       userId: req.user!.id,

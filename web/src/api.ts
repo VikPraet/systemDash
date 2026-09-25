@@ -498,6 +498,7 @@ export async function fetchUpdatesJob(signal?: AbortSignal): Promise<UpdateJob> 
 export async function startSystemUpdates(opts: {
   scope: "packages" | "all";
   packages?: string[];
+  forcePhased?: boolean;
 }): Promise<{ ok: true }> {
   return postJson("/api/updates/start", opts);
 }

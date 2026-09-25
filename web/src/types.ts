@@ -389,6 +389,8 @@ export interface UpdatesStatus {
   manager: "apt" | "winget" | "softwareupdate" | null;
   pendingCount: number | null;
   items: PendingPackage[];
+  /** Present when the server knows apt will skip these until the phased rollout includes this machine. */
+  deferred?: PendingPackage[];
   canInstall: boolean;
   hint: string | null;
 }

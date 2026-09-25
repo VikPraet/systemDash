@@ -364,7 +364,7 @@ export const HealthPanel = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
-  padding: 8px 16px 16px;
+  padding: 12px 14px 14px;
 `;
 
 export const HealthCell = styled.div`
@@ -408,7 +408,7 @@ export const SectionHead = styled.div`
   align-items: flex-end;
   justify-content: space-between;
   gap: 8px;
-  padding-right: 16px;
+  padding: 0 14px 0 0;
 `;
 
 export const CardMeta = styled.div`
@@ -453,33 +453,93 @@ export const Back = styled.button`
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0;
+  padding: 6px 10px;
+  margin: -6px 0 -6px -10px;
   background: none;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.muted};
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+  letter-spacing: 0.4px;
   cursor: pointer;
+  flex-shrink: 0;
 
   &:hover {
     color: ${({ theme }) => theme.color.text};
+    background: ${({ theme }) => theme.color.hover};
+    border-color: ${({ theme }) => theme.color.border};
   }
 `;
 
 export const Detail = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
 `;
 
-export const DetailPanel = styled.div`
-  background: ${({ theme }) => theme.color.panel};
+export const DetailBar = styled.div`
+  position: sticky;
+  top: -4px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin: 0 0 2px;
+  background: color-mix(in srgb, ${({ theme }) => theme.color.bg} 88%, transparent);
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.base};
-  overflow: hidden;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px ${({ theme }) => theme.color.shadow};
+`;
+
+export const DetailBarLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+`;
+
+export const DetailBarTitle = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .name > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .meta {
+    font-size: 12px;
+    color: ${({ theme }) => theme.color.muted};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+export const DetailPanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
 `;
 
 export const DetailHead = styled.div`
@@ -526,12 +586,67 @@ export const StatusLine = styled.div`
 
 export const SectionLabel = styled.h3`
   margin: 0;
-  padding: 12px 16px 0;
+  padding: 12px 14px 0;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: ${({ theme }) => theme.color.muted};
+`;
+
+export const Band = styled.section`
+  background: ${({ theme }) => theme.color.panel};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.base};
+  overflow: hidden;
+`;
+
+export const BandHead = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: ${({ theme }) => theme.color.hover};
+  }
+
+  svg.chevron {
+    flex-shrink: 0;
+    color: ${({ theme }) => theme.color.muted};
+  }
+`;
+
+export const BandHeadText = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+
+  strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  span {
+    font-size: 12px;
+    color: ${({ theme }) => theme.color.muted};
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
+export const BandBody = styled.div`
+  border-top: 1px solid ${({ theme }) => theme.color.hairline};
 `;
 
 export const SiteForm = styled.form`
@@ -588,9 +703,9 @@ export const NotesLine = styled.span`
 `;
 
 export const PreviewWrap = styled.div`
-  margin: 12px 16px 16px;
-  border: 1px solid ${({ theme }) => theme.color.border};
-  border-radius: ${({ theme }) => theme.radius.sm};
+  margin: 0;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
   background: ${({ theme }) => theme.color.panel2};
 `;
@@ -691,11 +806,15 @@ export const ActionCard = styled.div`
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 12px 16px;
+  margin: 0 14px 12px;
   padding: 14px;
   border: 1px solid ${({ theme }) => theme.color.border};
   border-radius: ${({ theme }) => theme.radius.sm};
   background: ${({ theme }) => theme.color.panel2};
+
+  &:first-of-type {
+    margin-top: 12px;
+  }
 `;
 
 export const ActionTop = styled.div`

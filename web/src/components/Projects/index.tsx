@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   ExternalLink,
   GitBranch,
@@ -292,6 +293,13 @@ export function Projects() {
   const [actionEdit, setActionEdit] = useState<ProjectAction | "new" | null>(null);
   const [busy, setBusy] = useState(false);
   const [logFullscreen, setLogFullscreen] = useState(false);
+  const [openBands, setOpenBands] = useState<Record<string, boolean>>({
+    actions: true,
+    git: false,
+    hosting: false,
+    preview: true,
+    log: true,
+  });
   const logRef = useRef<HTMLPreElement>(null);
   const logFsRef = useRef<HTMLPreElement>(null);
 
@@ -403,8 +411,20 @@ export function Projects() {
       setLogFullscreen(false);
       return;
     }
+    setOpenBands({
+      actions: true,
+      git: false,
+      hosting: false,
+      preview: true,
+      log: true,
+    });
+    setCheck(null);
     void loadDetail(selectedId).catch((e) => setError((e as Error).message));
   }, [selectedId, loadDetail]);
+
+  function toggleBand(id: string): void {
+    setOpenBands((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
 
   useEffect(() => {
     if (!job?.running || selectedId == null) return;
@@ -801,134 +821,275 @@ export function Projects() {
         </>
       ) : (
         <S.Detail>
-          <S.Back type="button" onClick={() => persist({ selectedId: null })}>
-            <ArrowLeft size={14} />
-            Projects
-          </S.Back>
-          <S.DetailPanel>
-            <S.DetailHead>
-              <S.DetailTitle>
-                <h3>
-                  {selected.name}
+          <S.DetailBar>
+            <S.DetailBarLeft>
+              <S.Back type="button" onClick={() => persist({ selectedId: null })}>
+                <ArrowLeft size={14} />
+                All projects
+              </S.Back>
+              <S.DetailBarTitle>
+                <div className="name">
+                  <span>{selected.name}</span>
                   <S.KindPill>
                     {serviceKindIcon(serviceKindOf(selected))}
                     {serviceKindLabel(serviceKindOf(selected))}
                   </S.KindPill>
-                </h3>
-                <S.StatusLine>
-                  {hasFolder(selected) && (
-                    <>
-                      <code>{selected.localPath}</code>
-                      <br />
-                    </>
+                </div>
+                <div className="meta">
+                  {hasGit(selected)
+                    ? `${selected.remoteUrl.replace(/^https?:\/\//, "")} · ${selected.branch}`
+                    : hasFolder(selected)
+                      ? selected.localPath
+                      : serviceKindOf(selected) === "worker"
+                        ? [selected.runKind, selected.container || selected.unit].filter(Boolean).join(" · ")
+                        : "No git remote"}
+                </div>
+              </S.DetailBarTitle>
+            </S.DetailBarLeft>
+            {canManage && (
+              <S.HeadActions>
+                {["docker", "compose", "systemd", "process"].includes(selected.runKind) &&
+                  ([selectedStatus?.runtime.state === "running" ? "stop" : "start"] as const).map(
+                    (action) => (
+                      <S.Btn
+                        key={action}
+                        type="button"
+                        disabled={busy || running}
+                        title={
+                          action === "stop"
+                            ? "Stop now; the start-on-boot setting is unchanged"
+                            : "Start the configured runtime"
+                        }
+                        onClick={async () => {
+                          setBusy(true);
+                          setError(null);
+                          try {
+                            await controlProjectRuntimeApi(selected.id, action);
+                            await loadDetail(selected.id);
+                            await reload();
+                            await loadSites(true);
+                          } catch (e) {
+                            setError((e as Error).message);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                      >
+                        {action === "start" ? <Play size={14} /> : <Unplug size={14} />}
+                        {selectedStatus?.runtime.state === "running"
+                          ? "Suspend"
+                          : selectedStatus?.runtime.state === "stopped"
+                            ? "Turn on"
+                            : !selectedStatus
+                              ? "Checking…"
+                              : "Runtime unavailable"}
+                      </S.Btn>
+                    )
                   )}
-                  {hasGit(selected) ? (
-                    <>
-                      {selected.remoteUrl} · {selected.branch}
-                    </>
-                  ) : serviceKindOf(selected) === "worker" ? (
-                    <>
-                      {selected.runKind}
-                      {selected.container ? ` · ${selected.container}` : ""}
-                      {selected.unit ? ` · ${selected.unit}` : ""}
-                      {selected.boot ? " · starts on boot" : ""}
-                    </>
-                  ) : null}
-                </S.StatusLine>
-                {check && (
-                  <S.StatusLine>
-                    {check.ok ? (
-                      <>
-                        HEAD <code>{check.headSha ?? "—"}</code>
-                        {check.behind > 0 && (
-                          <>
-                            {" "}
-                            · <strong>{check.behind} behind</strong> origin
-                          </>
-                        )}
-                        {check.ahead > 0 && <> · {check.ahead} ahead</>}
-                        {check.behind === 0 && check.ahead === 0 && " · up to date"}
-                        {check.dirty && " · uncommitted changes"}
-                        {check.message && (
-                          <>
-                            <br />
-                            {check.message}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      check.message
-                    )}
-                  </S.StatusLine>
-                )}
-              </S.DetailTitle>
-              {canManage && (
-                <S.HeadActions>
-                  {["docker", "compose", "systemd", "process"].includes(selected.runKind) && ([selectedStatus?.runtime.state === "running" ? "stop" : "start"] as const).map((action) => (
-                    <S.Btn key={action} type="button" disabled={busy || running}
-                      title={action === "stop" ? "Stop now; the start-on-boot setting is unchanged" : "Start the configured runtime"}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError(null);
-                        try {
-                          await controlProjectRuntimeApi(selected.id, action);
-                          await loadDetail(selected.id);
-                          await reload();
-                          await loadSites(true);
-                        } catch (e) { setError((e as Error).message); }
-                        finally { setBusy(false); }
-                      }}>
-                      {action === "start" ? <Play size={14} /> : <Unplug size={14} />}
-                      {selectedStatus?.runtime.state === "running" ? "Suspend" : selectedStatus?.runtime.state === "stopped" ? "Turn on" : !selectedStatus ? "Checking…" : "Runtime unavailable"}
-                    </S.Btn>
-                  ))}
-                  {hasGit(selected) && (
-                    <S.Btn type="button" onClick={() => void onCheck()} disabled={busy || running}>
-                      <RefreshCw size={14} />
-                      Check remote
-                    </S.Btn>
-                  )}
-                  <S.Btn
-                    type="button"
-                    $danger
-                    onClick={() => void onDeleteProject()}
-                    disabled={busy || running}
-                  >
-                    <Trash2 size={14} />
-                    Remove
+                {hasGit(selected) && (
+                  <S.Btn type="button" onClick={() => void onCheck()} disabled={busy || running}>
+                    <RefreshCw size={14} />
+                    Check remote
                   </S.Btn>
-                </S.HeadActions>
-              )}
-            </S.DetailHead>
-
-            {error && (
-              <div style={{ padding: "0 16px 12px" }}>
-                <AuthError $inline>{error}</AuthError>
-              </div>
+                )}
+                <S.Btn
+                  type="button"
+                  $danger
+                  onClick={() => void onDeleteProject()}
+                  disabled={busy || running}
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </S.Btn>
+              </S.HeadActions>
             )}
+          </S.DetailBar>
 
-            <ProjectHealth
-              project={selected}
-              status={selectedStatus}
-              cloudflare={cloudflare}
-              busy={busy}
-              onRecheck={() => void loadSites(true)}
-            />
+          {error && <AuthError $inline>{error}</AuthError>}
+
+          {check && (
+            <S.StatusLine>
+              {check.ok ? (
+                <>
+                  HEAD <code>{check.headSha ?? "—"}</code>
+                  {check.behind > 0 && (
+                    <>
+                      {" "}
+                      · <strong>{check.behind} behind</strong> origin
+                    </>
+                  )}
+                  {check.ahead > 0 && <> · {check.ahead} ahead</>}
+                  {check.behind === 0 && check.ahead === 0 && " · up to date"}
+                  {check.dirty && " · uncommitted changes"}
+                  {check.message && (
+                    <>
+                      {" · "}
+                      {check.message}
+                    </>
+                  )}
+                </>
+              ) : (
+                check.message
+              )}
+            </S.StatusLine>
+          )}
+
+          <S.DetailPanel>
+            <S.Band>
+              <ProjectHealth
+                project={selected}
+                status={selectedStatus}
+                cloudflare={cloudflare}
+                busy={busy}
+                onRecheck={() => void loadSites(true)}
+              />
+            </S.Band>
 
             {serviceKindOf(selected) === "worker" ? (
-              <WorkerLogs projectId={selected.id} />
+              <S.Band>
+                <S.SectionLabel>Live logs</S.SectionLabel>
+                <div style={{ padding: "0 8px 8px" }}>
+                  <WorkerLogs projectId={selected.id} />
+                </div>
+              </S.Band>
             ) : (
-              selectedPreview && <LivePreview url={selectedPreview} />
+              selectedPreview && (
+                <DetailBand
+                  id="preview"
+                  title="Live preview"
+                  summary={selectedPreview.replace(/^https?:\/\//, "")}
+                  open={!!openBands.preview}
+                  onToggle={() => toggleBand("preview")}
+                >
+                  <LivePreview url={selectedPreview} embedded />
+                </DetailBand>
+              )
+            )}
+
+            <DetailBand
+              id="actions"
+              title="Actions"
+              summary={
+                detail
+                  ? detail.actions.length
+                    ? `${detail.actions.length} action${detail.actions.length === 1 ? "" : "s"}`
+                    : "None yet"
+                  : "Loading…"
+              }
+              open={!!openBands.actions}
+              onToggle={() => toggleBand("actions")}
+            >
+              {detail && detail.actions.length === 0 && (
+                <S.StatusLine style={{ padding: "12px 14px 8px" }}>
+                  No actions yet. Add one to pull, build, or restart this service.
+                </S.StatusLine>
+              )}
+              {detail?.actions.map((action) => (
+                <S.ActionCard key={action.id}>
+                  <S.ActionTop>
+                    <S.ActionName>{action.name}</S.ActionName>
+                    {canManage && (
+                      <S.ActionBtns>
+                        <S.Btn
+                          type="button"
+                          onClick={() => void onRun(action.id)}
+                          disabled={busy || running || action.steps.length === 0}
+                        >
+                          <Play size={14} />
+                          Run
+                        </S.Btn>
+                        <S.Btn
+                          type="button"
+                          onClick={() => setActionEdit(action)}
+                          disabled={busy || running}
+                        >
+                          <Pencil size={14} />
+                          Edit
+                        </S.Btn>
+                        <S.Btn
+                          type="button"
+                          $danger
+                          onClick={() => void onDeleteAction(action.id)}
+                          disabled={busy || running}
+                        >
+                          <Trash2 size={14} />
+                          Delete
+                        </S.Btn>
+                      </S.ActionBtns>
+                    )}
+                  </S.ActionTop>
+                  <S.Steps>
+                    {action.steps.map((s) => (
+                      <li key={s.id}>
+                        <code>{stepSummary(s)}</code>
+                      </li>
+                    ))}
+                  </S.Steps>
+                </S.ActionCard>
+              ))}
+              {canManage && (
+                <div style={{ padding: "0 14px 14px" }}>
+                  <S.Btn
+                    type="button"
+                    onClick={() => setActionEdit("new")}
+                    disabled={busy || running}
+                  >
+                    <Plus size={14} />
+                    New action
+                  </S.Btn>
+                </div>
+              )}
+            </DetailBand>
+
+            {detail && (hasGit(selected) || hasFolder(selected)) && (
+              <DetailBand
+                id="git"
+                title="Git source"
+                summary={
+                  hasGit(selected)
+                    ? `${selected.remoteUrl.replace(/^https?:\/\//, "")} · ${selected.branch}`
+                    : "No remote yet"
+                }
+                open={!!openBands.git}
+                onToggle={() => toggleBand("git")}
+              >
+                <GitSourceEditor
+                  project={detail}
+                  canManage={canManage}
+                  disabled={busy || running}
+                  onSaved={async () => {
+                    if (selectedId != null) await loadDetail(selectedId);
+                    await reload();
+                    setCheck(null);
+                  }}
+                />
+              </DetailBand>
             )}
 
             {detail && (
-              <>
-                <S.SectionLabel>Configuration</S.SectionLabel>
+              <DetailBand
+                id="hosting"
+                title={serviceKindOf(selected) === "worker" ? "Worker config" : "Hosting"}
+                summary={
+                  serviceKindOf(selected) === "worker"
+                    ? [selected.runKind, selected.container || selected.unit]
+                        .filter(Boolean)
+                        .join(" · ") || "Configure how it runs"
+                    : [
+                        selected.runKind !== "none" ? selected.runKind : null,
+                        selected.port ? `:${selected.port}` : null,
+                        selected.siteUrl?.replace(/^https?:\/\//, "") || null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Configure runtime and URL"
+                }
+                open={!!openBands.hosting}
+                onToggle={() => toggleBand("hosting")}
+              >
                 {serviceKindOf(selected) === "worker" && (
-                  <S.Banner style={{ margin: "0 16px 12px" }}>
-                    A worker has no public URL or port — it counts as healthy for as
-                    long as its process stays up. Everything it needs to run lives
-                    below.
+                  <S.Banner style={{ margin: "12px 14px 0" }}>
+                    A worker has no public URL or port — it counts as healthy for as long as
+                    its process stays up.
                   </S.Banner>
                 )}
                 <SiteEditor
@@ -951,73 +1112,21 @@ export function Projects() {
                     await loadSites(true);
                   }}
                 />
-              </>
-            )}
-
-            <S.SectionLabel>Actions</S.SectionLabel>
-            {detail && detail.actions.length === 0 && (
-              <S.StatusLine style={{ padding: "4px 16px 8px" }}>
-                No actions yet. Add one to pull, build, or restart this service.
-              </S.StatusLine>
-            )}
-            {detail?.actions.map((action) => (
-              <S.ActionCard key={action.id}>
-                <S.ActionTop>
-                  <S.ActionName>{action.name}</S.ActionName>
-                  {canManage && (
-                    <S.ActionBtns>
-                      <S.Btn
-                        type="button"
-                        onClick={() => void onRun(action.id)}
-                        disabled={busy || running || action.steps.length === 0}
-                      >
-                        <Play size={14} />
-                        Run
-                      </S.Btn>
-                      <S.Btn
-                        type="button"
-                        onClick={() => setActionEdit(action)}
-                        disabled={busy || running}
-                      >
-                        <Pencil size={14} />
-                        Edit
-                      </S.Btn>
-                      <S.Btn
-                        type="button"
-                        $danger
-                        onClick={() => void onDeleteAction(action.id)}
-                        disabled={busy || running}
-                      >
-                        <Trash2 size={14} />
-                        Delete
-                      </S.Btn>
-                    </S.ActionBtns>
-                  )}
-                </S.ActionTop>
-                <S.Steps>
-                  {action.steps.map((s) => (
-                    <li key={s.id}>
-                      <code>{stepSummary(s)}</code>
-                    </li>
-                  ))}
-                </S.Steps>
-              </S.ActionCard>
-            ))}
-            {canManage && (
-              <div style={{ padding: "0 16px 16px" }}>
-                <S.Btn
-                  type="button"
-                  onClick={() => setActionEdit("new")}
-                  disabled={busy || running}
-                >
-                  <Plus size={14} />
-                  New action
-                </S.Btn>
-              </div>
+              </DetailBand>
             )}
 
             {(job?.running || job?.log || job?.error) && (
-              <>
+              <DetailBand
+                id="log"
+                title="Last run"
+                summary={
+                  job.running
+                    ? `${job.actionName || "Running"}…`
+                    : `${job.actionName || "Log"}${job.phase === "error" ? " · failed" : ""}`
+                }
+                open={!!openBands.log}
+                onToggle={() => toggleBand("log")}
+              >
                 <JobRunProgress
                   job={job}
                   extra={
@@ -1036,10 +1145,11 @@ export function Projects() {
                     <ColorLog text={job.log} />
                   </S.LogPanel>
                 )}
-              </>
+              </DetailBand>
             )}
-            {selected.lastRun && !job?.log && (
-              <S.StatusLine style={{ padding: "0 16px 16px" }}>
+
+            {selected.lastRun && !job?.log && !job?.running && (
+              <S.StatusLine style={{ padding: "0 4px" }}>
                 Last run: {selected.lastRun.actionName} ({selected.lastRun.status}){" "}
                 {formatRelative(selected.lastRun.startedAt, Date.now())}
               </S.StatusLine>
@@ -1870,11 +1980,11 @@ function RunProfileFields({
   );
 }
 
-function LivePreview({ url }: { url: string }) {
+function LivePreview({ url, embedded = false }: { url: string; embedded?: boolean }) {
   const [frameKey, setFrameKey] = useState(0);
   return (
     <>
-      <S.SectionLabel>Live preview</S.SectionLabel>
+      {!embedded && <S.SectionLabel>Live preview</S.SectionLabel>}
       <S.PreviewWrap>
         <S.PreviewBar>
           <span>Embedded view</span>
@@ -1902,6 +2012,195 @@ function LivePreview({ url }: { url: string }) {
         </S.PreviewHint>
       </S.PreviewWrap>
     </>
+  );
+}
+
+function DetailBand({
+  id,
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <S.Band>
+      <S.BandHead type="button" onClick={onToggle} aria-expanded={open} aria-controls={`band-${id}`}>
+        {open ? (
+          <ChevronDown className="chevron" size={16} />
+        ) : (
+          <ChevronRight className="chevron" size={16} />
+        )}
+        <S.BandHeadText>
+          <strong>{title}</strong>
+          {summary ? <span>{summary}</span> : null}
+        </S.BandHeadText>
+      </S.BandHead>
+      {open && <S.BandBody id={`band-${id}`}>{children}</S.BandBody>}
+    </S.Band>
+  );
+}
+
+function GitSourceEditor({
+  project,
+  canManage,
+  disabled,
+  onSaved,
+}: {
+  project: ProjectDetail;
+  canManage: boolean;
+  disabled: boolean;
+  onSaved: () => Promise<void>;
+}) {
+  const required = serviceKindOf(project) !== "worker";
+  const [remoteUrl, setRemoteUrl] = useState(project.remoteUrl || "");
+  const [branch, setBranch] = useState(project.branch || "main");
+  const [branches, setBranches] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setRemoteUrl(project.remoteUrl || "");
+    setBranch(project.branch || "main");
+    setError(null);
+  }, [project.id, project.remoteUrl, project.branch]);
+
+  useEffect(() => {
+    const url = remoteUrl.trim();
+    if (!/^https:\/\//i.test(url)) {
+      setBranches([]);
+      setBranchesError(null);
+      setBranchesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => {
+      setBranchesLoading(true);
+      setBranchesError(null);
+      void fetchGitBranches(url, ctrl.signal)
+        .then((result) => {
+          if (cancelled) return;
+          setBranches(result.branches);
+          setBranch((current) => {
+            if (current && result.branches.includes(current)) return current;
+            return result.defaultBranch || result.branches[0] || current || "main";
+          });
+        })
+        .catch((e) => {
+          if (cancelled || (e as Error).name === "AbortError") return;
+          setBranches([]);
+          setBranchesError((e as Error).message);
+        })
+        .finally(() => {
+          if (!cancelled) setBranchesLoading(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [remoteUrl]);
+
+  const dirty =
+    remoteUrl.trim() !== (project.remoteUrl || "").trim() ||
+    branch.trim() !== (project.branch || "").trim();
+
+  if (!canManage) {
+    if (!hasGit(project)) return null;
+    return (
+      <S.StatusLine style={{ padding: "8px 16px 12px" }}>
+        {project.remoteUrl} · {project.branch}
+      </S.StatusLine>
+    );
+  }
+
+  return (
+    <S.SiteForm
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        void (async () => {
+          try {
+            const nextUrl = remoteUrl.trim();
+            if (required && !nextUrl) throw new Error("repo URL is required");
+            await updateProjectApi(project.id, {
+              remoteUrl: nextUrl || "",
+              branch: nextUrl ? branch.trim() || "main" : "",
+            });
+            await onSaved();
+          } catch (err) {
+            setError((err as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        })();
+      }}
+    >
+      <S.FormSection>
+        <S.FormSectionTitle>Git source</S.FormSectionTitle>
+        <S.Field>
+          Repo URL
+          <input
+            value={remoteUrl}
+            onChange={(e) => setRemoteUrl(e.target.value)}
+            placeholder="https://github.com/you/app.git"
+            required={required}
+            disabled={disabled || busy}
+          />
+          <S.FieldHint>
+            Pulls use this remote. Saving updates <code>origin</code> in the
+            project folder on this host.
+          </S.FieldHint>
+        </S.Field>
+        <S.Field>
+          Branch
+          {branches.length > 0 ? (
+            <Dropdown
+              value={branch}
+              options={branches.map((b) => ({ value: b, label: b }))}
+              onChange={setBranch}
+              variant="underline"
+              ariaLabel="Branch"
+            />
+          ) : (
+            <input
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder={branchesLoading ? "Loading branches…" : "main"}
+              required={required || !!remoteUrl.trim()}
+              disabled={disabled || busy}
+            />
+          )}
+        </S.Field>
+        {branchesLoading && branches.length === 0 && (
+          <S.StatusLine>Reading branches from the remote…</S.StatusLine>
+        )}
+        {branchesError && !branchesLoading && (
+          <S.StatusLine>
+            Could not list branches — type one, or check the URL / Git token.{" "}
+            {branchesError}
+          </S.StatusLine>
+        )}
+      </S.FormSection>
+      {error && <AuthError $inline>{error}</AuthError>}
+      <S.FormActions>
+        <S.Btn type="submit" disabled={disabled || busy || !dirty}>
+          {busy ? "Saving…" : "Save git source"}
+        </S.Btn>
+      </S.FormActions>
+    </S.SiteForm>
   );
 }
 

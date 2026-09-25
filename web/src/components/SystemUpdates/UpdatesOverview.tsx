@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { fetchUpdatesJob, fetchUpdatesStatus } from "../../api";
 import type { UpdatesStatus } from "../../types";
 import { TeaserSkeleton } from "../ui/Skeleton";
+import { parsePhasedDeferred } from "./phasing";
 import * as S from "./styles";
 
 export function UpdatesOverview() {
@@ -12,6 +13,7 @@ export function UpdatesOverview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [jobRunning, setJobRunning] = useState(false);
+  const [jobLog, setJobLog] = useState("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -23,6 +25,7 @@ export function UpdatesOverview() {
       ]);
       setStatus(next);
       setJobRunning(job?.running ?? false);
+      setJobLog(job?.log ?? "");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -59,8 +62,15 @@ export function UpdatesOverview() {
     );
   }
 
-  const pending = status.pendingCount ?? 0;
-  const preview = (status.items ?? []).slice(0, 3).map((p) => p.name);
+  const listed = status.items ?? [];
+  const phased = new Set(parsePhasedDeferred(jobLog));
+  const serverSplit = Array.isArray(status.deferred);
+  const installable = serverSplit ? listed : listed.filter((pkg) => !phased.has(pkg.name));
+  const pending = installable.length;
+  const deferred = serverSplit
+    ? (status.deferred?.length ?? 0)
+    : listed.filter((pkg) => phased.has(pkg.name)).length;
+  const preview = installable.slice(0, 3).map((p) => p.name);
 
   let meta: string;
   let accent = false;
@@ -73,7 +83,9 @@ export function UpdatesOverview() {
   } else if (status.hint) {
     meta = status.hint;
   } else if (pending === 0) {
-    meta = "All packages are up to date";
+    meta = deferred
+      ? `Up to date · ${deferred} waiting on Ubuntu's phased rollout`
+      : "All packages are up to date";
   } else {
     meta =
       preview.length > 0
