@@ -1,11 +1,12 @@
-import { useMemo, useState, type ReactNode } from "react";
-import type { HistorySeries, SystemSnapshot } from "../../types";
-import { formatBytes } from "../../api";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { ByteUnit, HistorySeries, NetUsageSeries, SystemSnapshot } from "../../types";
+import { fetchNetUsage, formatBytes } from "../../api";
 import {
   ChartCard,
   TimeSeriesChart,
   type ChartSeries,
 } from "../widgets";
+import { UsageBarChart } from "../widgets/UsageBarChart";
 import * as S from "./styles";
 
 export const CHART_COLORS = {
@@ -16,8 +17,6 @@ export const CHART_COLORS = {
   purple: "#a78bfa",
   cyan: "#22d3ee",
 };
-
-export const FS_HEIGHT = 460;
 
 export interface ChartDescriptor {
   id: string;
@@ -211,10 +210,92 @@ export function CpuCoresChart({
           yMin={0}
           yMax={100}
           fill={false}
-          height={fullscreen ? FS_HEIGHT : undefined}
           formatTime={timeFmt}
         />
       )}
+    </ChartCard>
+  );
+}
+
+type DiskPlot = {
+  id: string;
+  label: string;
+  readBps: (number | null)[];
+  writeBps: (number | null)[];
+};
+
+export function DiskIoChart({
+  disks,
+  totalRead,
+  totalWrite,
+  t,
+  timeFmt,
+  onFullscreen,
+  onExitFullscreen,
+}: {
+  disks: DiskPlot[];
+  totalRead: (number | null)[];
+  totalWrite: (number | null)[];
+  t: number[];
+  timeFmt: (ms: number) => string;
+  fullscreen?: boolean;
+  onFullscreen?: () => void;
+  onExitFullscreen?: () => void;
+}) {
+  const rate = (v: number) => `${formatBytes(Math.round(Math.max(0, v)))}/s`;
+  const plots: DiskPlot[] =
+    disks.length > 0
+      ? disks
+      : hasAny(totalRead) || hasAny(totalWrite)
+        ? [{ id: "total", label: "Total", readBps: totalRead, writeBps: totalWrite }]
+        : [];
+  if (plots.length === 0) return null;
+
+  const subtitle =
+    plots.length > 1
+      ? plots.map((d) => d.label).join(" · ")
+      : plots[0]?.label ?? "Read and write";
+
+  return (
+    <ChartCard
+      title="Disk"
+      subtitle={subtitle}
+      onFullscreen={onFullscreen}
+      onExitFullscreen={onExitFullscreen}
+    >
+      <S.DiskStack>
+        {plots.map((disk) => {
+          const read = lastValue(disk.readBps);
+          const write = lastValue(disk.writeBps);
+          return (
+            <S.DiskCell key={disk.id}>
+              <S.DiskCellHead>
+                <S.DiskCellName>{disk.label}</S.DiskCellName>
+                <S.DiskCellRates>
+                  <span>
+                    <em>R</em>
+                    {read == null ? "—" : rate(read)}
+                  </span>
+                  <span>
+                    <em>W</em>
+                    {write == null ? "—" : rate(write)}
+                  </span>
+                </S.DiskCellRates>
+              </S.DiskCellHead>
+              <TimeSeriesChart
+                t={t}
+                yMin={0}
+                formatTime={timeFmt}
+                formatValue={rate}
+                series={[
+                  { label: "Read", color: CHART_COLORS.cyan, data: disk.readBps },
+                  { label: "Write", color: CHART_COLORS.amber, data: disk.writeBps },
+                ]}
+              />
+            </S.DiskCell>
+          );
+        })}
+      </S.DiskStack>
     </ChartCard>
   );
 }
@@ -249,7 +330,6 @@ export function buildHistoryCharts({
         yMax={100}
         unit="%"
         formatTime={timeFmt}
-        height={fs ? FS_HEIGHT : undefined}
         {...fsProps("cpu-load", fs)}
         series={[{ label: "Load", color: CHART_COLORS.blue, data: data?.cpuLoad ?? [] }]}
       />
@@ -286,7 +366,6 @@ export function buildHistoryCharts({
           t={t}
           unit="°C"
           formatTime={timeFmt}
-          height={fs ? FS_HEIGHT : undefined}
           {...fsProps("cpu-temp", fs)}
           series={[{ label: "Temp", color: CHART_COLORS.red, data: cpuTemp }]}
         />
@@ -304,7 +383,6 @@ export function buildHistoryCharts({
         t={t}
         formatTime={timeFmt}
         formatValue={(v) => `${v.toFixed(2)} GHz`}
-        height={fs ? FS_HEIGHT : undefined}
         {...fsProps("cpu-clock", fs)}
         series={[{ label: "Clock", color: CHART_COLORS.purple, data: data?.cpuClock ?? [] }]}
       />
@@ -323,12 +401,78 @@ export function buildHistoryCharts({
         yMax={100}
         unit="%"
         formatTime={timeFmt}
-        height={fs ? FS_HEIGHT : undefined}
         {...fsProps("memory", fs)}
         series={[
           { label: "RAM", color: CHART_COLORS.green, data: data?.memUsedPct ?? [] },
           { label: "Swap", color: CHART_COLORS.amber, data: data?.swapUsedPct ?? [] },
         ]}
+      />
+    ),
+  });
+
+  const rate = (v: number) => `${formatBytes(Math.round(Math.max(0, v)))}/s`;
+  const diskRows: DiskPlot[] =
+    data?.disks && data.disks.length > 0
+      ? data.disks
+      : hasAny(data?.diskReadBps ?? []) || hasAny(data?.diskWriteBps ?? [])
+        ? [
+            {
+              id: "total",
+              label: "Total",
+              readBps: data?.diskReadBps ?? [],
+              writeBps: data?.diskWriteBps ?? [],
+            },
+          ]
+        : [];
+
+  if (diskRows.length > 0) {
+    charts.push({
+      id: "disk-io",
+      label: "Disk",
+      render: (fs) => (
+        <DiskIoChart
+          disks={diskRows}
+          totalRead={data?.diskReadBps ?? []}
+          totalWrite={data?.diskWriteBps ?? []}
+          t={t}
+          timeFmt={timeFmt}
+          fullscreen={fs}
+          {...fsProps("disk-io", fs)}
+        />
+      ),
+    });
+  }
+
+  charts.push({
+    id: "network",
+    label: "Network",
+    render: (fs) => (
+      <MetricChart
+        title="Network"
+        subtitle="Physical adapters"
+        t={t}
+        yMin={0}
+        formatTime={timeFmt}
+        formatValue={rate}
+        {...fsProps("network", fs)}
+        series={[
+          { label: "Receive", color: CHART_COLORS.green, data: data?.netRxBps ?? [] },
+          { label: "Send", color: CHART_COLORS.blue, data: data?.netTxBps ?? [] },
+        ]}
+      />
+    ),
+  });
+
+  const usageFrom = data?.from ?? Date.now() - 3_600_000;
+  const usageTo = data?.to ?? Date.now();
+  charts.push({
+    id: "net-usage",
+    label: "Data transferred",
+    render: (fs) => (
+      <NetUsageHistoryCard
+        from={usageFrom}
+        to={usageTo}
+        {...fsProps("net-usage", fs)}
       />
     ),
   });
@@ -343,7 +487,6 @@ export function buildHistoryCharts({
         t={t}
         formatTime={timeFmt}
         formatValue={(v) => `${Math.round(v)}`}
-        height={fs ? FS_HEIGHT : undefined}
         {...fsProps("processes", fs)}
         series={[
           { label: "Total", color: CHART_COLORS.cyan, data: data?.procCount ?? [] },
@@ -386,7 +529,6 @@ function gpuDescriptors(
           subtitle={name}
           t={t}
           formatTime={timeFmt}
-          height={fs ? FS_HEIGHT : undefined}
           {...fsProps(id, fs)}
           {...extra}
           series={series}
@@ -426,3 +568,115 @@ function gpuDescriptors(
   }
   return out;
 }
+
+const UNIT_KEY = "beacon.netUsageUnit";
+const UNIT_OPTS: ByteUnit[] = ["auto", "KB", "MB", "GB"];
+
+function readUnit(): ByteUnit {
+  try {
+    const v = localStorage.getItem(UNIT_KEY);
+    if (v && (UNIT_OPTS as string[]).includes(v)) return v as ByteUnit;
+  } catch {
+    /* ignore */
+  }
+  return "auto";
+}
+
+function formatUsageTime(ms: number, bucketMs: number): string {
+  const d = new Date(ms);
+  if (bucketMs >= 86_400_000) {
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  return d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function NetUsageHistoryCard({
+  from,
+  to,
+  onFullscreen,
+  onExitFullscreen,
+}: {
+  from: number;
+  to: number;
+  height?: number;
+  onFullscreen?: () => void;
+  onExitFullscreen?: () => void;
+}) {
+  const [unit, setUnit] = useState<ByteUnit>(() => readUnit());
+  const [series, setSeries] = useState<NetUsageSeries | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const bucket = useMemo(
+    () => (to - from > 48 * 3_600_000 ? "day" : "hour"),
+    [from, to]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    fetchNetUsage(from, to, bucket, ctrl.signal)
+      .then((next) => {
+        if (!cancelled) {
+          setSeries(next);
+          setError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled && (err as Error)?.name !== "AbortError") {
+          setError((err as Error)?.message || "Failed to load");
+        }
+      });
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [from, to, bucket]);
+
+  function pickUnit(u: ByteUnit) {
+    setUnit(u);
+    try {
+      localStorage.setItem(UNIT_KEY, u);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const subtitle =
+    bucket === "day" ? "Daily totals · physical adapters" : "Hourly totals · physical adapters";
+
+  return (
+    <ChartCard
+      title="Data transferred"
+      subtitle={subtitle}
+      onFullscreen={onFullscreen}
+      onExitFullscreen={onExitFullscreen}
+    >
+      <S.UsageUnitRow>
+        {UNIT_OPTS.map((u) => (
+          <S.UsageUnitChip
+            key={u}
+            type="button"
+            $active={unit === u}
+            onClick={() => pickUnit(u)}
+          >
+            {u === "auto" ? "Auto" : u}
+          </S.UsageUnitChip>
+        ))}
+      </S.UsageUnitRow>
+      {error ? (
+        <S.ChartNote>Could not load usage: {error}</S.ChartNote>
+      ) : (
+        <UsageBarChart
+          data={series}
+          unit={unit}
+          formatTime={formatUsageTime}
+          emptyLabel="Usage appears after the history recorder has run"
+        />
+      )}
+    </ChartCard>
+  );
+}
+

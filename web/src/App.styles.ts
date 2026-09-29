@@ -158,15 +158,17 @@ export const NavBackdrop = styled.button`
   }
 `;
 
-export const Content = styled.main`
+export const Content = styled.main<{ $bleed?: boolean }>`
   flex: 1;
   min-width: 0;
   min-height: 0;
   height: 100vh;
   height: 100dvh;
-  overflow-y: auto;
+  overflow-y: ${({ $bleed }) => ($bleed ? "hidden" : "auto")};
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
 
   @media ${mobile} {
     flex: 1;
@@ -179,20 +181,43 @@ export const Content = styled.main`
 
 /* Padding lives here instead of on `Content`. Padding on an overflow box
    leaves a gutter above `position: sticky` where scrolled rows still paint. */
-export const ContentPad = styled.div`
-  padding: 20px;
+export const ContentPad = styled.div<{ $bleed?: boolean }>`
+  padding: ${({ $bleed }) => ($bleed ? "0" : "20px")};
+  ${({ $bleed }) =>
+    $bleed
+      ? `
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  `
+      : ""}
 
   @media ${mobile} {
-    padding: 12px;
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding: ${({ $bleed }) =>
+      $bleed ? "0" : "12px"};
+    padding-bottom: ${({ $bleed }) =>
+      $bleed ? "0" : "calc(12px + env(safe-area-inset-bottom, 0px))"};
   }
 `;
 
-export const ContentLayer = styled.div<{ $active?: boolean }>`
-  display: ${({ $active }) => ($active ? "block" : "none")};
-  max-width: 1200px;
+export const ContentLayer = styled.div<{ $active?: boolean; $bleed?: boolean }>`
+  display: ${({ $active, $bleed }) =>
+    !$active ? "none" : $bleed ? "flex" : "block"};
+  max-width: ${({ $bleed }) => ($bleed ? "none" : "1200px")};
   margin: 0 auto;
   min-height: 0;
+  ${({ $active, $bleed }) =>
+    $active && $bleed
+      ? `
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+  `
+      : ""}
 `;
 
 export const RecoveryNudge = styled.div`

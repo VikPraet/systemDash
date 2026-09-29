@@ -60,8 +60,13 @@ function series(t: number[], cpuLoad: number[]): HistorySeries {
     swapUsedPct: nil(),
     procCount: nil(),
     procRunning: nil(),
+    diskReadBps: nil(),
+    diskWriteBps: nil(),
+    netRxBps: nil(),
+    netTxBps: nil(),
     memTotalBytes: 8,
     cpuCores: [],
+    disks: [],
     gpus: [],
   };
 }
@@ -106,6 +111,15 @@ function snap(timestamp: number, loadPercent: number): SystemSnapshot {
       swapUsedBytes: 0,
     },
     disks: [],
+    throughput: {
+      diskReadBps: null,
+      diskWriteBps: null,
+      disks: [],
+      netRxBps: null,
+      netTxBps: null,
+      netRxBytesDelta: null,
+      netTxBytesDelta: null,
+    },
     gpus: [],
   };
 }

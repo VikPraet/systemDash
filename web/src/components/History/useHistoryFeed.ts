@@ -23,6 +23,10 @@ export const HISTORY_RANGES: RangePreset[] = [
   { id: "30d", label: "30 days", ms: 30 * 86_400_000, points: 500, refreshMs: 120_000 },
 ];
 
+function historyCacheMatchesRange(): boolean {
+  return cache.history.data != null && cache.history.dataRangeId === cache.history.rangeId;
+}
+
 export function useHistoryFeed(enabled = true) {
   const [rangeId, setRangeId] = useState<string>(() => cache.history.rangeId);
   const [recorded, setRecorded] = useState<HistorySeries | null>(() => cache.history.data);
@@ -30,9 +34,13 @@ export function useHistoryFeed(enabled = true) {
   const [stats, setStats] = useState<HistoryStats | null>(() => cache.history.stats);
   const [snap, setSnap] = useState<SystemSnapshot | null>(() => cache.snapshot);
   const [error, setError] = useState<string | null>(null);
-  const inFlight = useRef(false);
+  const [loading, setLoading] = useState(() => !historyCacheMatchesRange());
   const recordedRef = useRef<HistorySeries | null>(recorded);
   const rangeIdRef = useRef(rangeId);
+  /** Range id whose series is currently on screen. Null until that range has loaded. */
+  const shownRangeRef = useRef<string | null>(
+    historyCacheMatchesRange() ? cache.history.rangeId : null
+  );
 
   const range = useMemo(
     () => HISTORY_RANGES.find((r) => r.id === rangeId) ?? HISTORY_RANGES[0],
@@ -40,7 +48,10 @@ export function useHistoryFeed(enabled = true) {
   );
 
   function selectRange(id: string) {
+    if (id === rangeIdRef.current) return;
     cache.history.rangeId = id;
+    rangeIdRef.current = id;
+    setLoading(true);
     setRangeId(id);
   }
 
@@ -94,28 +105,36 @@ export function useHistoryFeed(enabled = true) {
           ? overlayLiveHistory(series, liveSnapshots(), range.ms, Date.now())
           : series;
       cache.history.data = next;
+      cache.history.dataRangeId = range.id;
+      shownRangeRef.current = range.id;
       setData(next);
       setError(null);
+      setLoading(false);
     }
 
+    // A newer load (range change, or the next poll) supersedes an older one so
+    // a slow 30-day query can't land after the user has already moved on.
+    let seq = 0;
+
     async function load() {
-      if (inFlight.current) return;
-      inFlight.current = true;
+      const mine = ++seq;
       try {
         const now = Date.now();
         const [series, st] = await Promise.all([
           fetchHistory(now - range.ms, now, points, ctrl.signal),
           fetchHistoryStats(ctrl.signal),
         ]);
-        if (!cancelled) applyRecorded(series, st);
+        if (cancelled || mine !== seq) return;
+        applyRecorded(series, st);
       } catch (e) {
-        if (!cancelled && (e as Error).name !== "AbortError") {
-          setError((e as Error).message);
-        }
-      } finally {
-        inFlight.current = false;
+        if (cancelled || mine !== seq) return;
+        if ((e as Error).name === "AbortError") return;
+        setError((e as Error).message);
+        setLoading(false);
       }
     }
+
+    if (shownRangeRef.current !== range.id) setLoading(true);
 
     load();
     const id = setInterval(load, refreshMs);
@@ -135,5 +154,5 @@ export function useHistoryFeed(enabled = true) {
       .catch(() => {});
   }
 
-  return { rangeId, range, selectRange, data, stats, snap, error, refreshStats };
+  return { rangeId, range, selectRange, data, stats, snap, error, loading, refreshStats };
 }

@@ -389,8 +389,9 @@ export function mergeLayout(
       items.push(sanitizeItem(prev, { id, ...(defaults[id] ?? { x: 0, y: 0, w: 6, h: 3 }) }));
       continue;
     }
-    const d = defaults[id];
-    const pos = d ? { ...d } : autoPlace(items, 4, 3);
+    const d = defaults[id] ?? { x: 0, y: 0, w: 6, h: 4 };
+    const probe: GridItem = { id, ...d };
+    const pos = items.some((i) => collides(probe, i)) ? autoPlace(items, d.w, d.h) : d;
     items.push({ id, ...pos });
   }
   // Keep extra widgets the page added (charts on Overview, etc.).

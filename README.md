@@ -1,9 +1,9 @@
 # Beacon
 
 A self-hosted host console for Windows, Linux, and macOS. Open it in a browser
-and you get live CPU, memory, storage, GPU, and host stats, plus files, a real
-terminal, Docker, project deploys, and power control — all behind accounts and
-roles on that machine.
+and you get live CPU, memory, storage, GPU, network, and host stats, plus files,
+a real terminal, Docker, project deploys, and power control — all behind accounts
+and roles on that machine.
 
 The UI is **Beacon**. Install paths, the `systemdash` systemd unit, release
 tarballs, and `SYSTEMDASH_*` environment variables keep those names so upgrades
@@ -28,7 +28,9 @@ hide, group). Panels can be limited to viewer, user, or admin.
 
 ![Overview](docs/screenshots/pages/overview.png)
 
-**History** — CPU, memory, and GPU charts over a range, same grid as Overview.
+**History** — CPU, memory, disk, network, and GPU charts over a range, same grid
+as Overview. Disk I/O is split per physical disk. **Data transferred** sums
+receive and send into hourly or daily bars (also available as a dashboard chart).
 
 ![History](docs/screenshots/pages/history.png)
 
@@ -36,6 +38,18 @@ hide, group). Panels can be limited to viewer, user, or admin.
 force-kill from the UI.
 
 ![Processes](docs/screenshots/pages/processes.png)
+
+**Network** — a live map of remote peers, the sockets behind them, and how much
+data the host has moved.
+
+- World map of remote connections, placed by city. Click a destination (or this
+  host) to open that set of sockets.
+- Live receive/send on physical adapters, and the process with the most remote
+  sockets.
+- Connection list: process, inferred service (HTTPS, SSH, …), direction, reverse
+  DNS, and per-socket rates when the OS exposes byte counters.
+- Usage timeline for 24 hours, 7 days, or 30 days. Totals start accumulating
+  once this release’s history recorder has been running.
 
 **Containers** — Docker status, logs, and start/stop/restart.
 
@@ -113,7 +127,10 @@ Read:
 - `GET /api/health` → `{ ok: true }`
 - `GET /api/system` → full system snapshot (host, cpu, memory, disks, gpus)
 - `GET /api/processes` → running processes
+- `GET /api/network` → live sockets, iface rates, geo for remote peers
+- `GET /api/network/origin` → this host’s public location (map origin)
 - `GET /api/history` / `GET /api/history/stats` → time-series metrics
+- `GET /api/history/net-usage` → NIC byte totals bucketed by hour or day
 - `GET /api/fs/roots` → drives / home
 - `GET /api/fs/list?path=…` → directory listing
 - `GET /api/fs/dirsize?path=…` → recursive folder size
@@ -207,7 +224,7 @@ add your user to the `docker` group or run elevated). Override the CLI path with
   terminal WebSocket require a signed-in user. On first launch the UI shows a
   one-time setup screen to create the admin account (no default password is shipped).
   Users have one of three roles:
-  - `viewer` — read-only (overview, history, process list, browse/read/download files)
+  - `viewer` — read-only (overview, history, processes, network, browse/read/download files)
   - `user` — viewer plus write actions (file create/edit/upload/delete, terminal, projects)
   - `admin` — everything plus user management, themes, layout, updates, and activity
   Accounts and sessions are stored in a local SQLite file at `~/.systemdash/auth.db`

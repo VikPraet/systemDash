@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import fs from "node:fs";
-import { getSnapshot } from "./stats.js";
+import { consumeNetByteDeltas, getSnapshot } from "./stats.js";
 import { getProcesses } from "./processes.js";
 import { DATA_DIR } from "./paths.js";
 
@@ -49,9 +49,27 @@ function open(): DatabaseSync {
       mem_total_bytes INTEGER,
       swap_used_pct  REAL,
       proc_count     INTEGER,
-      proc_running   INTEGER
+      proc_running   INTEGER,
+      disk_read_bps  REAL,
+      disk_write_bps REAL,
+      net_rx_bps     REAL,
+      net_tx_bps     REAL
     );
   `);
+  for (const col of [
+    "disk_read_bps REAL",
+    "disk_write_bps REAL",
+    "net_rx_bps REAL",
+    "net_tx_bps REAL",
+    "net_rx_bytes INTEGER",
+    "net_tx_bytes INTEGER",
+  ]) {
+    try {
+      fresh.exec(`ALTER TABLE metrics ADD COLUMN ${col};`);
+    } catch {
+      // Column already exists on databases created with the columns above.
+    }
+  }
   fresh.exec(`
     CREATE TABLE IF NOT EXISTS gpu_metrics (
       ts           INTEGER NOT NULL,
@@ -75,6 +93,17 @@ function open(): DatabaseSync {
       PRIMARY KEY (ts, idx)
     );
   `);
+  // Per physical disk throughput (one row per disk per sample).
+  fresh.exec(`
+    CREATE TABLE IF NOT EXISTS disk_metrics (
+      ts        INTEGER NOT NULL,
+      id        TEXT NOT NULL,
+      label     TEXT NOT NULL,
+      read_bps  REAL,
+      write_bps REAL,
+      PRIMARY KEY (ts, id)
+    );
+  `);
   db = fresh;
   return db;
 }
@@ -84,14 +113,17 @@ type Stmt = ReturnType<DatabaseSync["prepare"]>;
 let insertMetricStmt: Stmt | null = null;
 let insertGpuStmt: Stmt | null = null;
 let insertCoreStmt: Stmt | null = null;
+let insertDiskStmt: Stmt | null = null;
 
 function insertMetric(): Stmt {
   if (!insertMetricStmt) {
     insertMetricStmt = open().prepare(`
       INSERT OR REPLACE INTO metrics
         (ts, cpu_load, cpu_temp, cpu_clock, mem_used_pct, mem_used_bytes,
-         mem_total_bytes, swap_used_pct, proc_count, proc_running)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         mem_total_bytes, swap_used_pct, proc_count, proc_running,
+         disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps,
+         net_rx_bytes, net_tx_bytes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
   }
   return insertMetricStmt;
@@ -116,6 +148,16 @@ function insertCore(): Stmt {
     `);
   }
   return insertCoreStmt;
+}
+
+function insertDisk(): Stmt {
+  if (!insertDiskStmt) {
+    insertDiskStmt = open().prepare(`
+      INSERT OR REPLACE INTO disk_metrics (ts, id, label, read_bps, write_bps)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+  }
+  return insertDiskStmt;
 }
 
 let current: HistorySettings = HISTORY_DEFAULTS;
@@ -145,6 +187,8 @@ async function sample(): Promise<void> {
         ? round((snap.memory.swapUsedBytes / snap.memory.swapTotalBytes) * 100)
         : 0;
 
+    const netBytes = consumeNetByteDeltas();
+
     insertMetric().run(
       ts,
       snap.cpu.loadPercent,
@@ -155,7 +199,13 @@ async function sample(): Promise<void> {
       snap.memory.totalBytes,
       swapPct,
       procCount,
-      procRunning
+      procRunning,
+      snap.throughput.diskReadBps,
+      snap.throughput.diskWriteBps,
+      snap.throughput.netRxBps,
+      snap.throughput.netTxBps,
+      netBytes ? Math.round(netBytes.rx) : null,
+      netBytes ? Math.round(netBytes.tx) : null
     );
 
     snap.gpus.forEach((g, i) => {
@@ -178,6 +228,10 @@ async function sample(): Promise<void> {
     snap.cpu.perCoreLoad.forEach((load, i) => {
       insertCore().run(ts, i, load);
     });
+
+    for (const d of snap.throughput.disks) {
+      insertDisk().run(ts, d.id, d.label, d.readBps, d.writeBps);
+    }
 
     enforceRetention();
   } finally {
@@ -203,6 +257,7 @@ function enforceRetention(): void {
     const a = d.prepare("DELETE FROM metrics WHERE ts < ?").run(cutoff);
     d.prepare("DELETE FROM gpu_metrics WHERE ts < ?").run(cutoff);
     d.prepare("DELETE FROM cpu_core_metrics WHERE ts < ?").run(cutoff);
+    d.prepare("DELETE FROM disk_metrics WHERE ts < ?").run(cutoff);
     if (a.changes > 0) pruned = true;
   }
 
@@ -223,6 +278,7 @@ function enforceRetention(): void {
       d.prepare("DELETE FROM metrics WHERE ts < ?").run(cutoff);
       d.prepare("DELETE FROM gpu_metrics WHERE ts < ?").run(cutoff);
       d.prepare("DELETE FROM cpu_core_metrics WHERE ts < ?").run(cutoff);
+      d.prepare("DELETE FROM disk_metrics WHERE ts < ?").run(cutoff);
       d.exec("PRAGMA incremental_vacuum;");
       pruned = true;
     }
@@ -292,10 +348,20 @@ export interface HistorySeries {
   swapUsedPct: (number | null)[];
   procCount: (number | null)[];
   procRunning: (number | null)[];
+  diskReadBps: (number | null)[];
+  diskWriteBps: (number | null)[];
+  netRxBps: (number | null)[];
+  netTxBps: (number | null)[];
   memTotalBytes: number | null;
   cpuCores: Array<{
     index: number;
     load: (number | null)[];
+  }>;
+  disks: Array<{
+    id: string;
+    label: string;
+    readBps: (number | null)[];
+    writeBps: (number | null)[];
   }>;
   gpus: Array<{
     index: number;
@@ -332,6 +398,10 @@ export function queryHistory(opts: {
          AVG(swap_used_pct) AS swap_used_pct,
          AVG(proc_count)   AS proc_count,
          AVG(proc_running) AS proc_running,
+         AVG(disk_read_bps) AS disk_read_bps,
+         AVG(disk_write_bps) AS disk_write_bps,
+         AVG(net_rx_bps) AS net_rx_bps,
+         AVG(net_tx_bps) AS net_tx_bps,
          MAX(mem_total_bytes) AS mem_total_bytes
        FROM metrics
        WHERE ts BETWEEN ? AND ?
@@ -344,7 +414,7 @@ export function queryHistory(opts: {
   const bucketIndex = new Map<number, number>();
   const series: Omit<
     HistorySeries,
-    "from" | "to" | "bucketMs" | "t" | "gpus" | "cpuCores" | "memTotalBytes"
+    "from" | "to" | "bucketMs" | "t" | "gpus" | "cpuCores" | "disks" | "memTotalBytes"
   > = {
     cpuLoad: [],
     cpuTemp: [],
@@ -353,6 +423,10 @@ export function queryHistory(opts: {
     swapUsedPct: [],
     procCount: [],
     procRunning: [],
+    diskReadBps: [],
+    diskWriteBps: [],
+    netRxBps: [],
+    netTxBps: [],
   };
   let memTotalBytes: number | null = null;
 
@@ -367,6 +441,10 @@ export function queryHistory(opts: {
     series.swapUsedPct.push(num(row.swap_used_pct));
     series.procCount.push(num(row.proc_count));
     series.procRunning.push(num(row.proc_running));
+    series.diskReadBps.push(num(row.disk_read_bps));
+    series.diskWriteBps.push(num(row.disk_write_bps));
+    series.netRxBps.push(num(row.net_rx_bps));
+    series.netTxBps.push(num(row.net_tx_bps));
     if (row.mem_total_bytes != null) memTotalBytes = Number(row.mem_total_bytes);
   }
 
@@ -437,6 +515,40 @@ export function queryHistory(opts: {
     c.load[pos] = num(row.load);
   }
 
+  const diskRows = d
+    .prepare(
+      `SELECT (ts / ${bucket}) * ${bucket} AS b, id, label,
+         AVG(read_bps) AS read_bps,
+         AVG(write_bps) AS write_bps
+       FROM disk_metrics
+       WHERE ts BETWEEN ? AND ?
+       GROUP BY b, id
+       ORDER BY id, b`
+    )
+    .all(from, to) as Array<Record<string, number | string | null>>;
+
+  const diskMap = new Map<string, HistorySeries["disks"][number]>();
+  for (const row of diskRows) {
+    const id = String(row.id ?? "");
+    if (!id) continue;
+    const pos = bucketIndex.get(Number(row.b));
+    if (pos == null) continue;
+    let disk = diskMap.get(id);
+    if (!disk) {
+      disk = {
+        id,
+        label: String(row.label || id),
+        readBps: blank(),
+        writeBps: blank(),
+      };
+      diskMap.set(id, disk);
+    } else if (row.label) {
+      disk.label = String(row.label);
+    }
+    disk.readBps[pos] = num(row.read_bps as number | null);
+    disk.writeBps[pos] = num(row.write_bps as number | null);
+  }
+
   return {
     from,
     to,
@@ -445,6 +557,9 @@ export function queryHistory(opts: {
     ...series,
     memTotalBytes,
     cpuCores: [...coreMap.values()].sort((a, b) => a.index - b.index),
+    disks: [...diskMap.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { numeric: true })
+    ),
     gpus: [...gpuMap.values()].sort((a, b) => a.index - b.index),
   };
 }
@@ -507,6 +622,7 @@ export function clearHistory(): void {
   d.exec("DELETE FROM metrics;");
   d.exec("DELETE FROM gpu_metrics;");
   d.exec("DELETE FROM cpu_core_metrics;");
+  d.exec("DELETE FROM disk_metrics;");
   d.exec("PRAGMA incremental_vacuum;");
 }
 
@@ -522,4 +638,83 @@ function round(n: number): number {
 function clampInt(n: number, lo: number, hi: number): number {
   if (!Number.isFinite(n)) return lo;
   return Math.max(lo, Math.min(hi, Math.round(n)));
+}
+
+export type NetUsageBucket = "hour" | "day";
+
+export interface NetUsageSeries {
+  from: number;
+  to: number;
+  bucket: NetUsageBucket;
+  bucketMs: number;
+  t: number[];
+  rxBytes: number[];
+  txBytes: number[];
+  totalBytes: number[];
+}
+
+/** Sums recorded NIC byte deltas into hour or day bars. */
+export function queryNetUsage(opts: {
+  from: number;
+  to: number;
+  bucket: NetUsageBucket;
+}): NetUsageSeries {
+  const d = open();
+  const from = Math.min(opts.from, opts.to);
+  const to = Math.max(opts.from, opts.to);
+  const bucketMs = opts.bucket === "day" ? 86_400_000 : 3_600_000;
+
+  const rows = d
+    .prepare(
+      `SELECT (ts / ${bucketMs}) * ${bucketMs} AS b,
+         COALESCE(SUM(net_rx_bytes), 0) AS rx,
+         COALESCE(SUM(net_tx_bytes), 0) AS tx
+       FROM metrics
+       WHERE ts >= ? AND ts <= ?
+         AND (net_rx_bytes IS NOT NULL OR net_tx_bytes IS NOT NULL)
+       GROUP BY b
+       ORDER BY b ASC`
+    )
+    .all(from, to) as Array<{
+    b: number;
+    rx: number;
+    tx: number;
+  }>;
+
+  const byBucket = new Map<number, { rx: number; tx: number }>();
+  for (const row of rows) {
+    byBucket.set(Number(row.b), {
+      rx: Math.max(0, Math.round(Number(row.rx) || 0)),
+      tx: Math.max(0, Math.round(Number(row.tx) || 0)),
+    });
+  }
+
+  const t: number[] = [];
+  const rxBytes: number[] = [];
+  const txBytes: number[] = [];
+  const totalBytes: number[] = [];
+
+  // Emit a continuous timeline so gaps read as zero, not missing bars.
+  const start = Math.floor(from / bucketMs) * bucketMs;
+  const end = Math.floor(to / bucketMs) * bucketMs;
+  for (let b = start; b <= end; b += bucketMs) {
+    const hit = byBucket.get(b);
+    const rx = hit?.rx ?? 0;
+    const tx = hit?.tx ?? 0;
+    t.push(b);
+    rxBytes.push(rx);
+    txBytes.push(tx);
+    totalBytes.push(rx + tx);
+  }
+
+  return {
+    from,
+    to,
+    bucket: opts.bucket,
+    bucketMs,
+    t,
+    rxBytes,
+    txBytes,
+    totalBytes,
+  };
 }

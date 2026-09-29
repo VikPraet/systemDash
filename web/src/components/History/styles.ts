@@ -31,6 +31,39 @@ export const HistoryToolbar = styled.div`
   }
 `;
 
+export const ChartStage = styled.div<{ $busy?: boolean }>`
+  position: relative;
+
+  ${({ $busy }) =>
+    $busy &&
+    css`
+      > :first-child {
+        opacity: 0.38;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+      }
+    `}
+`;
+
+export const ChartLoading = styled.div`
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: 8px 14px;
+  border-radius: ${({ theme }) => theme.radius.sm};
+  background: ${({ theme }) => theme.color.panel};
+  border: 1px solid ${({ theme }) => theme.color.border};
+  color: ${({ theme }) => theme.color.text};
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  white-space: nowrap;
+`;
+
 export const HistoryMeta = styled.span`
   font-size: 12px;
 
@@ -175,13 +208,18 @@ export const ChartFsOverlay = styled.div`
 
 export const ChartFsBody = styled.div`
   width: min(1400px, 96vw);
+  height: min(860px, 92vh);
   max-height: 92vh;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 
   /* The migrated ChartCard renders with className="chart-card". */
   .chart-card {
     grid-column: auto !important;
     margin: 0;
+    flex: 1;
+    min-height: 0;
   }
 `;
 
@@ -258,6 +296,92 @@ export const CoreCellDot = styled.span`
 export const CoreCellVal = styled.span`
   color: ${({ theme }) => theme.color.text};
   font-variant-numeric: tabular-nums;
+`;
+
+/* ---- Disk I/O: per-disk stacked in one panel ----------------------------- */
+export const DiskStack = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 0 auto;
+  min-height: min-content;
+`;
+
+export const DiskCell = styled.div`
+  border: 1px solid ${({ theme }) => theme.color.hairline};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  padding: 8px 10px 4px;
+  background: ${({ theme }) => theme.color.panel2};
+  /* Grow to share spare space, but never squash below a readable plot. */
+  flex: 1 0 188px;
+  min-height: 188px;
+  display: flex;
+  flex-direction: column;
+`;
+
+export const DiskCellHead = styled.div`
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+`;
+
+export const DiskCellName = styled.span`
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: ${({ theme }) => theme.color.muted};
+`;
+
+export const DiskCellRates = styled.span`
+  display: inline-flex;
+  gap: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: ${({ theme }) => theme.color.text};
+
+  em {
+    font-style: normal;
+    color: ${({ theme }) => theme.color.muted};
+    margin-right: 4px;
+  }
+`;
+
+export const UsageUnitRow = styled.div`
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+`;
+
+export const UsageUnitChip = styled.button<{ $active?: boolean }>`
+  border: 1px solid ${({ theme }) => theme.color.border};
+  border-radius: ${({ theme }) => theme.radius.sm};
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  color: ${({ theme, $active }) =>
+    $active ? theme.color.text : theme.color.muted};
+  background: ${({ theme, $active }) =>
+    $active
+      ? `color-mix(in srgb, ${theme.color.accent} 14%, transparent)`
+      : "transparent"};
+
+  &:hover {
+    color: ${({ theme }) => theme.color.text};
+  }
+`;
+
+export const ChartNote = styled.div`
+  min-height: 80px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: ${({ theme }) => theme.color.muted};
+  text-align: center;
 `;
 
 /* ---- Storage & recording panel ------------------------------------------- */

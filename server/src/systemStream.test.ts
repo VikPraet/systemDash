@@ -316,6 +316,15 @@ function fakeSnap(n: number): SystemSnapshot {
       swapUsedBytes: 0,
     },
     disks: [],
+    throughput: {
+      diskReadBps: null,
+      diskWriteBps: null,
+      disks: [],
+      netRxBps: null,
+      netTxBps: null,
+      netRxBytesDelta: null,
+      netTxBytesDelta: null,
+    },
     gpus: [],
   };
 }

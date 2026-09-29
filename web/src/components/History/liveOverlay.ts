@@ -52,6 +52,8 @@ function cloneWindow(recorded: HistorySeries | null, from: number): HistorySerie
     if (recorded.t[i] >= from) keep.push(i);
   }
   const pick = <T,>(arr: T[]): T[] => keep.map((i) => arr[i]);
+  const pickRates = (arr: (number | null)[] | undefined, idx: number[]) =>
+    idx.map((i) => (arr && i < arr.length ? arr[i] ?? null : null));
   return {
     from,
     to: recorded.to,
@@ -64,8 +66,18 @@ function cloneWindow(recorded: HistorySeries | null, from: number): HistorySerie
     swapUsedPct: pick(recorded.swapUsedPct),
     procCount: pick(recorded.procCount),
     procRunning: pick(recorded.procRunning),
+    diskReadBps: pickRates(recorded.diskReadBps, keep),
+    diskWriteBps: pickRates(recorded.diskWriteBps, keep),
+    netRxBps: pickRates(recorded.netRxBps, keep),
+    netTxBps: pickRates(recorded.netTxBps, keep),
     memTotalBytes: recorded.memTotalBytes,
     cpuCores: recorded.cpuCores.map((c) => ({ index: c.index, load: pick(c.load) })),
+    disks: (recorded.disks ?? []).map((d) => ({
+      id: d.id,
+      label: d.label,
+      readBps: pick(d.readBps),
+      writeBps: pick(d.writeBps),
+    })),
     gpus: recorded.gpus.map((g) => ({
       index: g.index,
       util: pick(g.util),
@@ -91,8 +103,13 @@ function emptySeries(from: number): HistorySeries {
     swapUsedPct: [],
     procCount: [],
     procRunning: [],
+    diskReadBps: [],
+    diskWriteBps: [],
+    netRxBps: [],
+    netTxBps: [],
     memTotalBytes: null,
     cpuCores: [],
+    disks: [],
     gpus: [],
   };
 }
@@ -110,6 +127,10 @@ function appendSnapshot(series: HistorySeries, snap: SystemSnapshot): void {
   );
   series.procCount.push(lastFinite(series.procCount));
   series.procRunning.push(lastFinite(series.procRunning));
+  series.diskReadBps.push(snap.throughput?.diskReadBps ?? null);
+  series.diskWriteBps.push(snap.throughput?.diskWriteBps ?? null);
+  series.netRxBps.push(snap.throughput?.netRxBps ?? null);
+  series.netTxBps.push(snap.throughput?.netTxBps ?? null);
   series.memTotalBytes = snap.memory.totalBytes;
 
   alignCores(series, snap.cpu.perCoreLoad.length);
@@ -119,6 +140,22 @@ function appendSnapshot(series: HistorySeries, snap: SystemSnapshot): void {
   });
   for (const core of series.cpuCores) {
     if (core.load.length < series.t.length) core.load.push(null);
+  }
+
+  const liveDisks = snap.throughput?.disks ?? [];
+  alignDisks(series, liveDisks);
+  for (const d of liveDisks) {
+    const row = series.disks.find((x) => x.id === d.id);
+    if (!row) continue;
+    row.label = d.label || row.label;
+    row.readBps.push(d.readBps);
+    row.writeBps.push(d.writeBps);
+  }
+  for (const row of series.disks) {
+    if (row.readBps.length < series.t.length) {
+      row.readBps.push(null);
+      row.writeBps.push(null);
+    }
   }
 
   alignGpus(series, snap.gpus.length);
@@ -157,6 +194,23 @@ function alignCores(series: HistorySeries, count: number): void {
     });
   }
   series.cpuCores.sort((a, b) => a.index - b.index);
+}
+
+function alignDisks(
+  series: HistorySeries,
+  disks: Array<{ id: string; label: string }>
+): void {
+  for (const d of disks) {
+    if (series.disks.some((x) => x.id === d.id)) continue;
+    const n = Math.max(0, series.t.length - 1);
+    series.disks.push({
+      id: d.id,
+      label: d.label,
+      readBps: new Array<number | null>(n).fill(null),
+      writeBps: new Array<number | null>(n).fill(null),
+    });
+  }
+  series.disks.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 }
 
 function alignGpus(series: HistorySeries, count: number): void {

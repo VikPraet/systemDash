@@ -12,6 +12,7 @@ import type {
   CloudflareAccountPublic,
   ProjectSiteStatus,
   ProjectsCapabilities,
+  NetworkSnapshot,
   Settings,
   SystemSnapshot,
   UsageTree,
@@ -41,6 +42,8 @@ interface HistoryCache {
   // tab paints instantly instead of flashing an empty state while refetching.
   rangeId: string;
   data: HistorySeries | null;
+  /** Range the cached series was loaded for. Stays put while a new range fetches. */
+  dataRangeId: string | null;
   stats: HistoryStats | null;
   // Chart ids the user has toggled off, so the layout persists across remounts.
   hiddenCharts: string[];
@@ -79,6 +82,7 @@ interface ProjectsCache {
 
 interface AppCache {
   processes: ProcessList | null;
+  network: NetworkSnapshot | null;
   containers: ContainersCache;
   terminal: TerminalCache;
   snapshot: SystemSnapshot | null;
@@ -93,6 +97,7 @@ interface AppCache {
 // fetch happens in the background, instead of flashing a loading screen.
 export const cache: AppCache = {
   processes: null,
+  network: null,
   containers: {
     status: null,
     containers: [],
@@ -121,6 +126,7 @@ export const cache: AppCache = {
   history: {
     rangeId: "live",
     data: null,
+    dataRangeId: null,
     stats: null,
     hiddenCharts: [],
   },

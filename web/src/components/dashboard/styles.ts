@@ -36,6 +36,9 @@ export const Item = styled.div<{
   min-width: 0;
   min-height: 0;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   z-index: ${({ $dragging, $previewing }) => ($dragging || $previewing ? 4 : 1)};
   opacity: ${({ $dragging, $previewing, $restricted }) =>
     $previewing ? 0.5 : $dragging ? 0.92 : $restricted ? 0.45 : 1};
@@ -44,9 +47,6 @@ export const Item = styled.div<{
     $editing &&
     !$grouped &&
     css`
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
       background: ${theme.color.panel};
       border: 1px solid ${theme.color.border};
       border-radius: 0;
@@ -69,12 +69,6 @@ export const Item = styled.div<{
       border: none;
       box-shadow: none;
       outline: none;
-      ${$editing &&
-      css`
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      `}
 
       .chart-card {
         background: transparent;
@@ -115,20 +109,27 @@ export const SizeGhost = styled.div<{
 export const ItemBody = styled.div<{ $editing?: boolean; $grouped?: boolean }>`
   height: 100%;
   min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
   ${({ $grouped, $editing }) => $grouped && !$editing && "padding: 12px 14px 14px;"}
   ${({ $editing }) =>
     $editing &&
     css`
-      flex: 1;
       height: auto;
-      overflow: hidden;
     `}
+
+  /* Chart panels stretch to the tile; other widgets keep their natural height. */
+  > .chart-card,
+  > .chart-card-empty {
+    flex: 1;
+    min-height: 0;
+  }
 
   @media ${mobile} {
     height: auto;
+    overflow: visible;
   }
 `;
 
@@ -166,8 +167,16 @@ export const EditHeaderName = styled.span`
 export const EditBody = styled.div`
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
+
+  > .chart-card,
+  > .chart-card-empty {
+    flex: 1;
+    min-height: 0;
+  }
 `;
 
 export const TitleActions = styled.span`

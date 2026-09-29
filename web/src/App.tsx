@@ -8,6 +8,7 @@ import {
   LineChart,
   LogOut,
   Menu,
+  Network as NetworkIcon,
   Package,
   ScrollText,
   TerminalSquare,
@@ -31,6 +32,7 @@ import { subscribeSystemSnapshot } from "./systemStream";
 import type { Role, SystemSnapshot } from "./types";
 import { Overview } from "./components/Overview";
 import { Processes } from "./components/Processes";
+import { Network } from "./components/Network";
 import { Files } from "./components/Files";
 import { Terminal } from "./components/Terminal";
 import { History } from "./components/History";
@@ -115,6 +117,7 @@ const NAV: NavItem[] = [
   { path: "/overview", label: "Overview", icon: GaugeIcon },
   { path: "/history", label: "History", icon: LineChart },
   { path: "/processes", label: "Processes", icon: ActivityIcon },
+  { path: "/network", label: "Network", icon: NetworkIcon },
   { path: "/containers", label: "Containers", icon: Box },
   { path: "/projects", label: "Projects", icon: FolderGit2, minRole: "user" },
   { path: "/files", label: "Files", icon: FolderOpen },
@@ -157,6 +160,7 @@ export default function App() {
           <Route path="/overview" element={<OverviewPage />} />
           <Route path="/history" element={<History />} />
           <Route path="/processes" element={<Processes />} />
+          <Route path="/network" element={<Network />} />
           <Route path="/containers" element={<Containers />} />
           <Route
             path="/projects"
@@ -257,6 +261,8 @@ function DashboardLayout() {
   const canUseTerminal = hasRole(user, "user");
   const isAdmin = hasRole(user, "admin");
   const onTerminalRoute = location.pathname === "/terminal";
+  const onNetworkRoute = location.pathname === "/network";
+  const contentBleed = onNetworkRoute;
   const [terminalMounted, setTerminalMounted] = useState(
     () => canUseTerminal && cache.terminal.tabs.length > 0
   );
@@ -451,7 +457,7 @@ function DashboardLayout() {
         </S.NavPanel>
       </S.Sidebar>
 
-      <S.Content>
+      <S.Content $bleed={contentBleed}>
         {navOpen && (
           <S.NavBackdrop
             type="button"
@@ -460,8 +466,8 @@ function DashboardLayout() {
           />
         )}
         {streamStale && <StreamStaleBanner />}
-        <S.ContentPad>
-          {showRecoveryNudge && (
+        <S.ContentPad $bleed={contentBleed}>
+          {showRecoveryNudge && !contentBleed && (
             <S.RecoveryNudge>
               <span>
                 Set a recovery question so you can get back in if you forget your
@@ -481,7 +487,7 @@ function DashboardLayout() {
               </S.RecoveryNudgeActions>
             </S.RecoveryNudge>
           )}
-          <S.ContentLayer $active={!onTerminalRoute}>
+          <S.ContentLayer $active={!onTerminalRoute} $bleed={contentBleed}>
             <Outlet context={{ snap, error, now } satisfies DashboardContext} />
           </S.ContentLayer>
           {canUseTerminal && terminalMounted && (

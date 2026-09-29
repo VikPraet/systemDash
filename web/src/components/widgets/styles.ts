@@ -1,4 +1,4 @@
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 import { mobile } from "../../theme/media";
 import type { GaugeStyle } from "../../theme/schema";
 
@@ -146,21 +146,41 @@ export const LBarValue = styled.span`
 /* ---- TimeSeriesChart ----------------------------------------------------- */
 // SVG internals keep their semantic class names but are scoped under this root,
 // so nothing leaks to a global stylesheet.
-export const ChartRoot = styled.div`
+export const ChartRoot = styled.div<{ $fill?: boolean }>`
   position: relative;
   width: 100%;
+  min-width: 200px;
+  /* Clip to the measured box so axis glyphs can't inflate parent scrollHeight. */
+  overflow: hidden;
+  ${({ $fill }) =>
+    $fill &&
+    css`
+      flex: 1 1 0;
+      min-height: 160px;
+    `}
 
   .chart-empty {
     display: flex;
     align-items: center;
     justify-content: center;
     height: 100%;
+    min-height: 120px;
     font-size: 13px;
   }
 
   .chart-surface {
-    position: relative;
-    width: 100%;
+    ${({ $fill }) =>
+      $fill
+        ? css`
+            position: absolute;
+            inset: 0;
+          `
+        : css`
+            position: relative;
+            width: 100%;
+            height: 100%;
+          `}
+    overflow: hidden;
   }
 
   .chart-grid {
@@ -173,12 +193,14 @@ export const ChartRoot = styled.div`
   .chart-axis {
     fill: ${({ theme }) => theme.color.muted};
     font-size: 10px;
-    text-anchor: end;
     font-variant-numeric: tabular-nums;
   }
 
+  .chart-axis-y {
+    text-anchor: end;
+  }
+
   .chart-axis-x {
-    text-anchor: start;
     opacity: 0.8;
   }
 
@@ -261,7 +283,9 @@ export const ChartTooltipValue = styled.span`
 export const ChartCardRoot = styled(CardRoot)`
   height: 100%;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   ${CardTitle} {
     margin: 0;
@@ -320,11 +344,21 @@ export const ChartCardHead = styled.div`
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+  flex-shrink: 0;
 
   @media ${mobile} {
     flex-direction: column;
     align-items: stretch;
   }
+`;
+
+export const ChartCardBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
 `;
 
 export const ChartCardTitles = styled.div`

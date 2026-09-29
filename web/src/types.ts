@@ -45,6 +45,21 @@ export interface SystemSnapshot {
     availableBytes: number;
     usedPercent: number;
   }>;
+  /** Live byte rates. Null until two samples exist, or when the OS doesn't report them. */
+  throughput: {
+    diskReadBps: number | null;
+    diskWriteBps: number | null;
+    disks: Array<{
+      id: string;
+      label: string;
+      readBps: number | null;
+      writeBps: number | null;
+    }>;
+    netRxBps: number | null;
+    netTxBps: number | null;
+    netRxBytesDelta: number | null;
+    netTxBytesDelta: number | null;
+  };
   gpus: Array<{
     vendor: string;
     model: string;
@@ -271,6 +286,13 @@ export interface HistoryGpuSeries {
   power: (number | null)[];
 }
 
+export interface HistoryDiskSeries {
+  id: string;
+  label: string;
+  readBps: (number | null)[];
+  writeBps: (number | null)[];
+}
+
 export interface HistorySeries {
   from: number;
   to: number;
@@ -283,10 +305,30 @@ export interface HistorySeries {
   swapUsedPct: (number | null)[];
   procCount: (number | null)[];
   procRunning: (number | null)[];
+  diskReadBps: (number | null)[];
+  diskWriteBps: (number | null)[];
+  netRxBps: (number | null)[];
+  netTxBps: (number | null)[];
   memTotalBytes: number | null;
   cpuCores: HistoryCpuCoreSeries[];
+  disks: HistoryDiskSeries[];
   gpus: HistoryGpuSeries[];
 }
+
+export type NetUsageBucket = "hour" | "day";
+
+export interface NetUsageSeries {
+  from: number;
+  to: number;
+  bucket: NetUsageBucket;
+  bucketMs: number;
+  t: number[];
+  rxBytes: number[];
+  txBytes: number[];
+  totalBytes: number[];
+}
+
+export type ByteUnit = "auto" | "KB" | "MB" | "GB";
 
 export interface HistoryCpuCoreSeries {
   index: number;
@@ -346,6 +388,52 @@ export interface GeoLocation {
   countryCode: string | null;
   lat: number | null;
   lon: number | null;
+}
+
+export type ConnectionKind = "remote" | "local" | "listening";
+export type ConnDirection = "outbound" | "inbound" | "peer";
+
+export interface NetworkInterfaceStat {
+  iface: string;
+  operstate: string;
+  rxSec: number | null;
+  txSec: number | null;
+  rxBytes: number;
+  txBytes: number;
+}
+
+export interface NetworkConnection {
+  protocol: string;
+  localAddress: string;
+  localPort: string;
+  peerAddress: string;
+  peerPort: string;
+  state: string;
+  pid: number;
+  process: string;
+  kind: ConnectionKind;
+  location: GeoLocation | null;
+  service: string;
+  direction: ConnDirection;
+  peerHost: string | null;
+  bytesIn: number | null;
+  bytesOut: number | null;
+  rxSec: number | null;
+  txSec: number | null;
+}
+
+export interface NetworkSnapshot {
+  timestamp: number;
+  origin: GeoLocation | null;
+  interfaces: NetworkInterfaceStat[];
+  summary: {
+    all: number;
+    remote: number;
+    local: number;
+    listening: number;
+  };
+  bytesAvailable: boolean;
+  connections: NetworkConnection[];
 }
 
 export interface SessionInfo {

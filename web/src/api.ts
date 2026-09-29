@@ -3,14 +3,19 @@ import type {
   AuditEntry,
   ActivityStats,
   AuthStatus,
+  ByteUnit,
   DirListing,
   DockerContainerList,
   DockerStatus,
   FsEntry,
   FsRoot,
+  GeoLocation,
   HistorySeries,
   HistoryStats,
+  NetUsageBucket,
+  NetUsageSeries,
   ProcessList,
+  NetworkSnapshot,
   Role,
   SessionInfo,
   Settings,
@@ -412,6 +417,24 @@ export async function fetchHistoryStats(
   return (await res.json()) as HistoryStats;
 }
 
+export async function fetchNetUsage(
+  from: number,
+  to: number,
+  bucket: NetUsageBucket,
+  signal?: AbortSignal
+): Promise<NetUsageSeries> {
+  const params = new URLSearchParams({
+    from: String(Math.round(from)),
+    to: String(Math.round(to)),
+    bucket,
+  });
+  const res = await fetch(`/api/history/net-usage?${params.toString()}`, {
+    signal,
+  });
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as NetUsageSeries;
+}
+
 export async function clearHistory(): Promise<{ ok: true }> {
   return postJson("/api/history/clear", {});
 }
@@ -422,6 +445,25 @@ export async function fetchProcesses(signal?: AbortSignal): Promise<ProcessList>
     throw new Error(`Request failed: ${res.status}`);
   }
   return (await res.json()) as ProcessList;
+}
+
+export async function fetchNetwork(signal?: AbortSignal): Promise<NetworkSnapshot> {
+  const res = await fetch("/api/network", { signal });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+  return (await res.json()) as NetworkSnapshot;
+}
+
+export async function fetchNetworkOrigin(
+  signal?: AbortSignal
+): Promise<GeoLocation | null> {
+  const res = await fetch("/api/network/origin", { signal });
+  if (!res.ok) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+  const body = (await res.json()) as { origin: GeoLocation | null };
+  return body.origin ?? null;
 }
 
 export async function fetchDockerStatus(signal?: AbortSignal): Promise<DockerStatus> {
@@ -1213,10 +1255,22 @@ export function formatClock(ms: number): string {
   });
 }
 
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+export function formatBytes(bytes: number, unit: ByteUnit = "auto"): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    if (unit === "auto") return "0 B";
+    return `0 ${unit}`;
+  }
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
+  if (unit !== "auto") {
+    const i = units.indexOf(unit);
+    const value = bytes / Math.pow(1024, i);
+    const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${unit}`;
+  }
+  const i = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1
+  );
   const value = bytes / Math.pow(1024, i);
   return `${value.toFixed(value >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }

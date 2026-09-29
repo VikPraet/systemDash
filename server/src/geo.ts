@@ -285,3 +285,57 @@ export function normalizeForLookup(raw: string | null | undefined): string | nul
   if (!raw) return null;
   return normalizeIp(raw);
 }
+
+const IP_API_SELF = `http://ip-api.com/json/?fields=${IP_API_FIELDS}`;
+
+let selfLocation: GeoLocation | null = null;
+let selfResolved = false;
+let selfFailedAt = 0;
+let selfInFlight: Promise<GeoLocation | null> | null = null;
+
+/**
+ * Resolves this machine's public egress location (ip-api with no IP argument).
+ * Cached for the process lifetime after the first success; failures back off.
+ */
+export async function resolveSelfLocation(): Promise<GeoLocation | null> {
+  if (selfResolved) return selfLocation;
+  if (selfFailedAt && Date.now() - selfFailedAt < RETRY_FAILED_MS) {
+    return selfLocation;
+  }
+  if (selfInFlight) return selfInFlight;
+
+  selfInFlight = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(IP_API_SELF, { signal: controller.signal });
+      if (!res.ok) throw new Error(`ip-api responded ${res.status}`);
+      const r = (await res.json()) as IpApiResult;
+      if (r.status !== "success") throw new Error(r.message ?? "geo lookup failed");
+      const loc: GeoLocation = {
+        status: "resolved",
+        label: buildLabel(r.city, r.regionName, r.country),
+        city: r.city ?? null,
+        region: r.regionName ?? null,
+        country: r.country ?? null,
+        countryCode: r.countryCode ?? null,
+        lat: r.lat ?? null,
+        lon: r.lon ?? null,
+      };
+      selfLocation = loc;
+      selfResolved = true;
+      selfFailedAt = 0;
+      if (r.query) writeCache(normalizeIp(r.query), loc);
+      return loc;
+    } catch (err) {
+      console.warn("self geo lookup failed:", (err as Error).message);
+      selfFailedAt = Date.now();
+      return selfLocation;
+    } finally {
+      clearTimeout(timer);
+      selfInFlight = null;
+    }
+  })();
+
+  return selfInFlight;
+}

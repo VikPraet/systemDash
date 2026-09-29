@@ -7,6 +7,8 @@ import { getSnapshot } from "./stats.js";
 import { handleSystemStream, SYSTEM_STREAM_PATH, primeSystemTelemetry } from "./systemStream.js";
 import { APP_NAME } from "./brand.js";
 import { getProcesses, killProcess, ProcessError, type KillMode } from "./processes.js";
+import { getNetwork } from "./network.js";
+import { resolveSelfLocation } from "./geo.js";
 import {
   getRoots,
   listDirectory,
@@ -41,7 +43,7 @@ import {
   ShareError,
 } from "./shares.js";
 import { getSettings, saveSettings, initSettings, diffSettings, sanitizeOsUsername } from "./settings.js";
-import { queryHistory, historyStats, clearHistory } from "./history.js";
+import { queryHistory, queryNetUsage, historyStats, clearHistory } from "./history.js";
 import { attachTerminal } from "./terminal.js";
 import { attachWorkerLogs } from "./workerLogs.js";
 import { startWorkerSupervisor } from "./workers.js";
@@ -260,6 +262,26 @@ app.get("/api/processes", async (_req, res) => {
   } catch (err) {
     console.error("Failed to collect processes:", err);
     res.status(500).json({ error: "failed to collect processes" });
+  }
+});
+
+app.get("/api/network", async (_req, res) => {
+  try {
+    const network = await getNetwork();
+    res.json(network);
+  } catch (err) {
+    console.error("Failed to collect network connections:", err);
+    res.status(500).json({ error: "failed to collect network connections" });
+  }
+});
+
+app.get("/api/network/origin", async (_req, res) => {
+  try {
+    const origin = await resolveSelfLocation();
+    res.json({ origin });
+  } catch (err) {
+    console.error("Failed to resolve network origin:", err);
+    res.status(500).json({ error: "failed to resolve network origin" });
   }
 });
 
@@ -563,6 +585,19 @@ app.get("/api/history", (req, res) => {
     res.json(queryHistory({ from, to, points }));
   } catch (err) {
     sendError(res, err, "failed to query history");
+  }
+});
+
+app.get("/api/history/net-usage", (req, res) => {
+  try {
+    const now = Date.now();
+    const to = numParam(req.query.to, now);
+    const from = numParam(req.query.from, to - 24 * 60 * 60 * 1000);
+    const raw = String(req.query.bucket ?? "hour").toLowerCase();
+    const bucket = raw === "day" ? "day" : "hour";
+    res.json(queryNetUsage({ from, to, bucket }));
+  } catch (err) {
+    sendError(res, err, "failed to query network usage");
   }
 });
 

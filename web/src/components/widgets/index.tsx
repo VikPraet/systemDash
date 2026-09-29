@@ -172,21 +172,30 @@ export interface ChartSeries {
   data: (number | null)[];
 }
 
-/** Tracks the rendered width of an element so the SVG chart stays crisp. */
-function useElementWidth<T extends HTMLElement>() {
+/** Tracks the rendered size of an element so the SVG chart stays crisp. */
+function useElementSize<T extends HTMLElement>() {
   const ref = useRef<T | null>(null);
-  const [width, setWidth] = useState(0);
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    setWidth(el.clientWidth);
+    const apply = (width: number, height: number) => {
+      const w = Math.max(0, Math.round(width));
+      const h = Math.max(0, Math.round(height));
+      setSize((prev) => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+    };
+    apply(el.clientWidth, el.clientHeight);
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setWidth(e.contentRect.width);
+      for (const e of entries) {
+        const box = e.borderBoxSize?.[0];
+        if (box) apply(box.inlineSize, box.blockSize);
+        else apply(e.contentRect.width, e.contentRect.height);
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  return [ref, width] as const;
+  return [ref, size] as const;
 }
 
 function defaultTime(ms: number): string {
@@ -200,11 +209,13 @@ function defaultTime(ms: number): string {
  * Lightweight multi-series line chart drawn with plain SVG (no chart library).
  * Handles gaps (null values break the line), an auto/fixed y-range, horizontal
  * gridlines, and a hover tooltip that snaps to the nearest sample.
+ *
+ * Omit `height` to fill the parent; pass a number to lock the plot height.
  */
 export function TimeSeriesChart({
   t,
   series,
-  height = 180,
+  height,
   unit = "",
   yMin,
   yMax,
@@ -222,15 +233,20 @@ export function TimeSeriesChart({
   formatValue?: (n: number) => string;
   formatTime?: (ms: number) => string;
 }) {
-  const [ref, width] = useElementWidth<HTMLDivElement>();
+  const fillParent = height == null;
+  const [ref, size] = useElementSize<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const [tipPos, setTipPos] = useState<CSSProperties | null>(null);
   const uid = useId().replace(/:/g, "");
 
-  const padR = 12;
-  const padT = 10;
-  const padB = 22;
-  const plotH = height - padT - padB;
+  const padR = 4;
+  const padT = 12;
+  const padB = 28;
+  const width = size.width;
+  // When filling, use the measured box exactly — never grow the SVG past the
+  // container or ResizeObserver and layout keep chasing each other.
+  const resolvedHeight = height ?? (size.height > 0 ? size.height : 160);
+  const plotH = Math.max(40, resolvedHeight - padT - padB);
 
   const hasData = t.length > 0 && series.some((s) => s.data.some((v) => v != null));
 
@@ -275,10 +291,30 @@ export function TimeSeriesChart({
   const fmt = (v: number) =>
     formatValue ? formatValue(v) : `${Math.round(v * 10) / 10}${unit}`;
 
-  // Reserve room on the left for the widest y-axis label so longer ticks (e.g.
-  // "3.97 GHz") aren't clipped — important now charts can be half-width.
-  const maxTickChars = ticks.reduce((m, tk) => Math.max(m, fmt(tk).length), 0);
-  const padL = Math.min(96, Math.max(40, Math.round(maxTickChars * 6.2) + 12));
+  // Measure the real rendered width of y-axis labels — char*constant underestimates
+  // values like "15.0 MB/s" / "5.02 GHz" and the left edge gets clipped by the SVG.
+  const padL = useMemo(() => {
+    const labelFor = (v: number) =>
+      formatValue ? formatValue(v) : `${Math.round(v * 10) / 10}${unit}`;
+    const labels = ticks.map(labelFor);
+    let widest = 28;
+    if (typeof document !== "undefined") {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.font = '10px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+        for (const label of labels) {
+          widest = Math.max(widest, ctx.measureText(label).width);
+        }
+      } else {
+        widest = Math.max(widest, ...labels.map((l) => l.length * 7.2));
+      }
+    } else {
+      widest = Math.max(widest, ...labels.map((l) => l.length * 7.2));
+    }
+    // Extra room so end-anchored labels never paint past x=0 (parent clips).
+    return Math.min(140, Math.ceil(widest) + 18);
+  }, [ticks, formatValue, unit]);
   const w = Math.max(width, padL + padR + 10);
   const plotW = w - padL - padR;
   const xFor = (i: number) =>
@@ -386,9 +422,13 @@ export function TimeSeriesChart({
   }
 
   return (
-    <S.ChartRoot ref={ref} style={{ height }}>
+    <S.ChartRoot
+      ref={ref}
+      $fill={fillParent}
+      style={height != null ? { height } : undefined}
+    >
       {!hasData && <div className="chart-empty muted">No data yet</div>}
-      {hasData && width > 0 && (
+      {hasData && width > 0 && resolvedHeight > 0 && (
         <div
           className="chart-surface"
           onMouseMove={onMove}
@@ -397,7 +437,7 @@ export function TimeSeriesChart({
             setTipPos(null);
           }}
         >
-          <svg width={w} height={height} role="img">
+          <svg width={w} height={resolvedHeight} role="img">
             <defs>
               {series.map((s, i) => (
                 <linearGradient
@@ -422,18 +462,28 @@ export function TimeSeriesChart({
                   y1={yFor(tk)}
                   y2={yFor(tk)}
                 />
-                <text className="chart-axis" x={padL - 6} y={yFor(tk) + 3}>
+                <text
+                  className="chart-axis chart-axis-y"
+                  x={padL - 6}
+                  y={yFor(tk)}
+                  dominantBaseline="middle"
+                >
                   {fmt(tk)}
                 </text>
               </g>
             ))}
-            <text className="chart-axis chart-axis-x" x={padL} y={height - 6}>
+            <text
+              className="chart-axis chart-axis-x"
+              x={padL}
+              y={resolvedHeight - 8}
+              textAnchor="start"
+            >
               {formatTime(t0)}
             </text>
             <text
               className="chart-axis chart-axis-x"
               x={w - padR}
-              y={height - 6}
+              y={resolvedHeight - 8}
               textAnchor="end"
             >
               {formatTime(tN)}
@@ -610,7 +660,7 @@ export function ChartCard({
           )}
         </S.ChartCardRight>
       </S.ChartCardHead>
-      {children}
+      <S.ChartCardBody>{children}</S.ChartCardBody>
     </S.ChartCardRoot>
   );
 }

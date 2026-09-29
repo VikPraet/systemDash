@@ -25,7 +25,7 @@ export function History() {
   const { user } = useAuth();
   const canWrite = hasRole(user, "user");
   const { layouts } = useDashboardLayout();
-  const { rangeId, range, selectRange, data, stats, snap, error, refreshStats } =
+  const { rangeId, range, selectRange, data, stats, snap, error, loading, refreshStats } =
     useHistoryFeed(true);
   const [fullscreenId, setFullscreenId] = useState<string | null>(null);
 
@@ -38,7 +38,11 @@ export function History() {
     return () => window.removeEventListener("keydown", onKey);
   }, [fullscreenId]);
 
-  const timeFmt = useMemo(() => makeTimeFmt(range.ms), [range.ms]);
+  const displayedSpan =
+    loading && data && data.t.length > 1
+      ? Math.max(1, data.t[data.t.length - 1]! - data.t[0]!)
+      : range.ms;
+  const timeFmt = useMemo(() => makeTimeFmt(displayedSpan), [displayedSpan]);
   const t = data?.t ?? [];
   const fsProps = (id: string, fs: boolean) => ({
     onFullscreen: fs ? undefined : () => setFullscreenId(id),
@@ -49,18 +53,21 @@ export function History() {
     [data, snap, timeFmt]
   );
   const fullscreenChart = fullscreenId ? charts.find((c) => c.id === fullscreenId) : null;
-  const loading = !data && !error;
+  const awaitingFirst = loading && !data;
   const gpuCount = snap?.gpus.length ?? data?.gpus.length ?? 0;
 
   // Charts the saved layout still holds but that produced no series this load —
   // kept on screen as placeholder cards so panels never silently disappear.
+  // Drop the short-lived per-disk panel ids (disk-0, disk-1, …) now that all
+  // disks share the single disk-io panel.
   const placeholderIds = (layouts.history ?? [])
     .map((item) => item.id)
-    .filter((id) => !charts.some((c) => c.id === id));
+    .filter((id) => !charts.some((c) => c.id === id))
+    .filter((id) => !(id.startsWith("disk-") && id !== "disk-io"));
 
   const chartDefaults = packDefaults(
     [...charts.map((c) => c.id), ...placeholderIds],
-    { x: 0, y: 0, w: 6, h: 4 }
+    (id) => (id === "disk-io" ? { x: 0, y: 0, w: 6, h: 6 } : { x: 0, y: 0, w: 6, h: 4 })
   );
 
   const gridItems: DashboardItem[] = [
@@ -68,9 +75,9 @@ export function History() {
       id: c.id,
       label: c.label,
       minW: 4,
-      minH: 3,
-      default: chartDefaults[c.id] ?? { x: 0, y: 0, w: 6, h: 4 },
-      node: loading ? <WidgetSkeleton kind="chart" label={c.label} /> : c.render(false),
+      minH: c.id === "disk-io" ? 4 : 3,
+      default: chartDefaults[c.id] ?? { x: 0, y: 0, w: 6, h: c.id === "disk-io" ? 6 : 4 },
+      node: awaitingFirst ? <WidgetSkeleton kind="chart" label={c.label} /> : c.render(false),
     })),
     ...placeholderIds.map((id) => {
       const label = widgetById("history", id, gpuCount)?.label ?? humanizePanelId(id);
@@ -80,7 +87,7 @@ export function History() {
         minW: 4,
         minH: 3,
         default: chartDefaults[id] ?? { x: 0, y: 0, w: 6, h: 4 },
-        node: loading ? (
+        node: awaitingFirst ? (
           <WidgetSkeleton kind="chart" label={label} />
         ) : (
           <ChartEmptyCard
@@ -100,27 +107,34 @@ export function History() {
             <button
               key={r.id}
               className={r.id === rangeId ? "active" : ""}
+              aria-busy={r.id === rangeId && loading ? true : undefined}
               onClick={() => selectRange(r.id)}
             >
               {r.label}
             </button>
           ))}
         </S.Seg>
-        {(stats || (data && t.length > 0)) && (
-          <S.HistoryMeta className="muted">
-            {stats && (
-              <>
-                Recording every {stats.intervalSeconds}s
-                {!stats.enabled && " (paused)"}
-              </>
-            )}
-            {data && t.length > 0 && (
-              <>
-                {stats ? " · " : ""}chart {formatResolution(data.bucketMs)}
-                {rangeId === "live" ? " live" : ""} · {t.length} pts
-              </>
-            )}
+        {loading ? (
+          <S.HistoryMeta className="muted" role="status" aria-live="polite">
+            Loading {range.label}…
           </S.HistoryMeta>
+        ) : (
+          (stats || (data && t.length > 0)) && (
+            <S.HistoryMeta className="muted">
+              {stats && (
+                <>
+                  Recording every {stats.intervalSeconds}s
+                  {!stats.enabled && " (paused)"}
+                </>
+              )}
+              {data && t.length > 0 && (
+                <>
+                  {stats ? " · " : ""}chart {formatResolution(data.bucketMs)}
+                  {rangeId === "live" ? " live" : ""} · {t.length} pts
+                </>
+              )}
+            </S.HistoryMeta>
+          )
         )}
       </S.HistoryToolbar>
 
@@ -133,7 +147,14 @@ export function History() {
         </S.HistoryNotice>
       )}
 
-      {gridItems.length > 0 && <DashboardGrid pageId="history" items={gridItems} />}
+      {gridItems.length > 0 && (
+        <S.ChartStage $busy={loading && !!data} aria-busy={loading || undefined}>
+          <DashboardGrid pageId="history" items={gridItems} />
+          {loading && data && (
+            <S.ChartLoading role="status">Loading {range.label}…</S.ChartLoading>
+          )}
+        </S.ChartStage>
+      )}
 
       {gridItems.length === 0 && (
         <S.HistoryNotice>No charts to show yet.</S.HistoryNotice>

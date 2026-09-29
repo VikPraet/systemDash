@@ -44,6 +44,9 @@ export const CHART_WIDGETS: CatalogWidget[] = [
   { id: "chart:cpu-temp", label: "CPU Temp", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
   { id: "chart:cpu-clock", label: "CPU Clock", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
   { id: "chart:memory", label: "Memory history", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
+  { id: "chart:disk-io", label: "Disk", category: "charts", default: { x: 0, y: 0, w: 6, h: 8 }, minW: 4, minH: 5 },
+  { id: "chart:network", label: "Network", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
+  { id: "chart:net-usage", label: "Data transferred", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
   { id: "chart:processes", label: "Processes", category: "charts", default: CHART_SIZE, minW: 4, minH: 3 },
 ];
 
@@ -63,12 +66,14 @@ export function gpuChartWidgets(gpuCount: number): CatalogWidget[] {
 }
 
 export function catalogForPage(pageId: string, gpuCount = 0): CatalogWidget[] {
+  const charts = [...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)];
   if (pageId === "overview")
-    return [...OVERVIEW_WIDGETS, ...EXTRA_OVERVIEW_WIDGETS, ...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)];
-  if (pageId === "history") return [...CHART_WIDGETS, ...gpuChartWidgets(gpuCount)].map((w) => ({
-    ...w,
-    id: w.id.replace(/^chart:/, ""),
-  }));
+    return [...OVERVIEW_WIDGETS, ...EXTRA_OVERVIEW_WIDGETS, ...charts];
+  if (pageId === "history")
+    return charts.map((w) => ({
+      ...w,
+      id: w.id.replace(/^chart:/, ""),
+    }));
   return [];
 }
 
