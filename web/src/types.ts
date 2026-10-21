@@ -184,6 +184,8 @@ export interface FileManagerSettings {
   showFileExtensions: boolean;
   showFolderSizes: boolean;
   confirmDelete: boolean;
+  /** Local nicknames for drive cards, keyed by absolute mount path. */
+  driveAliases: Record<string, string>;
 }
 
 export type UsageNodeType = "dir" | "file" | "other" | "free";

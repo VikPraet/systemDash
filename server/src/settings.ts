@@ -23,6 +23,11 @@ export interface FileManagerSettings {
   showFolderSizes: boolean;
   /** Ask for confirmation before deleting. */
   confirmDelete: boolean;
+  /**
+   * Local display names for drive / mount cards, keyed by absolute mount path.
+   * Does not rename anything on disk — only the This PC label.
+   */
+  driveAliases: Record<string, string>;
 }
 
 export type { HistorySettings } from "./history.js";
@@ -49,6 +54,27 @@ export function sanitizeOsUsername(raw: unknown, fallback: string): string {
   if (trimmed === "") return "";
   if (trimmed.length > 32 || !USERNAME_RE.test(trimmed)) return fallback;
   return trimmed;
+}
+
+/** Keeps absolute mount paths → short display nicknames. Drops junk entries. */
+function sanitizeDriveAliases(
+  raw: unknown,
+  fallback: Record<string, string>
+): Record<string, string> {
+  const source =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : fallback;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof key !== "string" || key.length < 1 || key.length > 500) continue;
+    if (typeof value !== "string") continue;
+    const name = value.trim().replace(/\s+/g, " ");
+    if (!name || name.length > 80) continue;
+    out[key] = name;
+    if (Object.keys(out).length >= 200) break;
+  }
+  return out;
 }
 
 export interface TerminalSettings {
@@ -104,6 +130,7 @@ const DEFAULTS: Settings = {
     showFileExtensions: true,
     showFolderSizes: true,
     confirmDelete: true,
+    driveAliases: {},
   },
   history: HISTORY_DEFAULTS,
   activity: ACTIVITY_DEFAULTS,
@@ -167,6 +194,10 @@ function sanitize(input: unknown, previous?: Settings): Settings {
       ),
       showFolderSizes: bool(files.showFolderSizes, DEFAULTS.files.showFolderSizes),
       confirmDelete: bool(files.confirmDelete, DEFAULTS.files.confirmDelete),
+      driveAliases: sanitizeDriveAliases(
+        files.driveAliases,
+        previous?.files?.driveAliases ?? DEFAULTS.files.driveAliases
+      ),
     },
     history: {
       enabled: bool(history.enabled, DEFAULTS.history.enabled),
@@ -328,6 +359,7 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
     showFileExtensions: "Show file extensions",
     showFolderSizes: "Show folder sizes",
     confirmDelete: "Confirm before delete",
+    driveAliases: "Drive nicknames",
   },
   history: {
     enabled: "Recording enabled",
@@ -386,14 +418,19 @@ export function diffSettings(prev: Settings, next: Settings): SettingsDiff {
 
     const changes: string[] = [];
     for (const key of Object.keys(after)) {
-      const same =
-        key === "layouts"
-          ? JSON.stringify(before[key]) === JSON.stringify(after[key])
-          : before[key] === after[key];
+      const isObjectField =
+        key === "layouts" ||
+        key === "driveAliases" ||
+        (typeof after[key] === "object" && after[key] !== null);
+      const same = isObjectField
+        ? JSON.stringify(before[key] ?? null) === JSON.stringify(after[key] ?? null)
+        : before[key] === after[key];
       if (!same) {
         const label = FIELD_LABELS[section]?.[key] ?? key;
         if (key === "layouts") {
           changes.push("Layouts updated");
+        } else if (key === "driveAliases") {
+          changes.push("Drive nicknames updated");
         } else {
           changes.push(
             `${label}: ${formatSettingValue(before[key])} → ${formatSettingValue(

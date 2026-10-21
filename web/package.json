@@ -1,6 +1,6 @@
 {
   "name": "@systemdash/web",
-  "version": "0.4.11-beta",
+  "version": "0.4.12-beta",
   "private": true,
   "type": "module",
   "scripts": {

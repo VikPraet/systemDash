@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import si from "systeminformation";
 import type { Role } from "./auth.js";
+import { overlayMountNames } from "./docker.js";
 import { resolveOsUser } from "./osUser.js";
 import {
   isNetworkShareRoot,
@@ -10,8 +11,36 @@ import {
   listShares,
   pathsEqual,
 } from "./shares.js";
+import { getSettings } from "./settings.js";
 import { isInTrash, trashCount, trashPath } from "./trash.js";
 import { DATA_DIR, isPathInside, TRASH_DIR } from "./paths.js";
+
+/** Pseudo / kernel mounts that clutter This PC and aren't useful to browse. */
+const SKIP_FS_TYPES = new Set([
+  "efivarfs",
+  "fusectl",
+  "configfs",
+  "debugfs",
+  "tracefs",
+  "securityfs",
+  "pstore",
+  "bpf",
+  "cgroup",
+  "cgroup2",
+  "proc",
+  "sysfs",
+  "nsfs",
+  "rpc_pipefs",
+  "binfmt_misc",
+  "autofs",
+  "mqueue",
+  "hugetlbfs",
+  "devpts",
+  "devtmpfs",
+]);
+
+const DOCKER_OVERLAY_RE =
+  /^\/var\/lib\/docker\/overlay2\/([^/]+)\/merged\/?$/i;
 
 export interface FsEntry {
   name: string;
@@ -88,16 +117,21 @@ export async function getRoots(): Promise<FsRoot[]> {
   ];
 
   if (process.platform === "win32") {
+    const aliases = await getSettings()
+      .then((s) => s.files.driveAliases ?? {})
+      .catch(() => ({}) as Record<string, string>);
     for (let c = 65; c <= 90; c++) {
       const letter = String.fromCharCode(c);
       const drive = `${letter}:\\`;
       if (!existsSync(drive)) continue;
       const info = findSize((m) => m.toUpperCase().startsWith(`${letter}:`));
+      const systemName = `${letter}:`;
+      const alias = aliases[drive]?.trim() || aliases[systemName]?.trim();
       roots.push({
-        name: `${letter}:`,
+        name: alias || systemName,
         path: drive,
         kind: "drive",
-        label: null,
+        label: alias ? systemName : null,
         sizeBytes: info?.size ?? null,
         usedBytes: info?.used ?? null,
         freeBytes: info?.available ?? null,
@@ -107,20 +141,30 @@ export async function getRoots(): Promise<FsRoot[]> {
   } else {
     // List real mounted filesystems as "drives"; ensure "/" is present.
     // Skip SystemDash NAS mountpoints — those show up as network roots below.
+    const [aliases, dockerNames] = await Promise.all([
+      getSettings()
+        .then((s) => s.files.driveAliases ?? {})
+        .catch(() => ({}) as Record<string, string>),
+      overlayMountNames(),
+    ]);
     const mounts = sizes
       .filter(
         (s) =>
           s.mount &&
           (s.mount === "/" || s.mount.startsWith("/")) &&
-          !isShareMountsPath(s.mount)
+          !isShareMountsPath(s.mount) &&
+          !shouldSkipLinuxMount(s.mount, s.type || s.fs)
       )
       .sort((a, b) => (a.mount === "/" ? -1 : a.mount.localeCompare(b.mount)));
     for (const m of mounts) {
+      const { name, label } = linuxMountLabel(m.mount, m.fs ?? null, dockerNames);
+      const alias = aliases[m.mount]?.trim();
       roots.push({
-        name: m.mount,
+        name: alias || name,
         path: m.mount,
         kind: m.mount === "/" ? "root" : "drive",
-        label: m.fs ?? null,
+        // When renamed, keep the auto name (and fs) as the muted subtitle.
+        label: alias ? (label ? `${name} · ${label}` : name) : label,
         sizeBytes: m.size ?? null,
         usedBytes: m.used ?? null,
         freeBytes: m.available ?? null,
@@ -128,11 +172,12 @@ export async function getRoots(): Promise<FsRoot[]> {
       });
     }
     if (!roots.some((r) => r.path === "/")) {
+      const alias = aliases["/"]?.trim();
       roots.push({
-        name: "/",
+        name: alias || "/",
         path: "/",
         kind: "root",
-        label: null,
+        label: alias ? "/" : null,
         sizeBytes: null,
         usedBytes: null,
         freeBytes: null,
@@ -178,6 +223,50 @@ export async function getRoots(): Promise<FsRoot[]> {
 function round(n: number | null | undefined): number {
   if (typeof n !== "number" || !Number.isFinite(n)) return 0;
   return Math.round(n * 10) / 10;
+}
+
+function shouldSkipLinuxMount(mount: string, fsType: string | undefined): boolean {
+  const type = (fsType || "").toLowerCase();
+  if (SKIP_FS_TYPES.has(type)) return true;
+  // Snap loop mounts and kernel trees aren't useful as "drives".
+  if (mount.startsWith("/snap/") && (type === "squashfs" || type === "overlay")) return true;
+  if (mount.startsWith("/sys/") || mount.startsWith("/proc/")) return true;
+  return false;
+}
+
+/** Human-readable title + muted subtitle for a Linux mount. */
+function linuxMountLabel(
+  mount: string,
+  fs: string | null,
+  dockerNames: Map<string, string>
+): { name: string; label: string | null } {
+  const normalized = path.normalize(mount);
+  const container =
+    dockerNames.get(normalized) ||
+    dockerNames.get(mount) ||
+    dockerNames.get(mount.replace(/\/$/, ""));
+  if (container) {
+    return { name: container, label: "Docker container" };
+  }
+
+  const overlay = DOCKER_OVERLAY_RE.exec(mount);
+  if (overlay) {
+    const id = overlay[1];
+    const short = id.length > 12 ? `${id.slice(0, 12)}…` : id;
+    return { name: `Docker · ${short}`, label: "Docker layer" };
+  }
+
+  if (mount === "/") {
+    return { name: "/", label: fs };
+  }
+
+  // Prefer a short leaf for deep paths; keep the device/fs as the subtitle.
+  if (mount.length > 36) {
+    const leaf = mount.split("/").filter(Boolean).pop() || mount;
+    return { name: leaf, label: fs ? `${fs} · ${mount}` : mount };
+  }
+
+  return { name: mount, label: fs };
 }
 
 function pathsInside(parent: string, child: string): boolean {

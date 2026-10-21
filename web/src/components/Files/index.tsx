@@ -63,6 +63,7 @@ type Dialog =
   | { kind: "newFolder" }
   | { kind: "newFile" }
   | { kind: "rename"; entry: FsEntry }
+  | { kind: "renameDrive"; root: FsRoot }
   | { kind: "delete"; entry: FsEntry }
   | { kind: "deleteForever"; item: TrashItem }
   | { kind: "emptyTrash" }
@@ -609,6 +610,11 @@ export function Files() {
             onOpen={openRoot}
             onAdd={() => setDialog({ kind: "addShare" })}
             onRemove={(root) => setDialog({ kind: "removeShare", root })}
+            onRenameDrive={
+              canWrite
+                ? (root) => setDialog({ kind: "renameDrive", root })
+                : undefined
+            }
           />
           </>
         ) : inTrash ? (
@@ -761,6 +767,38 @@ export function Files() {
         />
       )}
 
+      {dialog?.kind === "renameDrive" && (
+        <PromptDialog
+          title="Rename drive"
+          label="Display name"
+          hint={`Local nickname only — does not rename ${dialog.root.path} on disk. Leave blank to clear.`}
+          initial={settings.files.driveAliases?.[dialog.root.path] ?? dialog.root.name}
+          confirmLabel="Save"
+          allowEmpty
+          onCancel={() => setDialog(null)}
+          onSubmit={async (name) => {
+            const root = dialog.root;
+            const nextAliases = { ...(settings.files.driveAliases ?? {}) };
+            const trimmed = name.trim();
+            if (trimmed) nextAliases[root.path] = trimmed;
+            else delete nextAliases[root.path];
+            try {
+              const saved = await saveSettings({
+                ...settings,
+                files: { ...settings.files, driveAliases: nextAliases },
+              });
+              cache.settings = saved;
+              setSettings(saved);
+              await reloadRoots();
+              setDialog(null);
+              return null;
+            } catch (e) {
+              return (e as Error).message;
+            }
+          }}
+        />
+      )}
+
       {filePanel && (
         <FileEditor
           key={filePanel.entry.path}
@@ -904,6 +942,7 @@ function ThisPc({
   onOpen,
   onAdd,
   onRemove,
+  onRenameDrive,
 }: {
   drives: FsRoot[];
   network: FsRoot[];
@@ -912,6 +951,7 @@ function ThisPc({
   onOpen: (root: FsRoot) => void;
   onAdd: () => void;
   onRemove: (root: FsRoot) => void;
+  onRenameDrive?: (root: FsRoot) => void;
 }) {
   if (drives.length === 0 && network.length === 0 && trash.length === 0 && !canWrite) {
     return <S.FilesMessage className="muted">Loading drives…</S.FilesMessage>;
@@ -941,7 +981,13 @@ function ThisPc({
                 minW: 3,
                 minH: 2,
                 default: driveDefaults[`drive:${d.path}`] ?? { x: 0, y: 0, w: 4, h: 3 },
-                node: <DriveCardView d={d} onOpen={() => onOpen(d)} />,
+                node: (
+                  <DriveCardView
+                    d={d}
+                    onOpen={() => onOpen(d)}
+                    onRename={onRenameDrive ? () => onRenameDrive(d) : undefined}
+                  />
+                ),
               }))}
             />
           </S.DriveGridWrap>
@@ -1017,26 +1063,46 @@ function DriveCardView({
   d,
   onOpen,
   onRemove,
+  onRename,
 }: {
   d: FsRoot;
   onOpen: () => void;
   onRemove?: () => void;
+  onRename?: () => void;
 }) {
   const offline = d.kind === "network" && d.connected === false;
   return (
-    <S.DriveCard type="button" $offline={offline} onClick={onOpen}>
-      {onRemove && (
-        <S.DriveCardRemove
-          type="button"
-          title="Remove"
-          aria-label={`Remove ${d.name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-        >
-          ×
-        </S.DriveCardRemove>
+    <S.DriveCard type="button" $offline={offline} onClick={onOpen} title={d.path}>
+      {(onRename || onRemove) && (
+        <S.DriveCardActions>
+          {onRename && (
+            <S.DriveCardAction
+              type="button"
+              title="Rename locally"
+              aria-label={`Rename ${d.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename();
+              }}
+            >
+              ✎
+            </S.DriveCardAction>
+          )}
+          {onRemove && (
+            <S.DriveCardAction
+              type="button"
+              title="Remove"
+              aria-label={`Remove ${d.name}`}
+              $danger
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove();
+              }}
+            >
+              ×
+            </S.DriveCardAction>
+          )}
+        </S.DriveCardActions>
       )}
       <S.DriveCardHead>
         {d.kind === "trash" ? (
@@ -1047,7 +1113,7 @@ function DriveCardView({
           <DriveIcon />
         )}
         <S.DriveName>
-          {d.name}
+          <span className="drive-title">{d.name}</span>
           {d.label && <span className="drive-label muted"> {d.label}</span>}
         </S.DriveName>
       </S.DriveCardHead>
@@ -1286,15 +1352,20 @@ function ModalShell({
 function PromptDialog({
   title,
   label,
+  hint,
   initial,
   confirmLabel,
+  allowEmpty,
   onCancel,
   onSubmit,
 }: {
   title: string;
   label: string;
+  hint?: string;
   initial?: string;
   confirmLabel: string;
+  /** When true, empty input is allowed (e.g. clear a local nickname). */
+  allowEmpty?: boolean;
   onCancel: () => void;
   // Returns an error message to display, or null on success (parent closes).
   onSubmit: (value: string) => Promise<string | null>;
@@ -1314,10 +1385,10 @@ function PromptDialog({
     else el.select();
   }, []);
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     const v = value.trim();
-    if (!v || busy) return;
+    if ((!allowEmpty && !v) || busy) return;
     setBusy(true);
     setError(null);
     const err = await onSubmit(v);
@@ -1337,6 +1408,7 @@ function PromptDialog({
           spellCheck={false}
           autoComplete="off"
         />
+        {hint && <S.PromptHint className="muted">{hint}</S.PromptHint>}
         {error && <ModalError>{error}</ModalError>}
         <ModalActions>
           <ModalBtn type="button" onClick={onCancel}>
@@ -1345,7 +1417,7 @@ function PromptDialog({
           <ModalBtn
             type="submit"
             $variant="primary"
-            disabled={!value.trim() || busy}
+            disabled={(!allowEmpty && !value.trim()) || busy}
           >
             {busy ? "Working…" : confirmLabel}
           </ModalBtn>
@@ -1612,7 +1684,9 @@ function SettingsDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function toggle(key: keyof FileManagerSettings) {
+  function toggle(
+    key: keyof Omit<FileManagerSettings, "driveAliases">
+  ) {
     setFiles((f) => ({ ...f, [key]: !f[key] }));
   }
 
@@ -1736,6 +1810,28 @@ function breadcrumbs(
     const rest = p.slice(share.path.length).split(/[/\\]+/).filter(Boolean);
     const crumbs = [{ label: share.name, path: share.path }];
     let acc = share.path.replace(/[/\\]+$/, "");
+    for (const part of rest) {
+      acc = `${acc}${sep}${part}`;
+      crumbs.push({ label: part, path: acc });
+    }
+    return crumbs;
+  }
+
+  // Prefer a labeled drive/root (e.g. Docker container name) as the first crumb.
+  const volume = [...roots]
+    .filter((r) => r.kind === "drive" || r.kind === "root" || r.kind === "home")
+    .sort((a, b) => b.path.length - a.path.length)
+    .find((r) => {
+      if (p === r.path) return true;
+      const sep = r.path.includes("\\") ? "\\" : "/";
+      const prefix = r.path.endsWith(sep) ? r.path : r.path + sep;
+      return p.startsWith(prefix);
+    });
+  if (volume && volume.path !== "/" && volume.name && volume.name !== volume.path) {
+    const sep = volume.path.includes("\\") ? "\\" : "/";
+    const rest = p.slice(volume.path.length).split(/[/\\]+/).filter(Boolean);
+    const crumbs = [{ label: volume.name, path: volume.path }];
+    let acc = volume.path.replace(/[/\\]+$/, "");
     for (const part of rest) {
       acc = `${acc}${sep}${part}`;
       crumbs.push({ label: part, path: acc });

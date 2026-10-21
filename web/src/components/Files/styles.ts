@@ -551,10 +551,15 @@ export const DriveCard = styled.button<{ $offline?: boolean }>`
   }
 `;
 
-export const DriveCardRemove = styled.button`
+export const DriveCardActions = styled.div`
   position: absolute;
   top: 8px;
   right: 8px;
+  display: inline-flex;
+  gap: 4px;
+`;
+
+export const DriveCardAction = styled.button<{ $danger?: boolean }>`
   width: 26px;
   height: 26px;
   display: inline-flex;
@@ -565,12 +570,14 @@ export const DriveCardRemove = styled.button`
   border-radius: ${({ theme }) => theme.radius.sm};
   color: ${({ theme }) => theme.color.muted};
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
 
   &:hover {
-    color: ${({ theme }) => theme.color.bad};
-    border-color: ${({ theme }) => theme.color.bad};
+    color: ${({ theme, $danger }) =>
+      $danger ? theme.color.bad : theme.color.accent};
+    border-color: ${({ theme, $danger }) =>
+      $danger ? theme.color.bad : theme.color.accent};
   }
 `;
 
@@ -612,11 +619,13 @@ export const DriveCardHead = styled.div`
   gap: 10px;
   margin-bottom: 14px;
   color: ${({ theme }) => theme.color.text};
-  padding-right: 22px;
+  padding-right: 56px;
+  min-width: 0;
 
   .ficon-sm {
     width: 22px;
     height: 22px;
+    flex-shrink: 0;
     color: ${({ theme }) => theme.color.accent};
   }
 `;
@@ -624,11 +633,34 @@ export const DriveCardHead = styled.div`
 export const DriveName = styled.span`
   font-size: 15px;
   font-weight: 600;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  line-height: 1.25;
+
+  .drive-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
 
   .drive-label {
     font-weight: 400;
-    font-size: 13px;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
   }
+`;
+
+export const PromptHint = styled.p`
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
 `;
 
 export const DriveMeta = styled.div`

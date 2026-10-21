@@ -254,6 +254,7 @@ export const DEFAULT_SETTINGS: Settings = {
     showFileExtensions: true,
     showFolderSizes: true,
     confirmDelete: true,
+    driveAliases: {},
   },
   history: {
     enabled: true,

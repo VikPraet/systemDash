@@ -569,3 +569,46 @@ export async function inspectContainer(id: string): Promise<{
     env: c?.Config?.Env ?? [],
   };
 }
+
+/**
+ * Maps overlay MergedDir mount paths → running container names.
+ * Used by the Files "This PC" view so Docker layers aren't shown as raw hashes.
+ * Returns an empty map when Docker is unavailable — never throws.
+ */
+export async function overlayMountNames(): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  try {
+    const idsOut = await runDocker(["ps", "-q", "--no-trunc"], 2 * 1024 * 1024, {
+      timeout: 8_000,
+    });
+    const ids = idsOut
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ids.length === 0) return map;
+
+    const out = await runDocker(
+      [
+        "inspect",
+        "--format",
+        `{{.Name}}\t{{index .GraphDriver.Data "MergedDir"}}`,
+        ...ids,
+      ],
+      4 * 1024 * 1024,
+      { timeout: 12_000 }
+    );
+    for (const line of out.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const tab = trimmed.indexOf("\t");
+      if (tab < 0) continue;
+      const rawName = trimmed.slice(0, tab).replace(/^\//, "").trim();
+      const merged = trimmed.slice(tab + 1).trim();
+      if (!rawName || !merged || merged === "<no value>") continue;
+      map.set(path.normalize(merged), rawName);
+    }
+  } catch {
+    // Docker missing / denied / down — Files still lists mounts with fallback labels.
+  }
+  return map;
+}
