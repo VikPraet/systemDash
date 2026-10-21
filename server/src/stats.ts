@@ -1,5 +1,9 @@
 import si from "systeminformation";
 import { APP_NAME } from "./brand.js";
+import { overlayMountNames } from "./docker.js";
+import { describeVolume, shouldSkipLinuxMount } from "./mountLabels.js";
+import { isShareMountsPath } from "./shares.js";
+import { getSettings } from "./settings.js";
 import { readAppVersion } from "./version.js";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -46,6 +50,10 @@ export interface SystemSnapshot {
     fs: string;
     mount: string;
     type: string;
+    /** Display title (nickname, container name, or short mount). */
+    name: string;
+    /** Muted subtitle (device, fs type, or original mount). */
+    label: string | null;
     sizeBytes: number;
     usedBytes: number;
     availableBytes: number;
@@ -548,16 +556,30 @@ async function sampleIo(): Promise<void> {
   }
 }
 
+async function getDriveAliases(): Promise<Record<string, string>> {
+  try {
+    const settings = await getSettings();
+    return settings.files.driveAliases ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export async function getSnapshot(): Promise<SystemSnapshot> {
   startIoSampler();
-  const [staticI, slow, speed, load, mem, time] = await Promise.all([
-    getStaticInfo(),
-    getSlowInfo(),
-    si.cpuCurrentSpeed(),
-    si.currentLoad(),
-    si.mem(),
-    si.time(),
-  ]);
+  const [staticI, slow, speed, load, mem, time, aliases, dockerNames] =
+    await Promise.all([
+      getStaticInfo(),
+      getSlowInfo(),
+      si.cpuCurrentSpeed(),
+      si.currentLoad(),
+      si.mem(),
+      si.time(),
+      getDriveAliases(),
+      process.platform === "win32"
+        ? Promise.resolve(new Map<string, string>())
+        : overlayMountNames(),
+    ]);
 
   const { osInfo, cpu, system } = staticI;
   const { graphics, fsSize: fs, temp } = slow;
@@ -609,15 +631,33 @@ export async function getSnapshot(): Promise<SystemSnapshot> {
       swapTotalBytes: mem.swaptotal,
       swapUsedBytes: mem.swapused,
     },
-    disks: fs.map((d) => ({
-      fs: d.fs,
-      mount: d.mount,
-      type: d.type,
-      sizeBytes: d.size,
-      usedBytes: d.used,
-      availableBytes: d.available,
-      usedPercent: round(d.use),
-    })),
+    disks: fs
+      .filter((d) => {
+        if (!d.mount) return false;
+        if (process.platform === "win32") return true;
+        if (isShareMountsPath(d.mount)) return false;
+        return !shouldSkipLinuxMount(d.mount, d.type || d.fs);
+      })
+      .map((d) => {
+        const { name, label } = describeVolume(
+          d.mount,
+          d.fs ?? null,
+          d.type,
+          aliases,
+          dockerNames
+        );
+        return {
+          fs: d.fs,
+          mount: d.mount,
+          type: d.type,
+          name,
+          label,
+          sizeBytes: d.size,
+          usedBytes: d.used,
+          availableBytes: d.available,
+          usedPercent: round(d.use),
+        };
+      }),
     throughput: { ...ioRates, disks: ioRates.disks.map((d) => ({ ...d })) },
     gpus: graphics.controllers.map((g) => ({
       vendor: g.vendor ?? "Unknown",

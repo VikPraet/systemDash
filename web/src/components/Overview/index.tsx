@@ -256,8 +256,10 @@ export function Overview({
           {disks.map((d) => (
             <S.Disk key={`${d.fs}-${d.mount}`}>
               <S.DiskHead>
-                <S.DiskMount>{d.mount || d.fs}</S.DiskMount>
-                <span className="muted">{d.type}</span>
+                <S.DiskMount title={d.mount || d.fs}>
+                  {d.name || d.mount || d.fs}
+                </S.DiskMount>
+                <span className="muted">{d.label || d.type}</span>
               </S.DiskHead>
               <Bar value={d.usedPercent} />
               <S.DiskFoot className="muted">

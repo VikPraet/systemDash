@@ -40,6 +40,10 @@ export interface SystemSnapshot {
     fs: string;
     mount: string;
     type: string;
+    /** Display title (nickname, container name, or short mount). */
+    name: string;
+    /** Muted subtitle (device, fs type, or original mount). */
+    label: string | null;
     sizeBytes: number;
     usedBytes: number;
     availableBytes: number;

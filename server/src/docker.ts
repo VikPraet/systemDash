@@ -570,12 +570,35 @@ export async function inspectContainer(id: string): Promise<{
   };
 }
 
+const OVERLAY_NAME_TTL_MS = 30_000;
+let overlayNameCache: Map<string, string> | null = null;
+let overlayNameAt = 0;
+let overlayNameRefreshing = false;
+
 /**
  * Maps overlay MergedDir mount paths → running container names.
- * Used by the Files "This PC" view so Docker layers aren't shown as raw hashes.
- * Returns an empty map when Docker is unavailable — never throws.
+ * Used by Files and the Overview Storage panel so Docker layers aren't raw hashes.
+ * Cached briefly — never throws; returns an empty map when Docker is unavailable.
  */
 export async function overlayMountNames(): Promise<Map<string, string>> {
+  if (overlayNameCache && Date.now() - overlayNameAt < OVERLAY_NAME_TTL_MS) {
+    return overlayNameCache;
+  }
+  if (overlayNameCache && !overlayNameRefreshing) {
+    overlayNameRefreshing = true;
+    refreshOverlayMountNames()
+      .catch(() => {
+        /* keep stale cache */
+      })
+      .finally(() => {
+        overlayNameRefreshing = false;
+      });
+    return overlayNameCache;
+  }
+  return refreshOverlayMountNames();
+}
+
+async function refreshOverlayMountNames(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   try {
     const idsOut = await runDocker(["ps", "-q", "--no-trunc"], 2 * 1024 * 1024, {
@@ -585,7 +608,11 @@ export async function overlayMountNames(): Promise<Map<string, string>> {
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
-    if (ids.length === 0) return map;
+    if (ids.length === 0) {
+      overlayNameCache = map;
+      overlayNameAt = Date.now();
+      return map;
+    }
 
     const out = await runDocker(
       [
@@ -608,7 +635,9 @@ export async function overlayMountNames(): Promise<Map<string, string>> {
       map.set(path.normalize(merged), rawName);
     }
   } catch {
-    // Docker missing / denied / down — Files still lists mounts with fallback labels.
+    // Docker missing / denied / down — callers still get fallback labels.
   }
+  overlayNameCache = map;
+  overlayNameAt = Date.now();
   return map;
 }

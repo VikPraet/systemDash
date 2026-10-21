@@ -4,6 +4,10 @@ import os from "node:os";
 import si from "systeminformation";
 import type { Role } from "./auth.js";
 import { overlayMountNames } from "./docker.js";
+import {
+  linuxMountLabel,
+  shouldSkipLinuxMount,
+} from "./mountLabels.js";
 import { resolveOsUser } from "./osUser.js";
 import {
   isNetworkShareRoot,
@@ -14,33 +18,6 @@ import {
 import { getSettings } from "./settings.js";
 import { isInTrash, trashCount, trashPath } from "./trash.js";
 import { DATA_DIR, isPathInside, TRASH_DIR } from "./paths.js";
-
-/** Pseudo / kernel mounts that clutter This PC and aren't useful to browse. */
-const SKIP_FS_TYPES = new Set([
-  "efivarfs",
-  "fusectl",
-  "configfs",
-  "debugfs",
-  "tracefs",
-  "securityfs",
-  "pstore",
-  "bpf",
-  "cgroup",
-  "cgroup2",
-  "proc",
-  "sysfs",
-  "nsfs",
-  "rpc_pipefs",
-  "binfmt_misc",
-  "autofs",
-  "mqueue",
-  "hugetlbfs",
-  "devpts",
-  "devtmpfs",
-]);
-
-const DOCKER_OVERLAY_RE =
-  /^\/var\/lib\/docker\/overlay2\/([^/]+)\/merged\/?$/i;
 
 export interface FsEntry {
   name: string;
@@ -223,50 +200,6 @@ export async function getRoots(): Promise<FsRoot[]> {
 function round(n: number | null | undefined): number {
   if (typeof n !== "number" || !Number.isFinite(n)) return 0;
   return Math.round(n * 10) / 10;
-}
-
-function shouldSkipLinuxMount(mount: string, fsType: string | undefined): boolean {
-  const type = (fsType || "").toLowerCase();
-  if (SKIP_FS_TYPES.has(type)) return true;
-  // Snap loop mounts and kernel trees aren't useful as "drives".
-  if (mount.startsWith("/snap/") && (type === "squashfs" || type === "overlay")) return true;
-  if (mount.startsWith("/sys/") || mount.startsWith("/proc/")) return true;
-  return false;
-}
-
-/** Human-readable title + muted subtitle for a Linux mount. */
-function linuxMountLabel(
-  mount: string,
-  fs: string | null,
-  dockerNames: Map<string, string>
-): { name: string; label: string | null } {
-  const normalized = path.normalize(mount);
-  const container =
-    dockerNames.get(normalized) ||
-    dockerNames.get(mount) ||
-    dockerNames.get(mount.replace(/\/$/, ""));
-  if (container) {
-    return { name: container, label: "Docker container" };
-  }
-
-  const overlay = DOCKER_OVERLAY_RE.exec(mount);
-  if (overlay) {
-    const id = overlay[1];
-    const short = id.length > 12 ? `${id.slice(0, 12)}…` : id;
-    return { name: `Docker · ${short}`, label: "Docker layer" };
-  }
-
-  if (mount === "/") {
-    return { name: "/", label: fs };
-  }
-
-  // Prefer a short leaf for deep paths; keep the device/fs as the subtitle.
-  if (mount.length > 36) {
-    const leaf = mount.split("/").filter(Boolean).pop() || mount;
-    return { name: leaf, label: fs ? `${fs} · ${mount}` : mount };
-  }
-
-  return { name: mount, label: fs };
 }
 
 function pathsInside(parent: string, child: string): boolean {
