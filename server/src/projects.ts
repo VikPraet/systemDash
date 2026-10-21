@@ -108,6 +108,8 @@ export interface ProjectSummary {
   serviceKind: ServiceKind;
   port: number | null;
   boot: boolean;
+  /** True when the project was turned off via Suspend; survives Beacon restarts. */
+  suspended: boolean;
   container: string | null;
   composeFile: string | null;
   unit: string | null;
@@ -324,6 +326,7 @@ export function projectsDb(): DatabaseSync {
     "run_kind TEXT NOT NULL DEFAULT 'none'",
     "port INTEGER",
     "boot INTEGER NOT NULL DEFAULT 0",
+    "suspended INTEGER NOT NULL DEFAULT 0",
     "container TEXT",
     "compose_file TEXT",
     "unit TEXT",
@@ -984,6 +987,7 @@ type ProjectRow = {
   run_kind: string | null;
   port: number | null;
   boot: number | null;
+  suspended: number | null;
   container: string | null;
   compose_file: string | null;
   unit: string | null;
@@ -1019,7 +1023,7 @@ type ProjectRow = {
 };
 
 const PROJECT_COLS = `id, name, local_path, remote_url, branch, account_id, created_at,
-         site_url, run_kind, port, boot, container, compose_file, unit,
+         site_url, run_kind, port, boot, suspended, container, compose_file, unit,
          publish_from, publish_to, start_command, service_kind, health_path,
          embed_preview, embed_url, notes,
          managed, cloned_by_beacon, image, dockerfile, build_context, build_command,
@@ -1045,6 +1049,7 @@ function mapProject(row: ProjectRow): ProjectSummary {
     serviceKind,
     port: typeof row.port === "number" && row.port > 0 ? row.port : null,
     boot: !!row.boot,
+    suspended: !!row.suspended,
     container: row.container,
     composeFile: row.compose_file,
     unit: row.unit,
@@ -1367,6 +1372,7 @@ export function updateProject(
     runKind?: RunKind;
     port?: number | null;
     boot?: boolean;
+    suspended?: boolean;
     container?: string | null;
     composeFile?: string | null;
     unit?: string | null;
@@ -1410,6 +1416,9 @@ export function updateProject(
   if (patch.runKind !== undefined) set("UPDATE projects SET run_kind = ? WHERE id = ?", patch.runKind);
   if (patch.port !== undefined) set("UPDATE projects SET port = ? WHERE id = ?", patch.port);
   if (patch.boot !== undefined) set("UPDATE projects SET boot = ? WHERE id = ?", patch.boot ? 1 : 0);
+  if (patch.suspended !== undefined) {
+    set("UPDATE projects SET suspended = ? WHERE id = ?", patch.suspended ? 1 : 0);
+  }
   if (patch.container !== undefined) set("UPDATE projects SET container = ? WHERE id = ?", patch.container);
   if (patch.composeFile !== undefined) {
     set("UPDATE projects SET compose_file = ? WHERE id = ?", patch.composeFile);

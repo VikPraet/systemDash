@@ -21,7 +21,8 @@ export async function stopSuspendedPage(id: number): Promise<void> {
 }
 
 export async function startSuspendedPage(project: Pick<ProjectSummary, "id" | "name" | "port" | "serviceKind">): Promise<void> {
-  if (project.serviceKind !== "website" || !project.port) return;
+  // Workers have no public port; websites and APIs share the same fallback page.
+  if (project.serviceKind === "worker" || !project.port) return;
   if (pages.has(project.id)) return;
   const body = suspendedPage(project.name);
   const server = http.createServer((_req, res) => {

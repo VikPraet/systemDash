@@ -1,6 +1,6 @@
 import { startSuspendedPage, stopSuspendedPage } from "../suspendedPage.js";
 import { syncProjectBoot, setProjectBoot, controlExternalProject } from "../projectRuntime.js";
-import { suspendedProjects } from "../projectSuspension.js";
+import { setProjectSuspended, suspendedProjects } from "../projectSuspension.js";
 import fs from "node:fs";
 import { Router } from "express";
 import { clientIp, recordAudit, requireRole } from "../auth.js";
@@ -572,18 +572,15 @@ projectsRouter.post("/:id/runtime", mutate, async (req, res) => {
     if (getProjectJob(id).running) throw new ProjectsError(409, "Wait for the current project action to finish");
     const wasSuspended = suspendedProjects.has(id);
     if (action === "start") await stopSuspendedPage(id);
-    if (action === "stop") suspendedProjects.add(id);
-    else suspendedProjects.delete(id);
+    setProjectSuspended(id, action === "stop");
     try {
       if (project.runKind === "process") {
         if (action === "stop") stopAllReplicas(id);
         else await reconcileWorker(id);
       } else await controlExternalProject(project, action);
     } catch (err) {
-      if (wasSuspended) {
-        suspendedProjects.add(id);
-        await startSuspendedPage(project).catch(() => {});
-      } else suspendedProjects.delete(id);
+      setProjectSuspended(id, wasSuspended);
+      if (wasSuspended) await startSuspendedPage(project).catch(() => {});
       throw err;
     }
     if (action === "stop") {
@@ -687,6 +684,7 @@ projectsRouter.delete("/:id", mutate, async (req, res) => {
       (req.body as { purge?: unknown } | undefined)?.purge === true;
     let notes: string[] = [];
     await stopSuspendedPage(id);
+    suspendedProjects.delete(id);
     stopAllReplicas(id);
     if (project.runKind === "systemd" && project.unit) {
       try {

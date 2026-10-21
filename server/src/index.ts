@@ -47,6 +47,7 @@ import { queryHistory, queryNetUsage, historyStats, clearHistory } from "./histo
 import { attachTerminal } from "./terminal.js";
 import { attachWorkerLogs } from "./workerLogs.js";
 import { startWorkerSupervisor } from "./workers.js";
+import { hydrateSuspendedProjects, restoreSuspendedPages } from "./projectSuspension.js";
 import { lookupOsUser } from "./osUser.js";
 import {
   requireAuth,
@@ -816,10 +817,20 @@ try {
   console.error("Failed to attach realtime (terminal/logs):", err);
 }
 try {
+  // Suspension flags must be loaded before the supervisor so suspended workers
+  // are not respawned, and before we re-bind their public fallback pages.
+  hydrateSuspendedProjects();
+} catch (err) {
+  console.error("Failed to load suspended projects:", err);
+}
+try {
   startWorkerSupervisor();
 } catch (err) {
   console.error("Failed to start worker supervisor:", err);
 }
+restoreSuspendedPages().catch((err) => {
+  console.error("Failed to restore suspended project pages:", err);
+});
 
 // Start the background metrics recorder before accepting requests so a 24/7
 // server keeps collecting history even when no browser is connected.

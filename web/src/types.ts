@@ -704,6 +704,7 @@ export interface ProjectSummary {
   serviceKind: ServiceKind;
   port: number | null;
   boot: boolean;
+  suspended: boolean;
   container: string | null;
   composeFile: string | null;
   unit: string | null;

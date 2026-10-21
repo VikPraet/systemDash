@@ -37,3 +37,19 @@ test("workers and websites without a port do not open a listener", async () => {
   await stopSuspendedPage(9877);
   await stopSuspendedPage(9878);
 });
+
+test("suspended API projects also serve the fallback page", async () => {
+  const reserve = http.createServer();
+  await new Promise<void>(resolve => reserve.listen(0, resolve));
+  const port = (reserve.address() as { port: number }).port;
+  await new Promise<void>(resolve => reserve.close(() => resolve()));
+  const project = { id: 9879, name: "api-svc", port, serviceKind: "api" as const };
+  try {
+    await startSuspendedPage(project);
+    const response = await fetch(`http://localhost:${port}/`);
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /Service suspended/);
+  } finally {
+    await stopSuspendedPage(project.id);
+  }
+});
